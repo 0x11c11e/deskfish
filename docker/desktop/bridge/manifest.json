@@ -1,0 +1,25 @@
+{
+  "manifest_version": 2,
+  "name": "Deskfish page bridge",
+  "version": "1.0.0",
+  "description": "Lets the Deskfish agent read the page it is looking at and find elements by name. Talks only to the local Deskfish daemon inside the tank.",
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "deskfish-bridge@deskfish.sh",
+      "strict_min_version": "115.0"
+    }
+  },
+  "permissions": ["tabs", "webNavigation", "storage", "<all_urls>"],
+  "background": {
+    "scripts": ["background.js"],
+    "persistent": true
+  },
+  "content_scripts": [
+    {
+      "matches": ["http://*/*", "https://*/*"],
+      "js": ["score.js", "content.js"],
+      "all_frames": true,
+      "run_at": "document_idle"
+    }
+  ]
+}

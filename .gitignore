@@ -1,0 +1,18 @@
+node_modules/
+dist/
+*.vsix
+docker/.env
+.DS_Store
+site/.cache/
+site/.tools/
+site/node_modules/
+site/dist/
+site/.tmp/
+# the site serves the extension package; keep that one copy in git so Vercel builds have it
+!site/public/downloads/*.vsix
+# private: the handbook is its own repository, cloned into handbook/; CLAUDE.md is a link into it
+handbook/
+/CLAUDE.md
+website/
+# side repositories kept next to .git during the public/private split
+.git-*/

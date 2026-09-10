@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Terminal
+Comment=A terminal on the bot's desktop
+Exec=xterm -fa Monospace -fs 11
+Icon=/usr/share/deskfish/terminal.png
+Terminal=false
+Categories=System;

@@ -1,0 +1,19 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": null,
+  "buildCommand": "npm run build",
+  "outputDirectory": "dist/client",
+  "cleanUrls": true,
+  "redirects": [
+    {
+      "source": "/downloads/deskfish.vsix",
+      "destination": "https://github.com/0x11c11e/deskfish/releases/latest/download/deskfish.vsix",
+      "permanent": false
+    },
+    {
+      "source": "/downloads/deskfish-:version.vsix",
+      "destination": "https://github.com/0x11c11e/deskfish/releases/latest/download/deskfish.vsix",
+      "permanent": false
+    }
+  ]
+}

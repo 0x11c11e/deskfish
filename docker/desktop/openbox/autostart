@@ -1,0 +1,18 @@
+#!/bin/sh
+# Runs once when the Openbox session starts.
+# Wallpaper (the Deskfish mark), rendered for this screen size; plain colour if that fails.
+GEOM=$(xdotool getdisplaygeometry 2>/dev/null)
+if rsvg-convert -w "${GEOM%% *}" -h "${GEOM##* }" /usr/share/deskfish/wallpaper.svg -o /tmp/wallpaper.png 2>/dev/null; then
+  feh --no-fehbg --bg-fill /tmp/wallpaper.png &
+else
+  xsetroot -solid "#0d1115" &
+fi
+# The bottom panel: Firefox + Terminal launchers and the open windows (config from the image,
+# never from the persisted home, so image updates always apply).
+tint2 -c /etc/xdg/tint2/tint2rc >/tmp/tint2.log 2>&1 &
+# Never show Firefox's "Restore Session" page: drop the previous window/tab session before starting.
+# Cookies, logins and history live elsewhere in the profile and are kept.
+for d in "$HOME"/.mozilla/firefox/*/; do
+  rm -rf "$d/sessionstore-backups" "$d/sessionstore.jsonlz4" "$d/sessionCheckpoints.json" 2>/dev/null
+done
+(sleep 1; firefox-esr about:blank) &

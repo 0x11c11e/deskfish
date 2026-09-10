@@ -1,0 +1,451 @@
+{
+  "name": "deskfish",
+  "displayName": "Deskfish",
+  "description": "Give your AI its own computer. A sandboxed Linux desktop in a VS Code tab, an agent that works it like a human, any LLM via API — and it knocks on the glass when it needs you.",
+  "version": "0.1.0",
+  "publisher": "ImanReihanian",
+  "license": "Apache-2.0",
+  "private": true,
+  "icon": "media/icon.png",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/0x11c11e/deskfish.git"
+  },
+  "homepage": "https://deskfish.sh",
+  "bugs": {
+    "url": "https://github.com/0x11c11e/deskfish/issues"
+  },
+  "keywords": [
+    "ai",
+    "agent",
+    "computer-use",
+    "desktop",
+    "sandbox",
+    "podman",
+    "browser-automation"
+  ],
+  "engines": {
+    "vscode": "^1.95.0"
+  },
+  "categories": [
+    "AI",
+    "Other"
+  ],
+  "main": "./dist/extension.js",
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "deskfish",
+          "title": "Deskfish",
+          "icon": "media/icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "deskfish": [
+        {
+          "type": "webview",
+          "id": "deskfish.chat",
+          "name": "Chat",
+          "icon": "media/icon.svg"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "deskfish.openDesktop",
+        "title": "Deskfish: Open Desktop View",
+        "icon": "$(device-desktop)"
+      },
+      {
+        "command": "deskfish.changeModel",
+        "title": "Deskfish: Choose Model…"
+      },
+      {
+        "command": "deskfish.setApiKey",
+        "title": "Deskfish: Set LLM API Key"
+      },
+      {
+        "command": "deskfish.toggleDesktop",
+        "title": "Deskfish: Turn Desktop On / Off",
+        "icon": "$(vm)"
+      },
+      {
+        "command": "deskfish.startDesktop",
+        "title": "Deskfish: Turn Desktop On"
+      },
+      {
+        "command": "deskfish.stopDesktop",
+        "title": "Deskfish: Turn Desktop Off"
+      },
+      {
+        "command": "deskfish.restartDesktop",
+        "title": "Deskfish: Restart Desktop",
+        "icon": "$(debug-restart)"
+      },
+      {
+        "command": "deskfish.stopAgent",
+        "title": "Deskfish: Stop Agent",
+        "icon": "$(debug-stop)"
+      },
+      {
+        "command": "deskfish.newChat",
+        "title": "Deskfish: New Chat",
+        "icon": "$(add)"
+      },
+      {
+        "command": "deskfish.editMemory",
+        "title": "Deskfish: Edit Memories (facts)"
+      },
+      {
+        "command": "deskfish.clearMemory",
+        "title": "Deskfish: Forget All Memories (facts)"
+      },
+      {
+        "command": "deskfish.showLog",
+        "title": "Deskfish: Show Log"
+      },
+      {
+        "command": "deskfish.saveFile",
+        "title": "Deskfish: Save a File from the Desktop…"
+      },
+      {
+        "command": "deskfish.installRuntime",
+        "title": "Deskfish: Install Podman…"
+      },
+      {
+        "command": "deskfish.openDocs",
+        "title": "Deskfish: Open Documentation",
+        "icon": "$(book)"
+      },
+      {
+        "command": "deskfish.showSelf",
+        "title": "Deskfish: Who She Is"
+      },
+      {
+        "command": "deskfish.openJournal",
+        "title": "Deskfish: Open Her Journal"
+      },
+      {
+        "command": "deskfish.reflect",
+        "title": "Deskfish: Let Her Reflect"
+      },
+      {
+        "command": "deskfish.scheduleTask",
+        "title": "Deskfish: Schedule a Task…"
+      },
+      {
+        "command": "deskfish.scheduledTasks",
+        "title": "Deskfish: Scheduled Tasks…"
+      },
+      {
+        "command": "deskfish.exportMemory",
+        "title": "Deskfish: Export Her Memory…"
+      },
+      {
+        "command": "deskfish.importMemory",
+        "title": "Deskfish: Import Her Memory…"
+      },
+      {
+        "command": "deskfish.openPlaybook",
+        "title": "Deskfish: Open Her Playbooks"
+      },
+      {
+        "command": "deskfish.editCharter",
+        "title": "Deskfish: Edit Her Charter"
+      },
+      {
+        "command": "deskfish.pastChats",
+        "title": "Deskfish: Past Chats…",
+        "icon": "$(history)"
+      },
+      {
+        "command": "deskfish.deletePastChats",
+        "title": "Deskfish: Delete Past Chats"
+      }
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "deskfish.newChat",
+          "when": "view == deskfish.chat",
+          "group": "navigation@1"
+        },
+        {
+          "command": "deskfish.pastChats",
+          "when": "view == deskfish.chat",
+          "group": "navigation@2"
+        },
+        {
+          "command": "deskfish.editMemory",
+          "when": "view == deskfish.chat",
+          "group": "1_memory@1"
+        },
+        {
+          "command": "deskfish.clearMemory",
+          "when": "view == deskfish.chat",
+          "group": "1_memory@2"
+        },
+        {
+          "command": "deskfish.openDocs",
+          "when": "view == deskfish.chat",
+          "group": "2_help@1"
+        },
+        {
+          "command": "deskfish.showLog",
+          "when": "view == deskfish.chat",
+          "group": "2_help@2"
+        },
+        {
+          "command": "deskfish.showSelf",
+          "when": "view == deskfish.chat",
+          "group": "1_memory@3"
+        },
+        {
+          "command": "deskfish.openJournal",
+          "when": "view == deskfish.chat",
+          "group": "1_memory@4"
+        },
+        {
+          "command": "deskfish.reflect",
+          "when": "view == deskfish.chat",
+          "group": "1_memory@5"
+        },
+        {
+          "command": "deskfish.scheduleTask",
+          "when": "view == deskfish.chat",
+          "group": "1a_schedule@1"
+        },
+        {
+          "command": "deskfish.scheduledTasks",
+          "when": "view == deskfish.chat",
+          "group": "1a_schedule@2"
+        },
+        {
+          "command": "deskfish.exportMemory",
+          "when": "view == deskfish.chat",
+          "group": "1_memory@6"
+        },
+        {
+          "command": "deskfish.importMemory",
+          "when": "view == deskfish.chat",
+          "group": "1_memory@7"
+        },
+        {
+          "command": "deskfish.openPlaybook",
+          "when": "view == deskfish.chat",
+          "group": "1_memory@8"
+        },
+        {
+          "command": "deskfish.editCharter",
+          "when": "view == deskfish.chat",
+          "group": "1_memory@9"
+        },
+        {
+          "command": "deskfish.deletePastChats",
+          "when": "view == deskfish.chat",
+          "group": "1_memory@10"
+        },
+        {
+          "command": "deskfish.changeModel",
+          "when": "view == deskfish.chat",
+          "group": "0_model@1"
+        },
+        {
+          "command": "deskfish.setApiKey",
+          "when": "view == deskfish.chat",
+          "group": "0_model@2"
+        },
+        {
+          "command": "deskfish.restartDesktop",
+          "when": "view == deskfish.chat",
+          "group": "2_help@0"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Deskfish",
+      "properties": {
+        "deskfish.provider": {
+          "type": "string",
+          "enum": [
+            "openai-compatible",
+            "anthropic",
+            "mock"
+          ],
+          "enumDescriptions": [
+            "Any OpenAI-compatible chat/completions endpoint with vision + tool calling: LiteLLM proxy, xAI, OpenRouter, Ollama, vLLM…",
+            "Anthropic API directly, using Claude's native computer-use tool (best click accuracy with Claude).",
+            "Scripted fake model for testing the plumbing without an API key."
+          ],
+          "default": "openai-compatible",
+          "description": "Which model adapter drives the desktop."
+        },
+        "deskfish.autonomy": {
+          "type": "string",
+          "enum": [
+            "free",
+            "guided"
+          ],
+          "enumDescriptions": [
+            "The tank is the boundary. Inside it the agent is free: it may use any account or saved login in its browser, complete purchases you ask for, and act without asking first. It still hands over when it needs something only you have.",
+            "Cautious: the agent asks before anything irreversible (paying, sending, posting, deleting), stops before the final Pay click, and never uses credentials you did not give it."
+          ],
+          "default": "free",
+          "description": "How much the agent may do on its own inside its tank."
+        },
+        "deskfish.userName": {
+          "type": "string",
+          "default": "",
+          "description": "Your name, as the agent should know the person in the chat (e.g. \"Iman\"). Told to the agent at the start of every task so it never mistakes you for a third party. Leave empty to stay anonymous."
+        },
+        "deskfish.baseUrl": {
+          "type": "string",
+          "default": "",
+          "description": "Base URL of the model endpoint. Required for provider=openai-compatible (LiteLLM: http://localhost:4000/v1, xAI: https://api.x.ai/v1, Ollama: http://localhost:11434/v1, OpenRouter: https://openrouter.ai/api/v1). For provider=anthropic leave empty (api.anthropic.com) unless you use a gateway."
+        },
+        "deskfish.anthropicWorkspaceId": {
+          "type": "string",
+          "default": "",
+          "description": "Anthropic workspace ID (wrkspc_…), sent as the anthropic-workspace-id header. Needed only when your Anthropic API key is identity-linked (the API answers \"anthropic-workspace-id is required\"). Find it in the Anthropic Console under Settings → Workspaces. Leave empty for a workspace-scoped key."
+        },
+        "deskfish.model": {
+          "type": "string",
+          "default": "claude-opus-5",
+          "description": "Model name exactly as the provider expects it (e.g. claude-opus-5, grok-4, llama3.2-vision)."
+        },
+        "deskfish.maxSteps": {
+          "type": "number",
+          "default": 0,
+          "description": "Cap on model turns per task. 0 (default) = no cap: the agent works until the task is done or you press Stop, and the status row shows the running cost. A positive number stops the task at that many steps with a summary; \"continue\" resumes."
+        },
+        "deskfish.maxCostUsd": {
+          "type": "number",
+          "default": 0,
+          "description": "Cost budget per task in US dollars: at list prices for Claude models used directly, or the cost OpenRouter reports. 0 = none. At 80% the agent is told to wrap up; at the budget it summarizes and stops, and \"continue\" resumes."
+        },
+        "deskfish.screenshotWidth": {
+          "type": "number",
+          "default": 1280,
+          "description": "Screenshots are downscaled to this width (keeping aspect ratio) before being sent to the model. Coordinates are mapped back automatically."
+        },
+        "deskfish.settleMs": {
+          "type": "number",
+          "default": 800,
+          "description": "Milliseconds to wait after a batch of actions before taking the next screenshot."
+        },
+        "deskfish.desktop.daemonUrl": {
+          "type": "string",
+          "default": "http://localhost:9990",
+          "description": "Base URL of the Bytebot desktop daemon (bytebotd)."
+        },
+        "deskfish.desktop.vncUrl": {
+          "type": "string",
+          "default": "ws://localhost:9990/websockify",
+          "description": "WebSocket URL of the desktop's VNC (websockify) endpoint, used by the live desktop pane."
+        },
+        "deskfish.desktop.vncPassword": {
+          "type": "string",
+          "default": "",
+          "description": "VNC password, if the desktop requires one."
+        },
+        "deskfish.desktop.token": {
+          "type": "string",
+          "default": "",
+          "description": "Bearer token for the desktop daemon (DAEMON_TOKEN in the container). Also attached to the VNC websocket. Empty = no auth (fine when the port is bound to 127.0.0.1)."
+        },
+        "deskfish.desktop.autoStart": {
+          "type": "boolean",
+          "default": true,
+          "description": "Turn the desktop on automatically when the Deskfish view opens. (Running a task always turns it on if needed.)"
+        },
+        "deskfish.desktop.openOnRun": {
+          "type": "boolean",
+          "default": true,
+          "description": "Open the Desktop tab (the live view of the bot's screen) whenever you send a task, so you can watch it work. The chat keeps keyboard focus."
+        },
+        "deskfish.desktop.screen": {
+          "type": "string",
+          "default": "1280x800x24",
+          "description": "Screen size of the bot's desktop (Xvfb geometry WIDTHxHEIGHTxDEPTH). Applied the next time the desktop is turned on."
+        },
+        "deskfish.desktop.composeFile": {
+          "type": "string",
+          "default": "",
+          "description": "Optional compose file for people who prefer compose (docker/docker-compose.yml). The power button does not use compose."
+        },
+        "deskfish.desktop.containerCli": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "docker",
+            "podman"
+          ],
+          "default": "auto",
+          "description": "Container CLI for the Start/Stop Desktop commands. auto = podman if installed and docker is not, else docker."
+        },
+        "deskfish.reflectEvery": {
+          "type": "number",
+          "default": 5,
+          "description": "After how many finished tasks the agent reflects: alone with its journal and notes, it saves facts and playbooks it learned and may revise its own self file (who it is). It also reflects sooner when the tasks were weighty (long, costly, a hand-over). 0 = only when you run \"Deskfish: Let Her Reflect\"."
+        },
+        "deskfish.ledgerEvery": {
+          "type": "number",
+          "default": 40,
+          "description": "Every this many steps of a long task, the agent writes a short ledger (goal, done, left, current state, traps) and the conversation restarts from that ledger and a fresh screenshot. Keeps the cost of each step flat and keeps the thread on long tasks. 0 = never condense."
+        },
+        "deskfish.scheduleGraceMinutes": {
+          "type": "number",
+          "default": 5,
+          "description": "A scheduled task still starts this many minutes after its due time when Deskfish only just started (VS Code was opened a little late). Later than that, the occurrence is reported as missed and skipped. A task that was due while the agent was busy always runs once she is free."
+        },
+        "deskfish.promptCaching": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "on",
+            "off"
+          ],
+          "enumDescriptions": [
+            "Add cache breakpoints when the endpoint is openrouter.ai (Anthropic and Gemini models get prompt caching there); nothing for other endpoints.",
+            "Always add them: for gateways that pass cache_control through (LiteLLM proxy in front of Anthropic).",
+            "Never add them: for strict endpoints that reject unknown fields."
+          ],
+          "default": "auto",
+          "description": "Prompt caching on OpenAI-compatible endpoints. Marks the system prompt and the newest message so the provider caches the conversation prefix (much cheaper long tasks). The Anthropic provider always caches."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "build": "node esbuild.mjs",
+    "docs": "node scripts/build-docs.mjs",
+    "watch": "node esbuild.mjs --watch",
+    "typecheck": "tsc --noEmit",
+    "mock-daemon": "node scripts/mock-daemon.mjs",
+    "smoke": "node dist/smoke.js",
+    "package": "npx vsce package --allow-missing-repository && node scripts/check-vsix.mjs",
+    "test": "node test/run.mjs"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@types/pngjs": "^6.0.5",
+    "@types/vscode": "^1.95.0",
+    "esbuild": "^0.24.2",
+    "tsx": "^4.23.13",
+    "typescript": "^5.7.2"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "latest",
+    "@novnc/novnc": "^1.5.0",
+    "jpeg-js": "^0.4.4",
+    "pngjs": "^7.0.0"
+  },
+  "author": {
+    "name": "Iman Reihanian"
+  }
+}

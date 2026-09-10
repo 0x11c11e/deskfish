@@ -1,0 +1,84 @@
+{
+  "policies": {
+    "DisableAppUpdate": true,
+    "DisableTelemetry": true,
+    "DisableFirefoxStudies": true,
+    "DisablePocket": true,
+    "DontCheckDefaultBrowser": true,
+    "NoDefaultBookmarks": true,
+    "OverrideFirstRunPage": "",
+    "OverridePostUpdatePage": "",
+    "DisplayBookmarksToolbar": "never",
+    "Homepage": {
+      "URL": "about:blank",
+      "StartPage": "homepage"
+    },
+    "DownloadDirectory": "/home/bot/Downloads",
+    "PromptForDownloadLocation": false,
+    "UserMessaging": {
+      "ExtensionRecommendations": false,
+      "FeatureRecommendations": false,
+      "SkipOnboarding": true,
+      "MoreFromMozilla": false
+    },
+    "Preferences": {
+      "browser.aboutwelcome.enabled": {
+        "Value": false
+      },
+      "browser.tabs.warnOnClose": {
+        "Value": false
+      },
+      "browser.sessionstore.resume_from_crash": {
+        "Value": false
+      },
+      "datareporting.policy.dataSubmissionPolicyBypassNotification": {
+        "Value": true
+      },
+      "datareporting.policy.firstRunURL": {
+        "Value": ""
+      },
+      "browser.startup.page": {
+        "Value": 1
+      },
+      "browser.sessionstore.max_resumed_crashes": {
+        "Value": -1
+      },
+      "browser.download.always_ask_before_handling_new_types": {
+        "Value": false
+      },
+      "browser.download.alwaysOpenPanel": {
+        "Value": false
+      },
+      "browser.download.panel.shown": {
+        "Value": true
+      },
+      "browser.startup.couldRestoreSession.count": {
+        "Value": -1,
+        "Status": "locked"
+      },
+      "xpinstall.signatures.required": {
+        "Value": false,
+        "Status": "locked"
+      },
+      "extensions.langpacks.signatures.required": {
+        "Value": false,
+        "Status": "locked"
+      }
+    },
+    "ExtensionSettings": {
+      "deskfish-bridge@deskfish.sh": {
+        "installation_mode": "force_installed",
+        "install_url": "file:///usr/share/deskfish/deskfish-bridge.xpi",
+        "updates_disabled": true
+      }
+    },
+    "3rdparty": {
+      "Extensions": {
+        "deskfish-bridge@deskfish.sh": {
+          "port": 9990,
+          "token": ""
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,52 @@
+# Every push to main becomes a GitHub Release with the extension attached, so the download on
+# deskfish.sh (…/releases/latest/download/deskfish.vsix) is always the newest build and nobody
+# has to remember to package one. The version is major.minor from package.json plus the number
+# of commits on main, e.g. 0.1.37: bump major.minor by hand in package.json when it matters;
+# the patch number takes care of itself.
+name: Release
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - 'site/**'
+      - 'demo/**'
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: release
+  cancel-in-progress: false
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      - name: Version = major.minor from package.json + commit count
+        id: version
+        run: |
+          base=$(node -p "require('./package.json').version.split('.').slice(0,2).join('.')")
+          count=$(git rev-list --count HEAD)
+          v="$base.$count"
+          npm version "$v" --no-git-tag-version
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+          echo "Deskfish $v"
+      - run: npm run build
+      - run: npm run package
+      - name: Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          V: ${{ steps.version.outputs.version }}
+        run: |
+          cp "deskfish-$V.vsix" deskfish.vsix
+          prev=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || true)
+          if [ -n "$prev" ]; then changes=$(git log --format='- %s' "$prev..HEAD"); else changes=$(git log --format='- %s' -n 20); fi
+          notes=$(printf 'Deskfish %s, built from %s.\n\nInstall: download `deskfish.vsix`, then in VS Code choose **Install from VSIX…** from the Extensions view, or run `code --install-extension deskfish.vsix`. Extensions installed from a file do not update themselves; download again for a newer build.\n\n**Changes**\n%s' "$V" "${GITHUB_SHA::7}" "$changes")
+          gh release create "v$V" "deskfish-$V.vsix" deskfish.vsix --title "Deskfish $V" --notes "$notes"

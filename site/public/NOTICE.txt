@@ -1,0 +1,17 @@
+Deskfish
+Copyright 2026 Iman Reihanian
+Deskfish was created by Iman Reihanian.
+
+Licensed under the Apache License, Version 2.0 (the "License"); you may not use this
+software except in compliance with the License. You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+The Deskfish name and the fish-in-a-monitor mascot: the name is not licensed by the License
+(see section 6); the mascot artwork in media/ is dedicated to the public domain under CC0 1.0.
+
+Third-party software included in the packaged extension:
+  @novnc/novnc      MPL-2.0        https://github.com/novnc/noVNC
+  @anthropic-ai/sdk MIT            https://github.com/anthropics/anthropic-sdk-typescript
+  pngjs             MIT            https://github.com/pngjs/pngjs
+  jpeg-js           BSD-3-Clause   https://github.com/jpeg-js/jpeg-js

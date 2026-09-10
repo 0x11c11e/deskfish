@@ -1,0 +1,201 @@
+---
+title: How the bot sees and acts
+description: The loop behind every task, the tools the agent has, and the tricks that make it click the right thing.
+section: Under the hood
+order: 1
+---
+
+The agent has no special access to the programs in the tank. It works the way a person
+does: it looks at the screen, decides, and uses the mouse and keyboard. This page explains
+that loop and the few tools around it, so its behavior makes sense when you watch it.
+
+## The loop
+
+Every task is a repetition of the same four moves:
+
+1. **Look.** Deskfish takes a screenshot of the tank's screen and sends it to the model.
+2. **Think.** The model, given the task, the conversation so far and the screenshot, decides
+   what to do next. It may say something to you first.
+3. **Act.** The chosen actions are carried out on the tank: move the mouse, click, type,
+   press keys, scroll, wait.
+4. **Settle.** After actions that could change the screen, Deskfish waits a moment
+   (`deskfish.settleMs`, 800 ms by default) so pages can react, and then looks again.
+
+One trip round the loop is a **step**. The model is told to check each new screenshot
+against what it intended, and to correct itself if a click landed in the wrong place.
+
+## What the agent can do
+
+The model is given a small set of tools, the same on every provider:
+
+| Tool | What it does |
+| --- | --- |
+| `computer` | The hands and eyes: screenshot, left/right/middle/double/triple click, mouse move, drag, type text, press a key or key chord, scroll, wait, and report the pointer position |
+| `wait_for` | Stand by for minutes without spending steps: Deskfish watches the screen and wakes the agent when it changes and settles, or when the time is up. See below |
+| `zoom` | Magnify part of the screen to read small text or find an exact click point. Changes nothing |
+| `find` | Find links, buttons, fields and text on the web page open in Firefox by what they say, and get their exact click coordinates. See below. Changes nothing |
+| `read_page` | List every control on the page in Firefox with its state and position, or read the page's text. Changes nothing |
+| `ask_user` | Stop and hand the desktop to you, with a reason. See [Knocking on the glass](knocking-on-the-glass) |
+| `read_docs` | Read a page of this documentation, so it can answer questions about Deskfish accurately. Changes nothing |
+| `remember` / `forget` | Save one durable fact to its [long-term memory](memory), or delete matching ones |
+| `note_to_self` / `recall` | Leave a line in its journal; search the journal and past chats |
+| `revise_self` / `restore_self` / `self_history` / `archive_story` | Rewrite, restore or read the history of its own self file, or move an older story paragraph into its journal to make room. See [Memory](memory) |
+| `save_playbook` / `read_playbook` | Keep and consult its own how-to notes for sites and kinds of task |
+
+The agent is also told, in its standing instructions, exactly which tools these are and what
+its computer contains, so it does not have to discover by trial that there is no `wget` but
+there is `curl`. Beyond those tools it has no other channel into the tank. The terminal is a
+normal shell with `bash`, `python3` (with `pip` and `requests`), `curl`, `git`, `jq`, the
+`pdftotext` and `pdftoppm` tools for PDFs, `zip`/`unzip`, `nano` and `less`, but there is no
+root, no `sudo` and no system package manager. The network is whatever the tank can reach:
+the internet through your machine, and your LAN like any program you run; see
+[Security and privacy](security-and-privacy#network-exposure).
+
+## Seeing where the pointer is
+
+A screenshot of a Linux desktop does not include the mouse pointer. So before each look,
+Deskfish asks the tank where the pointer is and draws a small red crosshair at that spot on
+the screenshot. The model is told the crosshair is an overlay, not part of the screen. After a
+click, the crosshair shows exactly where it landed, which is how the model notices and fixes
+a miss.
+
+You do not see the crosshair in the Desktop tab; it exists only in the agent's copy.
+
+## Zooming instead of guessing
+
+Small targets, such as toolbar icons, checkboxes and links in dense text, are where vision
+models make mistakes. The agent is told not to guess at anything small but to **zoom** first.
+A zoom returns a three-times magnified crop of the real screen around the point it asked
+for, overlaid with rulers and a dotted grid labeled in ordinary screenshot coordinates. The
+model reads its target's exact position off the grid, then clicks with those numbers. There
+is only one coordinate system, so nothing can get lost in translation.
+
+## Reading the page instead of the picture
+
+Most tasks happen in Firefox, and a web page knows more about itself than a picture of it
+shows. The tank's Firefox carries a small extension, the **Deskfish page bridge**, that
+lets the agent ask the page directly:
+
+- **`find`** takes a few words, such as *Sign in*, *search box*, *Add to cart button* or
+  *Order total*, and returns the best-matching elements with their role, their name, their
+  current state (a field's value, whether a box is checked, which option is selected) and
+  the exact coordinates to click, in the same screenshot pixels the agent uses for everything
+  else. A match outside the visible part of the page is reported as off-screen, with how far
+  to scroll, and one hidden behind a dialog or menu is reported as covered.
+- **`read_page`** lists every link, button, field, checkbox, menu item and heading visible
+  in the viewport, in page order, with the same details, and says how many more lie below or
+  above. With scope *text* it returns the page's text instead, so the agent can read an
+  article, a results list or a confirmation without scrolling through it.
+
+Both are passive: nothing on screen changes. The agent is told to use `find` before guessing
+where something is and to zoom only for what the bridge cannot see: native dialogs, the
+terminal, the panel, PDFs, drawings, and anything that is not an `http(s)` page. Frames
+inside a page (a payment form, an embedded editor) are read too.
+
+The bridge talks only to the tank's own control daemon; it has no network access of its own,
+and the page's contents go to the model only when the agent asks for them, the way a
+screenshot does. If Firefox is closed, the tools say so and the agent opens it.
+
+## Standing by
+
+Some work is mostly waiting: an ad set that takes ten minutes to process, an upload, a reply,
+or a rule like "send the next one in five minutes". A plain wait is capped at thirty seconds
+and every wait is followed by a model turn, so waiting out minutes that way costs money and,
+because nothing on screen changes, looks to Deskfish like the agent is stuck.
+
+`wait_for` is waiting without model calls. The agent names what it is waiting for and how
+long at most, and Deskfish takes over: it takes small local screenshots every few seconds and
+compares them, without involving the model. The turn before the wait and the turn after it
+still count; the checks in between are free. It wakes the agent, with a fresh screenshot,
+either when the screen has changed **and then held still** for one more look (a spinner keeps
+moving and does not count; a finished page is a new picture that stays), or when the time is
+up. With `until` set to *time* it simply waits the whole period, which is how the agent spaces
+actions out. It can also watch just one area of the screen, so a clock or an animation
+elsewhere does not wake it.
+
+While it stands by, the chat shows a line with the reason and a live countdown, which turns
+into the outcome when the wait ends, and the status row reads *Standing by* with the time
+left. **Stop** ends it at once. When waiting is part of the plan, the agent announces it in a
+sentence first. A thirty-minute wait ends in one model turn, instead of sixty short waits
+with a turn after each. It is for things the page or the world does; the agent's own actions,
+typing included, are complete when they return, and it is told not to stand by for them.
+
+## Long tasks: the ledger
+
+Every step of a task sends the conversation so far to the model. Where the provider caches
+it, that is cheap, but never free: left alone, the last steps of a long task would cost many
+times the first ones, and a model that has been reading the same long transcript for an hour
+can lose the thread of what it was doing. Both problems have the same fix.
+
+Every forty steps (`deskfish.ledgerEvery`, 0 to turn it off) the agent is asked to write a
+**ledger**: the goal with its limits, what is done and the concrete facts it established,
+what is left, the current state of the screen, and the traps it hit. The conversation is then
+restarted from that ledger and a fresh screenshot, with anything you said mid-task carried
+along. The cost of a step no longer grows with the length of the task, since the context is
+cut back every forty steps, and the agent continues from its own notes rather than from a
+fading memory of a hundred screenshots.
+
+The ledger shows in the chat as a folded card, so you can read what it carried over, and it
+is kept in the transcript.
+
+## Screenshots and coordinates
+
+Screenshots are scaled down to `deskfish.screenshotWidth` (1280 pixels by default) before
+they go to the model, and the model's coordinates are scaled back to real pixels when actions
+run. With the default 1280 × 800 screen that is exactly one to one. A larger virtual screen
+still costs the same tokens per screenshot, just at a smaller scale, which is why very large
+screens make small targets harder rather than easier.
+
+Images are pruned in batches: after each prune only the three most recent stay in the
+conversation, and older ones are replaced by the note *earlier screenshot omitted*. The text
+of the conversation stays until the next ledger replaces the older part of it; the saved
+transcript keeps all of it.
+
+## Keys and shortcuts
+
+The model presses keys by name, in the style of the `xdotool` tool used inside the tank:
+`Return`, `Escape`, `ctrl+l`, `alt+Tab`, `Page_Down`. The tank also understands common
+aliases such as `enter` and `pageup`. It is encouraged to prefer keyboard shortcuts where
+they are reliable, for instance Ctrl+L for the address bar and Ctrl+T for a new tab, and to
+type URLs rather than search for them.
+
+Typed text can be as long as an email and can span lines: each line is typed and followed by
+Return. Accents, em dashes, emoji and non-Latin scripts are typed as they are; a character
+the keyboard tool cannot map is pasted instead, without disturbing your clipboard.
+
+## Batches
+
+Obviously sequential actions, such as *click the field, type the text, press Return*, are
+sent as one batch and executed in order, with a single screenshot afterwards. Anything less
+certain is done one action at a time, with a look in between. When a batch contains only
+passive actions (a zoom, a `find` or `read_page`, a standby, a pointer check, a documentation lookup),
+Deskfish skips the settle delay, because nothing on screen could have changed.
+
+## What it is told
+
+The agent's instructions are short. In summary: you are Deskfish; this computer is yours,
+and everything in it is yours to use; you operate it with screenshots, mouse and keyboard;
+check every screenshot against what you intended; on a web page ask the page with `find` or
+`read_page` instead of hunting in the picture, and zoom before clicking anything small; files
+you are given are in Uploads and anything for the user goes in Downloads; when you need
+something only the user has (a code, a card, a confirmation, a CAPTCHA you cannot pass) or you
+are stuck, hand over; do what the user asks all the way through; be economical with steps;
+if a task involves waiting more than a minute, say so in a sentence first and use `wait_for`;
+every forty steps, write a ledger the task can be resumed from; speak to the person in the
+chat as "you", never as "the user", and treat the name in `deskfish.userName`, if set, as
+that same person; and when the task is done, write a short summary. Plus what it has: its
+tools by name and what is installed in the tank; the size of the screenshots; the list of
+documentation pages it can read; and its memories. Every prompt also carries the charter, its
+own self page, its last few journal entries and the titles of its playbooks; see
+[Memory](memory). In guided mode (`deskfish.autonomy`) it is also told to ask before anything
+irreversible, never to use credentials it was not given, and never to attempt a CAPTCHA.
+
+It is told that steps cost money and, if you set a step cap, how many it has, with a warning
+when three remain and a request for a summary at the cap, so a capped task ends with a report
+rather than nothing. Deskfish also watches for stalls on its behalf: an unchanged screen and
+repeated actions earn a nudge to change approach, then a hand-over to you.
+
+It knows the desktop is its own and that it is the tank, a sandboxed Linux computer; that you
+talk to it from the Deskfish sidebar in VS Code and can watch its screen in the Desktop tab;
+how the tank is networked; and the local date and time, given at the start of every run. The
+one thing it is not told is which AI provider it runs on.

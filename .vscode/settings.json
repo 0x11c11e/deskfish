@@ -1,0 +1,8 @@
+{
+  // Workspace settings for running the extension from this folder (F5 / Extension Development Host).
+  // The model, endpoint and key are deliberately NOT here: pick them with the sidebar's "Change"
+  // button (they live in your User settings and the OS keychain), so this folder never overrides them.
+  "deskfish.desktop.daemonUrl": "http://localhost:9990",
+  "deskfish.desktop.vncUrl": "ws://localhost:9990/websockify",
+  "deskfish.desktop.containerCli": "podman"
+}

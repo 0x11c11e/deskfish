@@ -1,0 +1,49 @@
+# Deskfish's desktop + model gateway.
+#
+#   cp docker/.env.example docker/.env                         # add the API keys you have
+#   docker compose -f docker/docker-compose.yml up -d --build  # or: podman compose …
+#
+# desktop  – the bot's own slim computer (Debian + Openbox + Firefox), built from ./desktop.
+#            Control API + noVNC websocket on 127.0.0.1:9990. Open http://localhost:9990/screenshot.png
+#            in a browser to peek at the screen.
+# litellm  – one OpenAI-compatible endpoint (127.0.0.1:4000/v1) in front of xAI, Anthropic, OpenAI,
+#            Ollama on the host, … so the extension can switch models by name.
+services:
+  desktop:
+    build: ./desktop
+    image: localhost/deskfish-desktop:latest
+    container_name: deskfish-desktop
+    hostname: computer
+    restart: unless-stopped
+    shm_size: "1g"
+    ports:
+      # The daemon is only as safe as its network exposure — keep this on localhost.
+      - "127.0.0.1:9990:9990"
+    environment:
+      - SCREEN=1280x800x24
+      # Set DESKFISH_DESKTOP_TOKEN in docker/.env and the same value in the extension's
+      # deskfish.desktop.token setting to require auth on the API and the VNC websocket.
+      - DAEMON_TOKEN=${DESKFISH_DESKTOP_TOKEN:-}
+      - VNC_PASSWORD=${DESKFISH_VNC_PASSWORD:-}
+    volumes:
+      # The bot's home directory: Firefox profile, logins, downloads survive restarts.
+      - deskfish-home:/home/bot
+
+  litellm:
+    image: ghcr.io/berriai/litellm:main-latest
+    container_name: deskfish-litellm
+    restart: unless-stopped
+    command: ["--config", "/config.yaml", "--port", "4000"]
+    ports:
+      - "127.0.0.1:4000:4000"
+    env_file:
+      - path: ./.env
+        required: false
+    volumes:
+      - ./litellm.config.yaml:/config.yaml:ro
+    extra_hosts:
+      # lets litellm reach an Ollama server on this machine (Docker; Podman also provides host.containers.internal)
+      - "host.docker.internal:host-gateway"
+
+volumes:
+  deskfish-home:
