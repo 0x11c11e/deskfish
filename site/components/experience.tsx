@@ -1085,6 +1085,17 @@ export function SiteFooter() {
             </a>
             <a href="/#get-started">Get Deskfish</a>
           </div>
+          <div>
+            <span>SAY HELLO</span>
+            <a href="mailto:hello@deskfish.sh">hello@deskfish.sh</a>
+            <a href="https://github.com/0x11c11e/deskfish/issues" target="_blank" rel="noopener">
+              Open an issue <ArrowUpRight size={12} />
+            </a>
+            <a href="https://github.com/0x11c11e/deskfish/blob/main/CONTRIBUTING.md" target="_blank" rel="noopener">
+              Contribute <ArrowUpRight size={12} />
+            </a>
+            <a href="mailto:security@deskfish.sh">Report a vulnerability</a>
+          </div>
         </div>
       </div>
       <div className="container footer-bottom">

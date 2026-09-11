@@ -220,7 +220,7 @@ npm run build && npm run smoke -- "open the browser"  # the real agent loop, scr
 - `src/agent/` (loop, adapters, prompts, docs, memory), `src/computer/` and `src/image/` are pure Node with no VS Code imports; `src/ui/`, `src/webview/` and `src/controller.ts` are the extension.
 - `docker/desktop/` is the tank: Dockerfile, entrypoint, the ~350-line control daemon, Firefox policies, panel and wallpaper.
 - `scripts/record-demo.sh` records the tank and your screen for demos; `scripts/desktop.sh` drives the tank from a terminal.
-- `handbook/` holds the design decisions and the testing playbook, for contributors and for AI assistants working on the code.
+- `test/` is the specification: every suite runs without a container and states in its first comment what it protects.
 - **Releases and versions.** Every push to `main` runs the tests, packages the extension and publishes a GitHub Release (`.github/workflows/release.yml`). The version is `major.minor` from `package.json` plus the number of commits on `main`, so `0.1.37` means the 37th commit of the 0.1 line. To start a new line, change `major.minor` in `package.json`; the patch number takes care of itself. `npm run package` refuses a file that carries anything private.
 
 ## Roadmap
@@ -231,6 +231,10 @@ npm run build && npm run smoke -- "open the browser"  # the real agent loop, scr
 - Chat persistence across VS Code reloads; a **Record this task** button.
 - An optional shared folder for big files, off by default.
 - Publish to the VS Code Marketplace and Open VSX; a headless `deskfish` command.
+
+## Contributing
+
+Yes, please. Bug reports about what the agent did on a real page are the most valuable thing you can send; small pull requests are the second. Bigger ideas start as an issue so the shape is agreed first. Details in [CONTRIBUTING.md](CONTRIBUTING.md); vulnerabilities go to [SECURITY.md](SECURITY.md), privately.
 
 ## License
 
@@ -244,3 +248,7 @@ third-party components.
 
 The mascot is [CC0](https://creativecommons.org/publicdomain/zero/1.0/): draw it, print it, put
 it on a mug.
+
+## Contact
+
+Questions and ideas: hello@deskfish.sh, or [open an issue](https://github.com/0x11c11e/deskfish/issues). Security reports: security@deskfish.sh.

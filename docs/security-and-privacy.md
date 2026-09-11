@@ -162,3 +162,9 @@ For a tank on a machine with other users, or reachable over a network:
 These are set through the environment when starting the tank by hand, as described in
 [Advanced setups](advanced); the power button starts the tank without them, which is safe
 because the port is bound to `127.0.0.1`.
+
+## Reporting a problem
+
+If you find a way for the agent to read, write or reach something it should not, write to
+security@deskfish.sh, privately, before posting it anywhere. The project's `SECURITY.md` on
+GitHub says what to include.
