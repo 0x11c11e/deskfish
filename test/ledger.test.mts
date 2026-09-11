@@ -72,7 +72,8 @@ ok(cont.startsWith('Buy milk') && cont.includes('40 steps into this task') && co
   ok(rec.starts[1].startsWith('Click through the boxes') && rec.starts[1].includes('40 steps into this task') && rec.starts[1].includes('Done: 40 clicks'), 'the restart task carries the original task and the ledger');
   ok(rec.starts[1].includes('- skip the red ones') || rec.starts[2].includes('- skip the red ones'), 'what the user said mid-task travels with the restart');
   ok(rec.userMessages.filter((m) => m.startsWith('Ledger time.')).length === 2, 'the ledger prompt was sent twice');
-  ok(rec.notes.some((t) => t?.startsWith('Continuing after 40 steps from your ledger')), 'the fresh look after the cut carries a continuation note');
+  ok(rec.notes.some((t) => t?.includes('Continuing after 40 steps from your ledger')), 'the fresh look after the cut carries a continuation note');
+  ok(rec.notes.some((t) => t?.includes('Continuing after 40 steps') && /^It is \w+day, \d{4}-\d{2}-\d{2} \d{2}:\d{2} local time/.test(t)), 'the fresh look after the cut carries the clock too (without it she dates things by older notes)');
   ok(rec.turns() === 91, `model took 91 turns (90 actions + done): ${rec.turns()}`);
   ok(events.filter((e) => e.type === 'status' && e.status === 'done').length === 1, 'one done');
 }

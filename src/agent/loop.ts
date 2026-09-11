@@ -277,9 +277,8 @@ export class AgentRunner {
       adapter.refreshNotes?.();
 
       // She has no clock of her own: without this, a journal line from an hour ago reads as "yesterday".
-      const now = new Date();
       const env = this.opts.environmentNote?.();
-      const clock = `It is ${now.toLocaleDateString('en-US', { weekday: 'long' })}, ${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')} local time; your journal and memories use the same clock.${env ? ` ${env}` : ''}`;
+      const clock = `${clockLine()}${env ? ` ${env}` : ''}`;
       let obs = await this.observe(
         0,
         [],
@@ -743,7 +742,8 @@ export class AgentRunner {
     onEvent({ type: 'ledger', step: done, text: ledger });
     if (await this.shouldStop()) return undefined;
     adapter.start(continuationTask(this.current.task, ledger, done, this.current.said), this.scaledSize);
-    const fresh = await this.observe(step, [], `Continuing after ${done} steps from your ledger. This is the current screen.`);
+    // The restarted conversation has no clock either: without it she dates things by her older notes.
+    const fresh = await this.observe(step, [], `${clockLine()} Continuing after ${done} steps from your ledger. This is the current screen.`);
     return { obs: fresh, usage: turn.usage };
   }
 
@@ -865,6 +865,12 @@ export class AgentRunner {
   get reflecting(): boolean {
     return this.isActive && !!this.current?.reflection;
   }
+}
+
+/** "It is Friday, 2026-09-11 11:41 local time; …": the sentence that gives her a clock. */
+export function clockLine(now = new Date()): string {
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `It is ${now.toLocaleDateString('en-US', { weekday: 'long' })}, ${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())} ${pad(now.getHours())}:${pad(now.getMinutes())} local time; your journal and memories use the same clock.`;
 }
 
 export const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));

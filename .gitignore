@@ -16,3 +16,4 @@ handbook/
 website/
 # side repositories kept next to .git during the public/private split
 .git-*/
+growth/
