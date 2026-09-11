@@ -26,10 +26,10 @@ jobs:
   release:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: 22
           cache: npm
@@ -54,7 +54,13 @@ jobs:
           prev=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || true)
           if [ -n "$prev" ]; then changes=$(git log --format='- %s' "$prev..HEAD"); else changes=$(git log --format='- %s' -n 20); fi
           notes=$(printf 'Deskfish %s, built from %s.\n\nInstall: download `deskfish.vsix`, then in VS Code choose **Install from VSIX…** from the Extensions view, or run `code --install-extension deskfish.vsix`. Extensions installed from a file do not update themselves; download again for a newer build.\n\n**Changes**\n%s' "$V" "${GITHUB_SHA::7}" "$changes")
-          gh release create "v$V" deskfish.vsix --title "Deskfish $V" --notes "$notes"
+          # A manual run on a commit that already has its push release reuses it (same version, same
+          # count), replacing the asset instead of failing on the existing tag.
+          if gh release view "v$V" >/dev/null 2>&1; then
+            gh release upload "v$V" deskfish.vsix --clobber
+          else
+            gh release create "v$V" deskfish.vsix --title "Deskfish $V" --notes "$notes"
+          fi
       # The stores are opt-in: run the workflow by hand and tick "publish". Every push is a GitHub
       # release, but store users get an update prompt for every version, so those are chosen.
       # Each store runs on its own: a missing token skips that store instead of failing the run.
