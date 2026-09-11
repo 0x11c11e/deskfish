@@ -36,6 +36,10 @@ export const metadata: Metadata = {
     images: ['/og.png'],
   },
 };
+// Google Analytics, on only when the Measurement ID is set at build time (Vercel → Settings →
+// Environment Variables → NEXT_PUBLIC_GA_ID, e.g. G-XXXXXXXXXX). Nothing is loaded without it.
+const GA_ID = process.env.NEXT_PUBLIC_GA_ID ?? '';
+
 export default function RootLayout({
   children,
 }: {
@@ -45,6 +49,19 @@ export default function RootLayout({
     <html lang="en" data-theme="dark" suppressHydrationWarning>
       <head>
         <script dangerouslySetInnerHTML={{ __html: THEME_BOOTSTRAP }} />
+        {GA_ID ? (
+          <>
+            <script
+              async
+              src={`https://www.googletagmanager.com/gtag/js?id=${GA_ID}`}
+            />
+            <script
+              dangerouslySetInnerHTML={{
+                __html: `window.dataLayer=window.dataLayer||[];function gtag(){dataLayer.push(arguments)}gtag('js',new Date());gtag('config','${GA_ID}');`,
+              }}
+            />
+          </>
+        ) : null}
         <link
           rel="preload"
           href="/fonts/sans.ttf"
