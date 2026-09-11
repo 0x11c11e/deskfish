@@ -1,6 +1,7 @@
-# Every push to main becomes a GitHub Release with the extension attached, so the download on
+# Every push to main becomes a GitHub Release with one asset, deskfish.vsix, so the download on
 # deskfish.sh (…/releases/latest/download/deskfish.vsix) is always the newest build and nobody
-# has to remember to package one. The version is major.minor from package.json plus the number
+# has to remember to package one. One asset, always the same name: the version is in the release
+# title and inside the file, and nobody has to choose between two identical downloads. The version is major.minor from package.json plus the number
 # of commits on main, e.g. 0.1.37: bump major.minor by hand in package.json when it matters;
 # the patch number takes care of itself.
 name: Release
@@ -45,8 +46,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           V: ${{ steps.version.outputs.version }}
         run: |
-          cp deskfish.vsix "deskfish-$V.vsix"
           prev=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || true)
           if [ -n "$prev" ]; then changes=$(git log --format='- %s' "$prev..HEAD"); else changes=$(git log --format='- %s' -n 20); fi
           notes=$(printf 'Deskfish %s, built from %s.\n\nInstall: download `deskfish.vsix`, then in VS Code choose **Install from VSIX…** from the Extensions view, or run `code --install-extension deskfish.vsix`. Extensions installed from a file do not update themselves; download again for a newer build.\n\n**Changes**\n%s' "$V" "${GITHUB_SHA::7}" "$changes")
-          gh release create "v$V" "deskfish-$V.vsix" deskfish.vsix --title "Deskfish $V" --notes "$notes"
+          gh release create "v$V" deskfish.vsix --title "Deskfish $V" --notes "$notes"
