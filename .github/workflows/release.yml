@@ -45,7 +45,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           V: ${{ steps.version.outputs.version }}
         run: |
-          cp "deskfish-$V.vsix" deskfish.vsix
+          cp deskfish.vsix "deskfish-$V.vsix"
           prev=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || true)
           if [ -n "$prev" ]; then changes=$(git log --format='- %s' "$prev..HEAD"); else changes=$(git log --format='- %s' -n 20); fi
           notes=$(printf 'Deskfish %s, built from %s.\n\nInstall: download `deskfish.vsix`, then in VS Code choose **Install from VSIX…** from the Extensions view, or run `code --install-extension deskfish.vsix`. Extensions installed from a file do not update themselves; download again for a newer build.\n\n**Changes**\n%s' "$V" "${GITHUB_SHA::7}" "$changes")

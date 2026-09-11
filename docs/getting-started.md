@@ -60,7 +60,7 @@ newer:
 npm install
 npm run build
 npm run package
-code --install-extension deskfish-0.1.0.vsix
+code --install-extension deskfish.vsix
 ```
 
 Either way, then reload the VS Code window (**Developer: Reload Window** from the command

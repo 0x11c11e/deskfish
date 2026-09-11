@@ -177,7 +177,7 @@ Or build it yourself (Node ≥ 20):
 npm install
 npm run build
 npm run package
-code --install-extension deskfish-0.1.0.vsix
+code --install-extension deskfish.vsix
 ```
 
 **3. Pick a model** in Settings → Deskfish and set the key with **Deskfish: Set LLM API Key** (it goes to your OS keychain, never to a settings file):

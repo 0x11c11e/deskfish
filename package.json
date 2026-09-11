@@ -428,7 +428,7 @@
     "typecheck": "tsc --noEmit",
     "mock-daemon": "node scripts/mock-daemon.mjs",
     "smoke": "node dist/smoke.js",
-    "package": "npx vsce package --allow-missing-repository && node scripts/check-vsix.mjs",
+    "package": "npx vsce package --allow-missing-repository --out deskfish.vsix && node scripts/check-vsix.mjs",
     "test": "node test/run.mjs"
   },
   "devDependencies": {

@@ -3,7 +3,7 @@
 // shipped inside every package from 2026-09-05 to 2026-09-10 that way.
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
-const file = process.argv[2] ?? `deskfish-${JSON.parse(fs.readFileSync('package.json', 'utf8')).version}.vsix`;
+const file = process.argv[2] ?? 'deskfish.vsix';
 if (!fs.existsSync(file)) { console.error(`check-vsix: ${file} not found`); process.exit(2); }
 let listing;
 try { listing = execFileSync('unzip', ['-Z1', file], { encoding: 'utf8' }); }
