@@ -70,6 +70,11 @@ jobs:
           VSCE_PAT: ${{ secrets.VSCE_PAT }}
         run: |
           if [ -z "$VSCE_PAT" ]; then echo "VSCE_PAT secret not set; skipping the Marketplace"; exit 0; fi
+          id="$(node -p "require('./package.json').publisher + '.' + require('./package.json').name")"
+          v="$(node -p "require('./package.json').version")"
+          if npx --yes @vscode/vsce show "$id" --json 2>/dev/null | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>process.exit(JSON.parse(s).versions.some(x=>x.version==='$v')?0:1))"; then
+            echo "Marketplace already has $id $v; nothing to publish"; exit 0
+          fi
           npx --yes @vscode/vsce publish --packagePath deskfish.vsix -p "$VSCE_PAT"
       - name: Publish to Open VSX (Cursor, Windsurf, VSCodium, Gitpod, Theia)
         if: github.event_name == 'workflow_dispatch' && inputs.publish
@@ -78,5 +83,8 @@ jobs:
         run: |
           if [ -z "$OVSX_PAT" ]; then echo "OVSX_PAT secret not set; skipping Open VSX"; exit 0; fi
           ns=$(node -p "require('./package.json').publisher")
+          name=$(node -p "require('./package.json').name")
+          v=$(node -p "require('./package.json').version")
+          if curl -sf "https://open-vsx.org/api/$ns/$name/$v" >/dev/null; then echo "Open VSX already has $ns.$name $v; nothing to publish"; exit 0; fi
           npx --yes ovsx create-namespace "$ns" -p "$OVSX_PAT" 2>/dev/null || echo "namespace $ns exists"
           npx --yes ovsx publish deskfish.vsix -p "$OVSX_PAT"
