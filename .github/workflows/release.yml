@@ -12,6 +12,11 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      publish:
+        description: 'Also publish this build to the VS Code Marketplace and Open VSX (needs the VSCE_PAT and OVSX_PAT secrets)'
+        type: boolean
+        default: false
 permissions:
   contents: write
 concurrency:
@@ -50,3 +55,15 @@ jobs:
           if [ -n "$prev" ]; then changes=$(git log --format='- %s' "$prev..HEAD"); else changes=$(git log --format='- %s' -n 20); fi
           notes=$(printf 'Deskfish %s, built from %s.\n\nInstall: download `deskfish.vsix`, then in VS Code choose **Install from VSIX…** from the Extensions view, or run `code --install-extension deskfish.vsix`. Extensions installed from a file do not update themselves; download again for a newer build.\n\n**Changes**\n%s' "$V" "${GITHUB_SHA::7}" "$changes")
           gh release create "v$V" deskfish.vsix --title "Deskfish $V" --notes "$notes"
+      # The stores are opt-in: run the workflow by hand and tick "publish". Every push is a GitHub
+      # release, but store users get an update prompt for every version, so those are chosen.
+      - name: Publish to the VS Code Marketplace
+        if: github.event_name == 'workflow_dispatch' && inputs.publish
+        env:
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
+        run: npx --yes @vscode/vsce publish --packagePath deskfish.vsix -p "$VSCE_PAT"
+      - name: Publish to Open VSX (Cursor, Windsurf, VSCodium, Gitpod, Theia)
+        if: github.event_name == 'workflow_dispatch' && inputs.publish
+        env:
+          OVSX_PAT: ${{ secrets.OVSX_PAT }}
+        run: npx --yes ovsx publish deskfish.vsix -p "$OVSX_PAT"
