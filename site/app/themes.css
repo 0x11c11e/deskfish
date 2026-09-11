@@ -75,7 +75,8 @@
 .nav-github:hover {
   color: var(--teal);
 }
-.nav-source {
+/* The text link lives in the phone menu only; on wide screens the mark in the actions bar is the link. */
+.main-nav .nav-source {
   display: none;
 }
 .nav-github svg {
