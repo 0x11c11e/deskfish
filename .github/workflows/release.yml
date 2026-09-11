@@ -57,13 +57,20 @@ jobs:
           gh release create "v$V" deskfish.vsix --title "Deskfish $V" --notes "$notes"
       # The stores are opt-in: run the workflow by hand and tick "publish". Every push is a GitHub
       # release, but store users get an update prompt for every version, so those are chosen.
+      # Each store runs on its own: a missing token skips that store instead of failing the run.
       - name: Publish to the VS Code Marketplace
         if: github.event_name == 'workflow_dispatch' && inputs.publish
         env:
           VSCE_PAT: ${{ secrets.VSCE_PAT }}
-        run: npx --yes @vscode/vsce publish --packagePath deskfish.vsix -p "$VSCE_PAT"
+        run: |
+          if [ -z "$VSCE_PAT" ]; then echo "VSCE_PAT secret not set; skipping the Marketplace"; exit 0; fi
+          npx --yes @vscode/vsce publish --packagePath deskfish.vsix -p "$VSCE_PAT"
       - name: Publish to Open VSX (Cursor, Windsurf, VSCodium, Gitpod, Theia)
         if: github.event_name == 'workflow_dispatch' && inputs.publish
         env:
           OVSX_PAT: ${{ secrets.OVSX_PAT }}
-        run: npx --yes ovsx publish deskfish.vsix -p "$OVSX_PAT"
+        run: |
+          if [ -z "$OVSX_PAT" ]; then echo "OVSX_PAT secret not set; skipping Open VSX"; exit 0; fi
+          ns=$(node -p "require('./package.json').publisher")
+          npx --yes ovsx create-namespace "$ns" -p "$OVSX_PAT" 2>/dev/null || echo "namespace $ns exists"
+          npx --yes ovsx publish deskfish.vsix -p "$OVSX_PAT"
