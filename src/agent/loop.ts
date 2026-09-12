@@ -357,7 +357,10 @@ export class AgentRunner {
 
         const results: ActionResult[] = [];
         let acted = false;
-        for (const action of turn.actions) {
+        // The frame from before the last real action, when a wait_for follows it in this batch: a
+        // toggle that flips at once would otherwise have changed before standby takes its first look.
+        let before: ScaledImage | undefined;
+        for (const [i, action] of turn.actions.entries()) {
           if (await this.shouldStop()) return;
 
           if (action.type === 'ask_user') {
@@ -421,7 +424,8 @@ export class AgentRunner {
 
           if (action.type === 'wait_for') {
             // Standby: minutes of waiting for the price of one turn. Passive — no settle, no stall bookkeeping.
-            const result = await this.standBy(action);
+            const result = await this.standBy(action, before);
+            before = undefined;
             if (!result) return; // stopped while standing by
             results.push(result);
             onEvent({ type: 'action', step, action, result });
@@ -439,11 +443,13 @@ export class AgentRunner {
           }
 
           const nativeAction = this.toNative(action);
+          const acts = nativeAction.type !== 'screenshot' && nativeAction.type !== 'cursor_position';
+          if (acts && turn.actions.slice(i + 1).some((a) => a.type === 'wait_for')) before = await this.smallFrame();
           const result = nativeAction.type === 'screenshot' ? { ok: true } : await computer.execute(nativeAction);
           if (result.cursor) {
             result.cursor = { x: Math.round(result.cursor.x / this.scale.x), y: Math.round(result.cursor.y / this.scale.y) };
           }
-          if (result.ok && nativeAction.type !== 'screenshot' && nativeAction.type !== 'cursor_position') acted = true;
+          if (result.ok && acts) acted = true;
           results.push(result);
           onEvent({ type: 'action', step, action: nativeAction, result });
         }
@@ -752,9 +758,17 @@ export class AgentRunner {
    * or until the time is up. A spinner keeps changing between polls and never counts as settled;
    * a finished page is a new frame that then holds still. Stop and Pause work through
    * sleepUnlessStopped / shouldStop like everywhere else. Returns undefined when stopped.
+   *
+   * `before` is the frame from just before the batch's last real action. The action may have done
+   * its whole job before standby takes its first look (a toggle flips at once; a page loads in a
+   * second), and against the first look alone that change is invisible — the wait would run to
+   * the deadline for something that already happened. Measured against `before`, it counts: once
+   * the screen has then held still for a short grace period, standby wakes the model.
    */
-  private async standBy(a: { type: 'wait_for'; reason: string; minutes: number; until: 'change' | 'time'; region?: { x: number; y: number; w: number; h: number } }): Promise<ActionResult | undefined> {
-    const { computer } = this.opts;
+  private async standBy(
+    a: { type: 'wait_for'; reason: string; minutes: number; until: 'change' | 'time'; region?: { x: number; y: number; w: number; h: number } },
+    before?: ScaledImage,
+  ): Promise<ActionResult | undefined> {
     const totalMs = Math.min(120, Math.max(0.005, a.minutes)) * 60_000;
     const pollMs = this.opts.standbyPollMs ?? Math.min(10_000, Math.max(3_000, Math.round(totalMs / 60)));
     const CHANGE = 0.01; // 1% of the (region's) pixels: a real change, not a clock digit
@@ -766,7 +780,6 @@ export class AgentRunner {
         : undefined;
     const where = region ? ' in the watched area' : '';
     const until = a.until === 'time' ? 'time' : 'change'; // missing = change
-    const frame = async () => scalePng((await computer.screenshot()).png, 320, 50);
     const fmt = (ms: number) => {
       const sec = Math.round(ms / 1000);
       return sec >= 60 ? `${Math.floor(sec / 60)} min ${sec % 60} s` : `${sec} s`;
@@ -776,7 +789,9 @@ export class AgentRunner {
     const start = Date.now();
     const deadline = start + totalMs;
     this.opts.onEvent({ type: 'standby', reason: a.reason, minutes: totalMs / 60_000, until, endsAt: deadline });
-    const base = await frame();
+    const base = await this.smallFrame();
+    const already = before && until === 'change' ? frameDiff(before, base, region) : 0;
+    const graceMs = Math.min(15_000, Math.max(2 * pollMs, totalMs / 4));
     let prev = base;
     let vsBase = 0;
     let changedOnce = false;
@@ -787,7 +802,7 @@ export class AgentRunner {
       this.setStatus('running', `Standing by — ${a.reason} · ${left(remaining)} left`);
       await this.sleepUnlessStopped(Math.min(pollMs, remaining));
       if (await this.shouldStop()) return undefined;
-      const cur = await frame();
+      const cur = await this.smallFrame();
       vsBase = frameDiff(base, cur, region);
       const vsPrev = frameDiff(prev, cur, region);
       prev = cur;
@@ -797,6 +812,10 @@ export class AgentRunner {
           this.setStatus('running');
           return { ok: true, message: `Stood by ${fmt(Date.now() - start)}: the screen${where} changed (about ${Math.round(vsBase * 100)}% of it) and has settled. Look at the fresh screenshot and continue.` };
         }
+      }
+      if (already >= CHANGE && vsBase < CHANGE && vsPrev < STABLE && Date.now() - start >= graceMs) {
+        this.setStatus('running');
+        return { ok: true, message: `Stood by ${fmt(Date.now() - start)}: the screen${where} had already changed right after your last action (about ${Math.round(already * 100)}% of it) and has held still since. Look at the fresh screenshot and continue.` };
       }
     }
     this.setStatus('running');
@@ -808,6 +827,11 @@ export class AgentRunner {
       return { ok: true, message: `Stood by ${took}: the screen${where} kept changing the whole time (an animation, or something still loading) and never settled; time is up. Look at the fresh screenshot and decide.` };
     }
     return { ok: true, message: `Stood by ${took}: nothing changed on the screen${where}; time is up. Decide whether to keep waiting (call wait_for again), check something, or ask the user.` };
+  }
+
+  /** A small local frame for change detection; never shown to the model. */
+  private async smallFrame(): Promise<ScaledImage> {
+    return scalePng((await this.opts.computer.screenshot()).png, 320, 50);
   }
 
   /** Execute a zoom action: fresh native screenshot → magnified, coordinate-ruled crop. */

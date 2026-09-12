@@ -109,7 +109,10 @@ compares them, without involving the model. The turn before the wait and the tur
 still count; the checks in between are free. It wakes the agent, with a fresh screenshot,
 either when the screen has changed **and then held still** for one more look (a spinner keeps
 moving and does not count; a finished page is a new picture that stays), or when the time is
-up. With `until` set to *time* it simply waits the whole period, which is how the agent spaces
+up. A change that happened right after the agent's last action, before the wait even began (a
+toggle that flips at once, a page that loaded in a second), counts too: Deskfish compares with
+the screen from before that action and wakes the agent after a few seconds of stillness instead
+of at the deadline. With `until` set to *time* it simply waits the whole period, which is how the agent spaces
 actions out. It can also watch just one area of the screen, so a clock or an animation
 elsewhere does not wake it.
 

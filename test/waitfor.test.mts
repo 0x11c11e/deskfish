@@ -43,12 +43,12 @@ function frame(variant: number, tick = 0, clock = 0): Buffer {
 }
 
 type Script = (turn: number, obs: Observation) => ModelTurn;
-function run(frames: () => Buffer, script: Script) {
+function run(frames: () => Buffer, script: Script, onExecute?: (type: string) => void) {
   const computer: ComputerProvider = {
     name: 'fake',
     async displaySize() { return { width: 320, height: 200 }; },
     async screenshot() { return { png: frames(), width: 320, height: 200 }; },
-    async execute(a) { return a.type === 'cursor_position' ? { ok: true, cursor: { x: 1, y: 1 } } : { ok: true }; },
+    async execute(a) { onExecute?.(a.type); return a.type === 'cursor_position' ? { ok: true, cursor: { x: 1, y: 1 } } : { ok: true }; },
   };
   const results: string[] = [];
   const events: AgentEvent[] = [];
@@ -136,6 +136,40 @@ function run(frames: () => Buffer, script: Script) {
     t <= 4 ? { text: '', actions: [{ type: 'wait_for', reason: 'the timer', minutes: 0.005, until: 'time' }] } : { text: 'done', actions: [], done: true });
   await runner.run('t');
   ok(runner.currentStatus === 'done' && !events.some((e) => e.type === 'needs_user'), 'four standbys in a row: no stall hand-over');
+}
+
+// 8. the change happens right after the click, before standby's first look (a toggle that flips at
+//    once): measured against the frame from before the click it still counts → wakes after the grace
+//    period, not at the deadline. Her Facebook run today waited 2 min three times for exactly this.
+{
+  let variant = 0;
+  const { runner, results } = run(() => frame(variant), (t) =>
+    t === 1 ? { text: '', actions: [{ type: 'click', x: 50, y: 50, button: 'left', count: 1 }, { type: 'wait_for', reason: 'the toggle to publish', minutes: 0.05, until: 'change' }] } : { text: 'done', actions: [], done: true },
+    (type) => { if (type === 'click') variant = 2; });
+  const t0 = Date.now();
+  await runner.run('t');
+  const took = Date.now() - t0;
+  ok(results.length === 1 && /had already changed right after your last action \(about \d+% of it\) and has held still since/.test(results[0]), `already-changed reported: ${results[0]}`);
+  ok(took < 2000, `woke after the grace period, not the 3 s deadline (${took} ms)`);
+}
+
+// 9. the click changes nothing at once and the screen changes later: the before-frame causes no
+//    false early wake; the normal change-and-settle path reports it
+{
+  let polls = 0;
+  const { runner, results } = run(() => { polls++; return frame(polls > 6 ? 2 : 0); }, (t) =>
+    t === 1 ? { text: '', actions: [{ type: 'click', x: 50, y: 50, button: 'left', count: 1 }, { type: 'wait_for', reason: 'the page to load', minutes: 0.05, until: 'change' }] } : { text: 'done', actions: [], done: true });
+  await runner.run('t');
+  ok(results.length === 1 && /changed \(about \d+% of it\) and has settled/.test(results[0]) && !/already changed/.test(results[0]), `later change reported normally: ${results[0]}`);
+}
+
+// 10. the before-frame is only taken when a wait_for follows: a plain click batch costs no extra screenshot
+{
+  let shots = 0;
+  const { runner } = run(() => { shots++; return frame(0); }, (t) =>
+    t === 1 ? { text: '', actions: [{ type: 'click', x: 50, y: 50, button: 'left', count: 1 }] } : { text: 'done', actions: [], done: true });
+  await runner.run('t');
+  ok(shots === 2, `one observation before and one after the batch, nothing else (${shots})`);
 }
 
 console.log(`wait_for: ${n} checks passed`);
