@@ -18,7 +18,7 @@ three model settings for you; it does not open this list.)
 
 | Setting | Default | What it does |
 | --- | --- | --- |
-| `deskfish.provider` | `openai-compatible` | Which adapter drives the desktop: `anthropic`, `openai-compatible`, or `mock` |
+| `deskfish.provider` | `anthropic` | Which adapter drives the desktop: `anthropic` (Claude direct, the recommended path), `openai-compatible`, or `mock` |
 | `deskfish.autonomy` | `free` | `free`: the tank is the boundary, the agent may use any account or saved login in it and completes what you ask. `guided`: it asks before anything irreversible and never uses credentials you did not give it |
 | `deskfish.model` | `claude-opus-5` | The model name exactly as the provider expects it (`claude-opus-5`, `grok-4`, `llama3.2-vision`, …) |
 | `deskfish.baseUrl` | *(empty)* | Endpoint for OpenAI-compatible providers, the part before `/chat/completions`. Leave empty for Anthropic unless you use a gateway |

@@ -49,7 +49,7 @@ export const API_KEY_SECRET = 'deskfish.apiKey';
 export function readConfig(): DeskfishConfig {
   const c = vscode.workspace.getConfiguration('deskfish');
   return {
-    provider: c.get<ProviderName>('provider', 'openai-compatible'),
+    provider: c.get<ProviderName>('provider', 'anthropic'),
     autonomy: c.get<'free' | 'guided'>('autonomy', 'free'),
     baseUrl: c.get<string>('baseUrl', ''),
     model: c.get<string>('model', 'claude-opus-5'),

@@ -273,17 +273,17 @@
         "deskfish.provider": {
           "type": "string",
           "enum": [
-            "openai-compatible",
             "anthropic",
+            "openai-compatible",
             "mock"
           ],
           "enumDescriptions": [
+            "Anthropic API directly, using Claude's native computer-use tool (best click accuracy with Claude). The default.",
             "Any OpenAI-compatible chat/completions endpoint with vision + tool calling: LiteLLM proxy, xAI, OpenRouter, Ollama, vLLM…",
-            "Anthropic API directly, using Claude's native computer-use tool (best click accuracy with Claude).",
             "Scripted fake model for testing the plumbing without an API key."
           ],
-          "default": "openai-compatible",
-          "description": "Which model adapter drives the desktop."
+          "default": "anthropic",
+          "description": "Which model adapter drives the desktop. Anthropic direct is the default; it pairs with the default model, claude-opus-5."
         },
         "deskfish.autonomy": {
           "type": "string",

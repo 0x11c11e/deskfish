@@ -6,11 +6,11 @@ order: 2
 ---
 
 Deskfish talks to the model through a thin adapter, and there is one adapter per kind of
-API. Choose with `deskfish.provider`.
+API. Choose with `deskfish.provider`; Anthropic direct is the default.
 
 ## Anthropic
 
-`deskfish.provider = anthropic`, `deskfish.model = claude-opus-5` (the default),
+`deskfish.provider = anthropic` and `deskfish.model = claude-opus-5` (both the defaults),
 `deskfish.baseUrl` empty. Set the key with **Deskfish: Set LLM API Key**.
 
 This adapter uses Claude's **native computer-use tool**, the one the models were trained
