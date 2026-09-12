@@ -46,6 +46,7 @@ async function main(): Promise<number> {
     workspaceId: env.DESKFISH_WORKSPACE_ID ?? env.ANTHROPIC_WORKSPACE_ID,
     autonomy: env.DESKFISH_AUTONOMY === 'guided' ? 'guided' : 'free',
     promptCaching: (env.DESKFISH_PROMPT_CACHING as 'auto' | 'on' | 'off' | undefined) ?? 'auto',
+    temperature: env.DESKFISH_TEMPERATURE ? Number(env.DESKFISH_TEMPERATURE) : undefined,
     docsIndex: docs.size ? docs.index() : undefined,
     memoryNote: memory?.render(),
     notes: self && journal ? () => {

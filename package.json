@@ -417,6 +417,16 @@
           ],
           "default": "auto",
           "description": "Prompt caching on OpenAI-compatible endpoints. Marks the system prompt and the newest message so the provider caches the conversation prefix (much cheaper long tasks). The Anthropic provider always caches."
+        },
+        "deskfish.temperature": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "default": null,
+          "minimum": 0,
+          "maximum": 2,
+          "description": "Sampling temperature for OpenAI-compatible endpoints. Leave unset (null): no temperature is sent and every model runs at its provider default, which reasoning models such as kimi-k3 and GPT-5 insist on. Set a number (0 for the most repeatable clicks) only for models that accept one. The Anthropic provider uses adaptive thinking, which fixes its temperature."
         }
       }
     }

@@ -1,7 +1,7 @@
 // Prompt caching on the OpenAI-compatible path: `promptCaching` auto/on/off decides whether the
 // request copy carries Anthropic-style cache_control marks (system + newest user text), OpenRouter
 // alone gets `usage: {include: true}` and its cost/cached tokens map to usage, max_tokens is 8000,
-// and an empty length-cut reply is asked once more. The fake endpoint is a local HTTP server; fetch
+// no temperature goes out unless one is configured, and an empty length-cut reply is asked once more. The fake endpoint is a local HTTP server; fetch
 // is monkeypatched so any host (openrouter.ai, api.x.ai) lands on it.
 import assert from 'node:assert/strict';
 import http from 'node:http';
@@ -63,6 +63,9 @@ try {
   ok(priced.turn.usage?.costUsd === 0.0123, `usage.cost → costUsd (${JSON.stringify(priced.turn.usage)})`);
   ok(priced.turn.usage?.cacheRead === 800 && priced.turn.usage.input === 200 && priced.turn.usage.output === 20, `cached tokens → cacheRead, input is the uncached rest (${JSON.stringify(priced.turn.usage)})`);
   ok(requests.every((r) => r.body.max_tokens === 8000), 'max_tokens is 8000');
+  ok(requests.every((r) => !('temperature' in r.body)), 'no temperature is sent by default (kimi-k3 and GPT-5 reject any but their own)');
+  const warm = await run({ baseUrl: 'https://api.moonshot.ai/v1', temperature: 0.3 });
+  ok(warm.sent[0].body.temperature === 0.3, `a configured temperature is sent as given (${warm.sent[0].body.temperature})`);
 
   // auto + another host: nothing added.
   const xai = await run({ baseUrl: 'https://api.x.ai/v1', promptCaching: 'auto' });

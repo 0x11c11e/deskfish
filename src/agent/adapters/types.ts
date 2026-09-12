@@ -80,6 +80,12 @@ export interface AdapterConfig {
    * through (LiteLLM); `off` for strict endpoints that reject unknown fields.
    */
   promptCaching?: 'auto' | 'on' | 'off';
+  /**
+   * OpenAI-compatible endpoints only: the sampling temperature to send. Unset (default) sends
+   * none, so every model runs at its provider default — reasoning models (kimi-k3, GPT-5) refuse
+   * any other value with HTTP 400.
+   */
+  temperature?: number;
 }
 
 export function describeResult(r: ActionResult): string {

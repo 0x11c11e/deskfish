@@ -296,6 +296,7 @@ export class AgentController implements vscode.Disposable {
           docsIndex: docs.size ? docs.index() : undefined,
           notes: () => this.notes(),
           promptCaching: cfg.promptCaching,
+          temperature: typeof cfg.temperature === 'number' ? cfg.temperature : undefined,
         });
         const gen = this.generation;
         runner = new AgentRunner({

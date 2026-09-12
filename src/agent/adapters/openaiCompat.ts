@@ -370,7 +370,8 @@ export class OpenAICompatAdapter implements ModelAdapter {
           : []),
       ],
       tool_choice: 'auto',
-      temperature: 0,
+      // Sent only when asked for: reasoning models (kimi-k3, GPT-5) accept nothing but their default.
+      ...(this.cfg.temperature !== undefined ? { temperature: this.cfg.temperature } : {}),
       // Reasoning models spend completion tokens thinking; a low cap cuts the answer off and looks like silence.
       max_tokens: 8000,
     };

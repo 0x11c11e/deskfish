@@ -24,6 +24,8 @@ export interface DeskfishConfig {
   scheduleGraceMinutes: number;
   /** Cache breakpoints on OpenAI-compatible endpoints: auto (OpenRouter only), on, off. */
   promptCaching: 'auto' | 'on' | 'off';
+  /** Sampling temperature for OpenAI-compatible endpoints; null = not sent (provider default). */
+  temperature: number | null;
   screenshotWidth: number;
   settleMs: number;
   daemonUrl: string;
@@ -59,6 +61,7 @@ export function readConfig(): DeskfishConfig {
     ledgerEvery: c.get<number>('ledgerEvery', 40),
     userName: c.get<string>('userName', '').trim(),
     promptCaching: c.get<'auto' | 'on' | 'off'>('promptCaching', 'auto'),
+    temperature: c.get<number | null>('temperature', null),
     screenshotWidth: c.get<number>('screenshotWidth', 1280),
     settleMs: c.get<number>('settleMs', 800),
     daemonUrl: c.get<string>('desktop.daemonUrl', 'http://localhost:9990'),

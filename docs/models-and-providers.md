@@ -46,6 +46,9 @@ ground:
 | vLLM (local or hosted) | your server's `/v1` | whatever it serves | as configured |
 | LiteLLM proxy | `http://localhost:4000/v1` | names from its config | its master key, if set |
 
+No sampling temperature is sent unless you set `deskfish.temperature`: reasoning models such
+as `kimi-k3` and GPT-5 accept only their own default and reject any other value.
+
 Models here are shown a generic `computer` tool whose actions mirror the vocabulary Claude
 uses, with `zoom` as one of its actions, so instructions and habits transfer. The rest of the
 tool set is the same as on the Anthropic path: `wait_for`, `find`, `read_page`, `ask_user`,
