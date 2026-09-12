@@ -74,6 +74,14 @@ with vision and tool calling can drive the desktop; bigger tends to do better. L
 through Ollama are free and slow, and misclick more. Pick with the **Change** button. See
 [Models and providers](models-and-providers).
 
+## Does the agent know which model it runs on?
+
+Yes. Its instructions carry one line naming the current model and where it runs, the same
+pair the **Model** row of the sidebar shows, and the line is refreshed whenever you change
+them. That line is the agent's authority on the question: not a memory, not the default named
+in this documentation, and not the model's own idea of what it is. Whichever model is
+underneath, it stays Deskfish.
+
 ## Can I try it without an API key?
 
 Yes. Set the provider to `mock` for a scripted demo that exercises everything, including

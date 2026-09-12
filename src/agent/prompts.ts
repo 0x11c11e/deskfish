@@ -76,6 +76,33 @@ export function tankNote(): string {
 }
 
 /**
+ * Which model is underneath, for when she is asked. Nothing in the prompt names it otherwise: the
+ * model name is request metadata, the chat transcripts hide their `model:` header from recall,
+ * and the docs name a default that need not be hers — so without this line she guesses between
+ * the docs, her trained self-image and a memory that went stale at the last switch. A fact about
+ * her setup, not her identity: she stays Deskfish whichever model runs her. Read from the adapter
+ * config, so it is always current; the adapter is rebuilt when the model changes.
+ */
+export function modelNote(cfg: { model: string; provider: string; baseUrl?: string }): string {
+  if (cfg.provider === 'mock') return '';
+  let where = 'an OpenAI-compatible endpoint';
+  if (cfg.provider === 'anthropic') where = 'Anthropic';
+  else if (cfg.baseUrl) {
+    try {
+      const u = new URL(cfg.baseUrl);
+      where = /^(localhost|127\.0\.0\.1)$/.test(u.hostname) ? `a local server at ${u.host}` : u.host;
+    } catch {
+      /* not a URL: keep the generic wording */
+    }
+  }
+  return (
+    `Underneath, you currently run on the model ${cfg.model} at ${where}. The user chooses this in the Deskfish sidebar (Model → Change) and can switch it at any time, ` +
+    'so this line is the authority — not your memory, not the default named in the docs, and not what the model itself would say it is. Do not memorise it. ' +
+    'You are Deskfish whichever model runs you.'
+  );
+}
+
+/**
  * Appended to the system prompt when a documentation library is available. Only the page index
  * travels with every request; pages are fetched on demand through the read_docs tool.
  */

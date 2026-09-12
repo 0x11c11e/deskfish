@@ -10,7 +10,7 @@ import { renderPage } from '../src/agent/page';
 import { findAction, readPageAction } from '../src/agent/actions';
 import { DesktopDaemonComputer } from '../src/computer/daemon';
 import { AgentRunner } from '../src/agent/loop';
-import { systemPrompt, tankNote } from '../src/agent/prompts';
+import { modelNote, systemPrompt, tankNote } from '../src/agent/prompts';
 import type { ComputerProvider, PageInfo } from '../src/computer/types';
 import type { ModelAdapter, ModelTurn, Observation } from '../src/agent/adapters/types';
 
@@ -89,6 +89,11 @@ ok(txt.endsWith('\n\nHello world'), 'text scope prints the text');
 
 // ---------- prompt ----------
 ok(systemPrompt('free').includes('call find with the text or kind of the element'), 'how-to bullet mentions find');
+ok(modelNote({ model: 'grok-4.6', provider: 'openai-compatible', baseUrl: 'https://api.x.ai/v1' }).startsWith('Underneath, you currently run on the model grok-4.6 at api.x.ai.'), 'model note names the model and the host');
+ok(modelNote({ model: 'claude-opus-5', provider: 'anthropic' }).includes('claude-opus-5 at Anthropic.'), 'model note says Anthropic for the direct adapter');
+ok(modelNote({ model: 'llama3.2-vision', provider: 'openai-compatible', baseUrl: 'http://localhost:11434/v1' }).includes('at a local server at localhost:11434.'), 'model note marks a local server');
+ok(modelNote({ model: 'x', provider: 'openai-compatible', baseUrl: 'not a url' }).includes('at an OpenAI-compatible endpoint.') && modelNote({ model: 'demo', provider: 'mock' }) === '', 'model note falls back on a bad URL and is empty for the demo model');
+ok(modelNote({ model: 'x', provider: 'anthropic' }).includes('You are Deskfish whichever model runs you'), 'model note keeps the identity separate from the model');
 ok(/python3 with pip/.test(tankNote()) && /pdftotext and pdftoppm/.test(tankNote()) && tankNote().includes('git') && tankNote().includes('find and read_page'), 'tank note lists software and tools');
 
 // ---------- mock daemon → provider → loop ----------

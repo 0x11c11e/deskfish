@@ -64,7 +64,7 @@ import {
   readPlaybookAction,
   toComputerAction,
 } from '../actions';
-import { charterNote, docsNote, journalNote, memoryNote, playbookNote, screenNote, selfNote, systemPrompt, tankNote } from '../prompts';
+import { charterNote, docsNote, journalNote, memoryNote, modelNote, playbookNote, screenNote, selfNote, systemPrompt, tankNote } from '../prompts';
 import type { AgentNotes } from './types';
 import type { ComputerAction } from '../../computer/types';
 import { describeResult, type AdapterConfig, type ModelAdapter, type ModelTurn, type Observation } from './types';
@@ -134,6 +134,7 @@ export class OpenAICompatAdapter implements ModelAdapter {
     const system = [
       this.cfg.systemPrompt ?? systemPrompt(this.cfg.autonomy),
       tankNote(),
+      modelNote(this.cfg),
       n.charter ? charterNote(n.charter) : '',
       n.self !== undefined ? selfNote(n.self, n.selfStatus, n.selfLastSigned) : '',
       screenNote(this.screen),

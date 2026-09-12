@@ -54,6 +54,7 @@ try {
   ok(charter > howTo && self > charter && sys.includes('CHARTER-LINE'), 'the charter (with its text) sits between the how-to list and the self');
   ok(self - howTo <= 9000, `the self sits near the head: ${self - howTo} chars after "How to work"`);
   ok(at('What you have:') > howTo && at('What you have:') < self, 'the tank note precedes the self');
+  ok(at('Underneath, you currently run on the model') > at('What you have:') && at('Underneath, you currently run on the model') < charter, 'the model note sits between the tank note and the charter');
   ok(sys.includes('Recently, from your journal') && sys.includes('JOURNAL-ENTRY'), 'the journal note is present with the entries');
   ok(sys.includes('Long-term memory') && sys.includes('MEMORY-FACT'), 'the memory note is present with the facts');
   ok(sys.includes('Your playbooks') && sys.includes('PLAYBOOK-TITLE') && at('Your playbooks') > at('Recently, from your journal'), 'the playbook note is present, after the journal');

@@ -67,7 +67,7 @@ import {
   toComputerAction,
   zoomAction,
 } from '../actions';
-import { charterNote, docsNote, journalNote, memoryNote, playbookNote, screenNote, selfNote, systemPrompt, tankNote } from '../prompts';
+import { charterNote, docsNote, journalNote, memoryNote, modelNote, playbookNote, screenNote, selfNote, systemPrompt, tankNote } from '../prompts';
 import type { AgentNotes } from './types';
 import { describeResult, type AdapterConfig, type ModelAdapter, type ModelTurn, type Observation } from './types';
 
@@ -143,6 +143,7 @@ export class AnthropicAdapter implements ModelAdapter {
     this.system = [
       this.cfg.systemPrompt ?? systemPrompt(this.cfg.autonomy),
       tankNote(),
+      modelNote(this.cfg),
       n.charter ? charterNote(n.charter) : '',
       n.self !== undefined ? selfNote(n.self, n.selfStatus, n.selfLastSigned) : '',
       screenNote(this.screen),

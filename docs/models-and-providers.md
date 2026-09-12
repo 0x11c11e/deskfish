@@ -8,6 +8,10 @@ order: 2
 Deskfish talks to the model through a thin adapter, and there is one adapter per kind of
 API. Choose with `deskfish.provider`; Anthropic direct is the default.
 
+Whichever you choose, the agent is told which model it runs on and where, in one line of
+its instructions that follows the setting; ask it and it answers from that line, not from a
+guess.
+
 ## Anthropic
 
 `deskfish.provider = anthropic` and `deskfish.model = claude-opus-5` (both the defaults),
