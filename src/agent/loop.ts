@@ -105,6 +105,8 @@ export class AgentRunner {
   private scaledSize = { width: 1280, height: 800 };
   private started = false;
   private lastShot?: { jpegBase64: string; width: number; height: number };
+  /** The raw scaled image behind the last screenshot event, reused when a turn touched nothing on screen. */
+  private lastImage?: ScaledImage;
   /** Per-run bookkeeping for the journal. */
   private current?: { task: string; reflection: boolean; steps: number; spentUsd: number; lastAssistant: string; revisions: number; journaled: boolean; handovers: number; notes: number; followUps: number; said: string[]; ledger?: string; ledgers: number };
 
@@ -357,6 +359,10 @@ export class AgentRunner {
 
         const results: ActionResult[] = [];
         let acted = false;
+        // ask_user and wait_for are passive turns themselves, but the screen can change while we are
+        // not acting (a human takeover, time passing during a standby). Force a fresh capture after
+        // either even when nothing else in the batch counts as `acted`.
+        let mustCapture = false;
         // The frame from before the last real action, when a wait_for follows it in this batch: a
         // toggle that flips at once would otherwise have changed before standby takes its first look.
         let before: ScaledImage | undefined;
@@ -369,6 +375,7 @@ export class AgentRunner {
             if (!result) return; // stopped while waiting
             results.push(result);
             onEvent({ type: 'action', step, action, result });
+            mustCapture = true;
             continue;
           }
 
@@ -429,6 +436,7 @@ export class AgentRunner {
             if (!result) return; // stopped while standing by
             results.push(result);
             onEvent({ type: 'action', step, action, result });
+            mustCapture = true;
             continue;
           }
 
@@ -456,7 +464,7 @@ export class AgentRunner {
 
         // Only wait for the screen to settle when something could have changed it.
         if (acted) await this.sleepUnlessStopped(this.opts.settleMs ?? 800);
-        obs = await this.observe(step, results, pendingNotes.length ? pendingNotes.splice(0).join('\n') : undefined);
+        obs = await this.observe(step, results, pendingNotes.length ? pendingNotes.splice(0).join('\n') : undefined, !acted && !mustCapture);
 
         // Stall detection: the same batch (coordinates rounded to 20 px) three times in a row while
         // less than 0.3% of the screen changed each time. Passive batches (zoom, docs) don't count.
@@ -718,13 +726,26 @@ export class AgentRunner {
     return false;
   }
 
-  private async observe(step: number, results: ActionResult[], note?: string): Promise<Observation> {
+  /**
+   * `reuse`: the turn that led here touched nothing on screen (no real action ran — only things
+   * like recall, read_docs or remember) *and* included no ask_user or wait_for, so the display
+   * cannot have changed on its own between the last capture and now. Skip the real screenshot and
+   * hand back the same frame again: one fewer capture/scale/emit for every all-passive turn, same
+   * image the model already just saw. A real action, a human takeover or time passing during a
+   * standby always forces a fresh capture, so nothing goes stale for more than one turn.
+   */
+  private async observe(step: number, results: ActionResult[], note?: string, reuse?: boolean): Promise<Observation> {
+    if (reuse && this.lastImage && this.lastShot) {
+      this.opts.onEvent({ type: 'screenshot', step, ...this.lastShot });
+      return { image: this.lastImage, results, note };
+    }
     const shot = await this.opts.computer.screenshot();
     // scrot screenshots don't include the cursor; stamp a crosshair where the pointer really is,
     // so the model can see where its last click landed.
     const pos = await this.opts.computer.execute({ type: 'cursor_position' });
     const marker = pos.ok && pos.cursor ? { x: pos.cursor.x / this.scale.x, y: pos.cursor.y / this.scale.y } : undefined;
     const image = scalePng(shot.png, this.scaledWidth, 80, marker);
+    this.lastImage = image;
     this.lastShot = { jpegBase64: image.jpeg.toString('base64'), width: image.width, height: image.height };
     this.opts.onEvent({ type: 'screenshot', step, ...this.lastShot });
     return { image, results, note };
