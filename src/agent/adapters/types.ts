@@ -19,7 +19,7 @@ export interface ModelTurn {
   /** True when the model ended its turn without requesting any action — the task is finished (or it gave up). */
   done: boolean;
   /** Tokens for this turn. `input` = uncached input; cacheRead/cacheWrite = prompt-cache hits and writes (Anthropic). */
-  usage?: { input: number; output: number; cacheRead?: number; cacheWrite?: number; /** Cost in USD as reported by the provider (OpenRouter), when it reports one. */ costUsd?: number };
+  usage?: { input: number; output: number; cacheRead?: number; cacheWrite?: number; /** Of the cache writes, those with the 1-hour TTL (billed at 2× input instead of 1.25×). */ cacheWrite1h?: number; /** Cost in USD as reported by the provider (OpenRouter), when it reports one. */ costUsd?: number };
 }
 
 /**
@@ -36,6 +36,11 @@ export interface ModelAdapter {
   addUserMessage(text: string): void;
   /** Re-read the notes provider (memory, self, journal) into the system prompt; the loop calls it at every run start. */
   refreshNotes?(): void;
+  /**
+   * Re-read the live notes WITHOUT rebuilding the system prompt (which would invalidate the cached
+   * conversation), and say what changed since it was built — for the next observation note.
+   */
+  notesDelta?(): string | undefined;
 }
 
 /** What the loop's stores contribute to the system prompt; read fresh at the start of every run. */
@@ -86,6 +91,12 @@ export interface AdapterConfig {
    * any other value with HTTP 400.
    */
   temperature?: number;
+  /** Anthropic: prompt-cache TTL. `1h` (default) survives the pauses between a person's messages and a standby; `5m` is the cheaper write for back-to-back requests. */
+  cacheTtl?: '5m' | '1h';
+  /** Anthropic: how hard the model thinks per turn (`output_config.effort`). Unset = the provider's default (high). */
+  effort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max';
+  /** How many long tool results (page text, command output) stay whole in the conversation; older ones shrink to a line. */
+  maxTextResults?: number;
 }
 
 export function describeResult(r: ActionResult): string {

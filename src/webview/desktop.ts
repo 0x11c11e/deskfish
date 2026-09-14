@@ -252,23 +252,35 @@ let releaseTimer: ReturnType<typeof setTimeout> | undefined;
 let lastRelease = 0;
 /** Only while the person has the desktop: a release mid-drag would break the agent's own actions. */
 const userHasControl = () => connected && !!rfb && !rfb.viewOnly;
-function releaseInputSoon(): void {
+/*
+ * A press that started on the canvas and has not been released is the person selecting or
+ * dragging. The focus-driven releases must not fire then: a release lets go of *their* button as
+ * much as the agent's (both inject through XTEST), which ended every text selection after one
+ * character (2026-09-13: the live view sent a release right after each mousedown). Capture phase,
+ * because noVNC stops mouse events at its canvas before they would bubble here.
+ */
+let buttonHeld = false;
+screen.addEventListener('mousedown', () => { buttonHeld = true; }, true);
+window.addEventListener('mouseup', () => { buttonHeld = false; }, true);
+function releaseInputSoon(unlessHeld = false): void {
   if (!userHasControl()) return;
+  if (unlessHeld && buttonHeld) return;
   clearTimeout(releaseTimer);
   releaseTimer = setTimeout(() => {
+    if (unlessHeld && buttonHeld) return;
     lastRelease = Date.now();
     post({ type: 'releaseInput' });
   }, 60);
 }
 /** Same, but at most every few seconds: for the events that fire constantly (entering the canvas, focus). */
 function releaseInputIfStale(): void {
-  if (Date.now() - lastRelease > 3000) releaseInputSoon();
+  if (Date.now() - lastRelease > 3000) releaseInputSoon(true);
 }
 window.addEventListener('mouseup', (ev) => {
   if (!screen.contains(ev.target as Node)) releaseInputSoon();
 });
-window.addEventListener('blur', releaseInputSoon);
-document.addEventListener('mouseleave', releaseInputSoon);
+window.addEventListener('blur', () => releaseInputSoon(true));
+document.addEventListener('mouseleave', () => releaseInputSoon());
 screen.addEventListener('mouseleave', (ev) => {
   if (ev.buttons) releaseInputSoon(); // left the canvas with a button still down
 });
@@ -388,6 +400,9 @@ function showAction(a: ComputerAction): void {
         break;
       case 'read_page':
         showPointer(a.scope === 'text' ? 'reading the page text' : 'reading the page');
+        break;
+      case 'run_command':
+        showPointer(`run ${JSON.stringify(shortText(a.command))}`);
         break;
       case 'wait_for':
         showPointer('standing by');

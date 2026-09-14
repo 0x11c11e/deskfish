@@ -57,6 +57,12 @@ export type ComputerAction =
    */
   | { type: 'find'; query: string; limit?: number }
   | { type: 'read_page'; scope?: 'interactive' | 'text' }
+  /**
+   * Run a shell command in the tank (bash, as the bot user, stdin closed) and get its output back
+   * as text. The daemon runs it outside its input queue; the loop renders the result for the
+   * model. Passive for the screen: no settle, no stall bookkeeping.
+   */
+  | { type: 'run_command'; command: string; timeoutSeconds?: number; cwd?: string }
   /** Long-term memory, loop-executed: save one fact / delete matching facts. Passive. */
   | { type: 'remember'; text: string }
   | { type: 'forget'; query: string }
@@ -121,6 +127,19 @@ export interface PageInfo {
   more?: { visible: number; below: number; above: number };
 }
 
+/** What run_command returns, as the daemon reports it. */
+export interface CommandOutput {
+  stdout: string;
+  stderr: string;
+  /** Exit code, or null when the command was killed (timeout, or the task was stopped). */
+  exit: number | null;
+  timedOut: boolean;
+  /** Wall-clock milliseconds. */
+  ms: number;
+  /** Set when the daemon stopped capturing because the output grew too large. */
+  truncated?: boolean;
+}
+
 export interface ActionResult {
   ok: boolean;
   error?: string;
@@ -128,6 +147,8 @@ export interface ActionResult {
   cursor?: Point;
   /** Filled for find / read_page (native coordinates); the loop renders it into `message` in screenshot coordinates. */
   page?: PageInfo;
+  /** Filled for run_command; the loop renders it into `message`. */
+  command?: CommandOutput;
   /** Free-text outcome for the model, e.g. what happened after ask_user. */
   message?: string;
   /** An image for the model, e.g. the magnified view a zoom action produced. */
@@ -139,8 +160,12 @@ export interface ComputerProvider {
   /** Native resolution of the controlled display. */
   displaySize(): Promise<{ width: number; height: number }>;
   screenshot(): Promise<Screenshot>;
-  /** Execute one action. Coordinates are native display pixels. Never throws — errors come back in the result. */
-  execute(action: ComputerAction): Promise<ActionResult>;
+  /**
+   * Execute one action. Coordinates are native display pixels. Never throws — errors come back in
+   * the result. `signal`, when given, cancels a long action (a run_command) because the task was
+   * stopped; providers that cannot cancel may ignore it.
+   */
+  execute(action: ComputerAction, signal?: AbortSignal): Promise<ActionResult>;
   /**
    * Release every mouse button and modifier key on the display. A press whose release got lost
    * (agent stopped mid-chord, VNC click released outside the pane) otherwise turns every later
@@ -188,6 +213,8 @@ export function describeAction(a: ComputerAction): string {
       return `find on the page: ${JSON.stringify(a.query)}`;
     case 'read_page':
       return a.scope === 'text' ? 'read the page text' : 'read the page';
+    case 'run_command':
+      return `run: ${a.command.length > 60 ? a.command.slice(0, 57) + '…' : a.command}`;
     case 'remember':
       return `remember: ${a.text}`;
     case 'forget':

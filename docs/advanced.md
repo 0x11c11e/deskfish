@@ -110,7 +110,7 @@ does not use compose.
 The tank's control API speaks the same protocol as Bytebot's desktop daemon, so a
 container built from that project's image can stand in for Deskfish's own, within limits:
 only the basic mouse, keyboard and screenshot actions work there. There is no page bridge, so
-`find` and `read_page` fail; no release of stuck keys; and none of the fixes that let the
+`find` and `read_page` fail; no `run_command`; no release of stuck keys; and none of the fixes that let the
 agent type line breaks and non-ASCII text. Deskfish's own image is the default, the smallest,
 and the only one Deskfish vets. Before pointing Deskfish
 at any other image, remember that it will hold the agent's browser logins: check who builds

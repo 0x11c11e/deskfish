@@ -70,7 +70,8 @@ nothing else:
 
 - the text of your tasks and follow-ups;
 - screenshots of the **tank's** screen, one per step;
-- the results of the agent's actions, and the documentation pages it reads;
+- the results of the agent's actions, the output of commands it runs in its terminal tool, and
+  the documentation pages it reads;
 - the controls or text of the web page open in the tank's Firefox, when the agent asks for
   them with `find` or `read_page` (the same page it is looking at in the screenshot);
 - its memory: the facts, the self page, the charter, the last few journal entries and the
@@ -82,6 +83,14 @@ Desktop tab or paste there, and whatever is copied inside the tank lands on your
 while the tab is visible. Clipboard text reaches the model only if it then appears on the
 tank's screen or in a page the agent reads. The API key goes to the provider's endpoint and
 nowhere else; it is stored in the operating system's keychain, not in settings files.
+
+**Credentials in logs.** What the agent types, runs and reads goes to the model as it is, but
+Deskfish masks the credentials it recognises before anything is shown or written down: API
+keys, GitHub and similar tokens, `user:password@` in a URL, `Authorization` headers,
+`password=…` pairs and a password said in prose are replaced by `***` in the chat, the output
+log, the saved transcripts, the journal and the tank's own request log. It is a pattern match,
+so treat it as a net with holes rather than a guarantee: keep secrets out of the chat, and let
+Firefox in the tank hold the logins.
 
 ## Credentials and accounts
 
@@ -148,6 +157,17 @@ itself is saved as a transcript and can be reopened from **Past Chats…**. The 
 persists until you edit or empty it (**Forget All Memories (facts)** clears facts only); the
 self file, the journal and the playbooks are separate files with commands of their own. The
 full step log is in the Deskfish output channel for the life of the window.
+
+## Its own source code
+
+The agent knows its code is public and may propose changes to it as pull requests from a GitHub
+account of its own. A pull request cannot change anything by itself: it comes from a fork with no
+rights on the repository, the tests run on it, and only a merge by a person followed by an
+install puts it into a tank. Two things keep that true. Do not leave your own GitHub session in
+the tank's Firefox: a login there would let a commit land on the main branch directly, and every
+push to main publishes a release. And protect the main branch so that a merge requires a pull
+request and a review. A page the agent reads could try to talk it into a bad change; the review
+is the guard, so read the diff rather than merging on a green check.
 
 ## Hardening options
 

@@ -59,10 +59,14 @@ before anything irreversible, set `deskfish.autonomy` to `guided`.
 
 Every step re-sends the conversation so far, so the last steps of a long task cost more than
 the first ones. Three things bring it down: the ledger, on by default, restarts the
-conversation from the agent's own notes every forty steps; prompt caching, where the provider
-supports it, makes the re-sent part cheap; and standby waits without model calls. A cheaper
+conversation from the agent's own notes every forty steps or when it grows too large; prompt
+caching, where the provider supports it, makes the re-sent part cheap, and on Anthropic the
+cache now lasts an hour, so a pause between your messages no longer re-bills the whole
+conversation; and standby waits without model calls. On Anthropic, `deskfish.effort` at
+`medium` cuts the thinking tokens on routine work. A cheaper
 model for routine work, chosen with the **Change** button, helps too. `deskfish.maxCostUsd`
-sets a budget for a task where Deskfish can see the cost (Claude used directly, or OpenRouter);
+sets a budget for a task where Deskfish can see the cost (Claude or Kimi used directly, or
+OpenRouter);
 the wrap-up turn can go a little over. See
 [What a task costs](models-and-providers#what-a-task-costs).
 
@@ -150,6 +154,14 @@ Yes. Ask it anything about Deskfish, for example *"where do downloaded files go?
 *"what do you do when a site asks for a password?"*, and it reads the relevant page of this
 documentation before answering. It only reads when asked, so this costs nothing during
 normal tasks.
+
+## Can the agent change its own code?
+
+It can read it, and it can propose changes: the tank has `git`, `gh`, Node.js and `npm`, and the
+agent is told to work in a fork under its own GitHub account, run the tests, and open a pull
+request. It cannot change what runs it: a pull request from a fork has no access, and a change
+reaches a tank only when you merge it and install the new build. The agent asked for the review
+step itself. See [How the bot sees and acts](how-the-bot-sees-and-acts#its-own-source-code).
 
 ## Is Deskfish open source?
 

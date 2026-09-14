@@ -567,3 +567,41 @@ export function splitChord(chord: string): string[] {
     .map((k) => k.trim())
     .filter(Boolean);
 }
+
+/**
+ * The terminal without the screen: one command in bash, its output back as text. What xterm costs
+ * — a screenshot and a turn per line read — this does in one call: a file, git, a test run, a
+ * script. Executed by the tank's own daemon (Bytebot's has no such action); same on every provider.
+ */
+export const RUN_COMMAND_TOOL_NAME = 'run_command';
+export const RUN_COMMAND_DEFAULT_TIMEOUT = 60;
+export const RUN_COMMAND_MAX_TIMEOUT = 600;
+
+export const RUN_COMMAND_TOOL_DESCRIPTION =
+  'Run a shell command in your terminal environment and get its output back as text, without the screen. `command` runs ' +
+  'in bash as your own user in your home folder (or `cwd`, relative to it), with stdin closed, so anything that would wait ' +
+  'for input fails instead of hanging. Use it for everything whose result is text — reading and editing files, git, python, ' +
+  'curl, npm test, gh — instead of typing into xterm and reading the screen. You get stdout, stderr, the exit code and how ' +
+  'long it took; output beyond about 20,000 characters is cut in the middle, so read big files in ranges (sed -n, head, ' +
+  'tail, grep). It runs until it finishes or `timeout_seconds` (default 60, max 600), then is killed. Nothing on the screen ' +
+  'changes unless the command opens a window.';
+
+export const RUN_COMMAND_TOOL_PARAMETERS: { type: 'object'; properties: Record<string, unknown>; required: string[]; additionalProperties: boolean } = {
+  type: 'object',
+  properties: {
+    command: { type: 'string', description: 'The command line, as you would type it in bash' },
+    timeout_seconds: { type: 'integer', description: `Kill it after this many seconds (default ${RUN_COMMAND_DEFAULT_TIMEOUT}, max ${RUN_COMMAND_MAX_TIMEOUT})` },
+    cwd: { type: 'string', description: 'Working directory, relative to your home folder (default: home)' },
+  },
+  required: ['command'],
+  additionalProperties: false,
+};
+
+export function runCommandAction(input: unknown): ComputerAction {
+  const o = (input ?? {}) as { command?: unknown; timeout_seconds?: unknown; cwd?: unknown };
+  const command = String(o.command ?? '');
+  const t = Number(o.timeout_seconds);
+  const timeoutSeconds = Number.isFinite(t) && t > 0 ? Math.min(RUN_COMMAND_MAX_TIMEOUT, Math.ceil(t)) : RUN_COMMAND_DEFAULT_TIMEOUT;
+  const cwd = typeof o.cwd === 'string' && o.cwd.trim() ? o.cwd.trim() : undefined;
+  return cwd ? { type: 'run_command', command, timeoutSeconds, cwd } : { type: 'run_command', command, timeoutSeconds };
+}

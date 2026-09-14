@@ -19,7 +19,7 @@ environment, no system service manager, and no root user.
 | Debian 12 (slim) | The operating system |
 | Openbox | A one-megabyte window manager. Right-click the empty desktop for its menu |
 | Firefox ESR | The browser. Downloads are locked to the Downloads folder, telemetry and update prompts are off. It plays ordinary web video, opens PDFs in its own viewer, and carries the Deskfish page bridge, a small extension that lets the agent read the page it is on and find things by name (see [How the bot sees and acts](how-the-bot-sees-and-acts)) |
-| A terminal (xterm) | For commands and for files the agent creates itself. Inside: `bash`, `python3` with `pip` and `requests`, `curl`, `git`, `jq`, `pdftotext` and `pdftoppm` for reading PDFs, `zip` and `unzip`, `nano` and `less`. No `ssh`, no root, no system package manager for the agent |
+| A terminal (xterm) | For commands and for files the agent creates itself. Inside: `bash`, `python3` with `pip` and `requests`, `curl`, `git` and the GitHub CLI `gh`, Node.js 22 with `npm`, `jq`, `pdftotext` and `pdftoppm` for reading PDFs, `zip` and `unzip`, `nano` and `less`. The agent can also run a command in that shell without the screen, through its `run_command` tool. No `ssh`, no root, no system package manager for the agent |
 | A panel at the bottom | A small dock with a Firefox icon, a Terminal icon, and a button for every open window |
 | The Deskfish wallpaper | So an empty desktop is unmistakably the tank |
 | A 1280 × 800 screen | Virtual, so it exists without a monitor. The size is a setting |
@@ -128,3 +128,11 @@ Because the tank keeps its logins, the practical way to work is to give the agen
 of its own for the services it uses, rather than yours. Log it in once, and it stays logged
 in. [Security and privacy](security-and-privacy) explains why that is the recommended setup
 for now.
+
+## The agent's own source code
+
+The tank has `git`, `gh`, Node.js and `npm` so that the agent can clone Deskfish's public
+repository, read the code that runs it, run the test suite and open a pull request from a GitHub
+account of its own. That is the whole of its access: nothing it changes reaches the tank until you
+merge the pull request and install the build it produces. See
+[How the bot sees and acts](how-the-bot-sees-and-acts#its-own-source-code).

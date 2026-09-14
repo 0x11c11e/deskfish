@@ -19,8 +19,8 @@ guess.
 
 This adapter uses Claude's **native computer-use tool**, the one the models were trained
 on, which is why it is the recommended path: clicks land more reliably than through generic
-tool calls. It also uses adaptive thinking, and it caches the conversation so repeated steps
-cost less. If Claude refuses a task, the
+tool calls. It also uses adaptive thinking (how much, per turn, is `deskfish.effort`), and it
+caches the conversation for an hour so repeated steps and follow-up tasks cost less. If Claude refuses a task, the
 refusal and its explanation appear in the chat and the task ends.
 
 > [!NOTE]
@@ -55,7 +55,7 @@ as `kimi-k3` and GPT-5 accept only their own default and reject any other value.
 
 Models here are shown a generic `computer` tool whose actions mirror the vocabulary Claude
 uses, with `zoom` as one of its actions, so instructions and habits transfer. The rest of the
-tool set is the same as on the Anthropic path: `wait_for`, `find`, `read_page`, `ask_user`,
+tool set is the same as on the Anthropic path: `run_command`, `wait_for`, `find`, `read_page`, `ask_user`,
 `read_docs`, `remember` and `forget`, `note_to_self` and `recall`, `revise_self`,
 `restore_self`, `self_history` and `archive_story`, and `save_playbook` and `read_playbook`.
 Accuracy depends entirely on the model. Large hosted models do well; small local ones can find
@@ -112,17 +112,27 @@ other key; the model picker asks for a key only when the chosen provider has non
 
 Each step sends the model the task, the conversation so far, the newest screenshot (a JPEG
 of about 1280 × 800 pixels) and the results of its last actions. Hosted providers charge for
-all of it; the total depends on the model and on the task. Five things keep the bill in check:
+all of it; the total depends on the model and on the task. Six things keep the bill in check:
 
-- **the ledger**: every forty steps (`deskfish.ledgerEvery`, 0 to turn it off) the agent
+- **the ledger**: every forty steps (`deskfish.ledgerEvery`, 0 to turn it off), or sooner when
+  the conversation has grown past a hundred thousand tokens (`deskfish.ledgerTokens`), the agent
   writes a summary and the conversation restarts from it, so the cost of a step stops growing
   with the length of the task; see [The ledger](how-the-bot-sees-and-acts#long-tasks-the-ledger);
 - **prompt caching**: on Anthropic direct, always; on OpenRouter, with `deskfish.promptCaching`
   at `auto` (the default); on another gateway that passes cache markers through, set it to
   `on`. Everything before the newest message is then read from the cache at a fraction of the
-  price. Whether a given model honours the markers is up to the provider serving it;
-- **images pruned in batches**: after each prune only the three most recent screenshots stay
-  in the conversation, so a few more can pile up between prunes;
+  price. On Anthropic the cache lives an hour by default (`deskfish.cacheTtl`), so a pause
+  between your messages, a standby or a slow command does not throw the conversation away, and
+  a follow-up task in the same chat keeps the cached conversation instead of rebuilding it.
+  Whether a given model honours the markers is up to the provider serving it;
+- **pruning**: after each prune only the three most recent screenshots stay in the
+  conversation, so a few more can pile up between prunes; long text results (a page's text, a
+  command's output, a documentation page) likewise shrink to their first line once more than
+  eight are in the conversation, keeping the four newest whole;
+- **effort**: on Anthropic, `deskfish.effort` sets how hard the model thinks on each turn.
+  Thinking is billed as output, the dearest kind of token, and is most of a step's waiting
+  time; `medium` is worth measuring on your own tasks, and lower effort also tends to batch
+  more actions per turn;
 - **standby**: while the agent waits with `wait_for`, Deskfish watches the screen locally
   instead of calling the model;
 - **no step cap by default**: `deskfish.maxSteps` is 0, so the agent works until it finishes,
@@ -132,18 +142,22 @@ On the Anthropic path Deskfish also asks for server-side compaction, so a very l
 conversation is summarized by the API rather than dying at the context window.
 
 The counter above the status row shows the total input, the output, the share that came from
-the cache and, where Deskfish can tell, a cost. The estimate exists only for `claude-*` models
-with an entry in Deskfish's price table, at list prices: Opus 5 at $5 per million input tokens,
-$25 per million output and $0.50 per million read from cache; Sonnet 5 at $2, $10 and $0.20.
-A long task can process a million tokens or more in total; with caching, most of that is the
-cheap kind. Local models cost nothing but time.
+the cache and, where Deskfish can tell, a cost. The estimate exists for the models in
+Deskfish's price table, at the provider's list prices, and only where those prices apply:
+Claude used directly (Opus 5 at $5 per million input tokens, $25 per million output and $0.50
+per million read from cache; Sonnet 5 at $2, $10 and $0.20) and Kimi used directly from
+Moonshot AI (K3 at $3, $15 and $0.30; K2.6 at $0.95, $4 and $0.16). Moonshot's own API caches
+prefixes automatically and reports the cached share, so the estimate counts it. The same model
+name served from a local endpoint is not priced, since it costs nothing but time. Note that Kimi
+K3's list prices are higher than Sonnet 5's on every line. A long task can process a million
+tokens or more in total; with caching, most of that is the cheap kind.
 
 Through OpenRouter the counter shows the actual charge instead of an estimate: OpenRouter
 reports the cost of every request, and Deskfish adds them up. Other OpenAI-compatible
 endpoints report tokens only, so no figure is shown.
 
 `deskfish.maxCostUsd`, 0 by default, is a budget for one task, and it works wherever one of
-those two cost sources exists. At 80% the agent is told to wrap up; once a turn reaches the
+those cost sources exists, a list price or a reported charge. At 80% the agent is told to wrap up; once a turn reaches the
 budget it takes no more actions and writes a summary. It is a brake rather than a hard
 ceiling: the turn that crosses the line and the wrap-up itself can go a little over, and on
 an endpoint with no cost source it cannot act at all. A reflection is billed the same way as

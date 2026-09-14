@@ -17,7 +17,7 @@ import { DEFAULT_SELF } from './agent/seed';
 import { DEFAULT_CHARTER } from './agent/charter';
 import { STARTER_PLAYBOOKS } from './agent/starter';
 import { Library } from './agent/library';
-import { priceFor } from './agent/pricing';
+import { priceForConfig } from './agent/pricing';
 import { AgentRunner } from './agent/loop';
 import type { AdapterConfig } from './agent/adapters/types';
 import { DesktopDaemonComputer } from './computer/daemon';
@@ -47,6 +47,8 @@ async function main(): Promise<number> {
     autonomy: env.DESKFISH_AUTONOMY === 'guided' ? 'guided' : 'free',
     promptCaching: (env.DESKFISH_PROMPT_CACHING as 'auto' | 'on' | 'off' | undefined) ?? 'auto',
     temperature: env.DESKFISH_TEMPERATURE ? Number(env.DESKFISH_TEMPERATURE) : undefined,
+    cacheTtl: env.DESKFISH_CACHE_TTL === '5m' ? '5m' : '1h',
+    effort: (env.DESKFISH_EFFORT as 'low' | 'medium' | 'high' | 'xhigh' | 'max' | undefined) || undefined,
     docsIndex: docs.size ? docs.index() : undefined,
     memoryNote: memory?.render(),
     notes: self && journal ? () => {
@@ -71,7 +73,7 @@ async function main(): Promise<number> {
     library: Library.load(path.join(__dirname, '..', 'library')),
     reflectEvery: Number(env.DESKFISH_REFLECT_EVERY ?? 0),
     budgetUsd: Number(env.DESKFISH_MAX_COST_USD ?? 0),
-    price: provider === 'anthropic' ? priceFor(env.DESKFISH_MODEL ?? 'claude-opus-5') : undefined,
+    price: priceForConfig({ provider, model: env.DESKFISH_MODEL ?? (provider === 'anthropic' ? 'claude-opus-5' : ''), baseUrl: env.DESKFISH_BASE_URL }),
     onEvent: (e) => {
       switch (e.type) {
         case 'status':

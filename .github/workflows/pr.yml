@@ -1,0 +1,26 @@
+# Every pull request gets the same checks a release runs — types, the test suite, a build and the
+# package check — so the person reviewing sees green or red before reading the diff. Pull requests
+# from forks (the agent's own account among them) run with a read-only token, which is all this
+# needs. A green run is not a review: the diff still gets read by a person before it merges.
+name: Pull request
+on:
+  pull_request:
+permissions:
+  contents: read
+concurrency:
+  group: pr-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+      - run: npm run package

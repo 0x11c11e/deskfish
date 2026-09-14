@@ -19,6 +19,10 @@ import {
   WAIT_FOR_TOOL_DESCRIPTION,
   WAIT_FOR_TOOL_PARAMETERS,
   waitForAction,
+  RUN_COMMAND_TOOL_NAME,
+  RUN_COMMAND_TOOL_DESCRIPTION,
+  RUN_COMMAND_TOOL_PARAMETERS,
+  runCommandAction,
   READ_PAGE_TOOL_DESCRIPTION,
   READ_PAGE_TOOL_PARAMETERS,
   readPageAction,
@@ -65,6 +69,8 @@ import {
   toComputerAction,
 } from '../actions';
 import { charterNote, docsNote, journalNote, memoryNote, modelNote, playbookNote, screenNote, selfNote, systemPrompt, tankNote } from '../prompts';
+import { diffNotes } from '../notesDelta';
+import { KEEP_LONG_RESULTS, PRUNE_TEXT_BATCH, isLongResult, shortenResult } from '../prune';
 import type { AgentNotes } from './types';
 import type { ComputerAction } from '../../computer/types';
 import { describeResult, type AdapterConfig, type ModelAdapter, type ModelTurn, type Observation } from './types';
@@ -149,6 +155,15 @@ export class OpenAICompatAdapter implements ModelAdapter {
     else this.messages.unshift({ role: 'system', content: system });
   }
 
+  /** What changed in the notes since the system message was built, without touching that message (it is the cached prefix). */
+  notesDelta(): string | undefined {
+    if (!this.cfg.notes) return undefined;
+    const next = this.cfg.notes();
+    const delta = diffNotes(this.notes, next);
+    this.notes = next;
+    return delta;
+  }
+
   addUserMessage(text: string): void {
     this.queuedUser.push(text);
   }
@@ -189,6 +204,7 @@ export class OpenAICompatAdapter implements ModelAdapter {
       this.messages.push({ role: 'user', content: parts });
     }
     this.pruneImages();
+    this.pruneText();
 
     let response = await this.chat();
     let msg = response.choices?.[0]?.message;
@@ -220,6 +236,7 @@ export class OpenAICompatAdapter implements ModelAdapter {
         else if (call.function?.name === FIND_TOOL_NAME) actions.push(findAction(args));
         else if (call.function?.name === READ_PAGE_TOOL_NAME) actions.push(readPageAction(args));
         else if (call.function?.name === WAIT_FOR_TOOL_NAME) actions.push(waitForAction(args));
+        else if (call.function?.name === RUN_COMMAND_TOOL_NAME) actions.push(runCommandAction(args));
         else if (call.function?.name === REMEMBER_TOOL_NAME) actions.push(rememberAction(args));
         else if (call.function?.name === FORGET_TOOL_NAME) actions.push(forgetAction(args));
         else if (call.function?.name === REVISE_SELF_TOOL_NAME) actions.push(reviseSelfAction(args));
@@ -272,6 +289,14 @@ export class OpenAICompatAdapter implements ModelAdapter {
         }
       }
     }
+  }
+
+  /** Older long tool results shrink to their first line, in batches (see ../prune.ts and the Anthropic adapter). */
+  private pruneText(): void {
+    const keep = this.cfg.maxTextResults ?? KEEP_LONG_RESULTS;
+    const long = this.messages.filter((m) => m.role === 'tool' && typeof m.content === 'string' && isLongResult(m.content));
+    if (long.length <= keep + PRUNE_TEXT_BATCH) return;
+    for (const m of long.slice(0, long.length - keep)) m.content = shortenResult(m.content as string);
   }
 
   /** Whether to send Anthropic-style cache breakpoints (see AdapterConfig.promptCaching). */
@@ -344,6 +369,7 @@ export class OpenAICompatAdapter implements ModelAdapter {
         { type: 'function', function: { name: FIND_TOOL_NAME, description: FIND_TOOL_DESCRIPTION, parameters: FIND_TOOL_PARAMETERS } },
         { type: 'function', function: { name: READ_PAGE_TOOL_NAME, description: READ_PAGE_TOOL_DESCRIPTION, parameters: READ_PAGE_TOOL_PARAMETERS } },
         { type: 'function', function: { name: WAIT_FOR_TOOL_NAME, description: WAIT_FOR_TOOL_DESCRIPTION, parameters: WAIT_FOR_TOOL_PARAMETERS } },
+        { type: 'function', function: { name: RUN_COMMAND_TOOL_NAME, description: RUN_COMMAND_TOOL_DESCRIPTION, parameters: RUN_COMMAND_TOOL_PARAMETERS } },
         ...(this.cfg.docsIndex
           ? [{ type: 'function', function: { name: READ_DOCS_TOOL_NAME, description: READ_DOCS_TOOL_DESCRIPTION, parameters: READ_DOCS_TOOL_PARAMETERS } }]
           : []),

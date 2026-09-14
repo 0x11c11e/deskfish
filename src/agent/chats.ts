@@ -1,5 +1,6 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { maskSecrets } from './secrets';
 
 /**
  * Past chats: every conversation is written to a markdown transcript as it happens (your
@@ -182,7 +183,7 @@ export class ChatTranscript {
 
   private append(s: string): void {
     try {
-      fs.appendFileSync(this.file, s);
+      fs.appendFileSync(this.file, maskSecrets(s)); // a transcript is a log: no credential is written down
       this.atLineStart = s.endsWith('\n');
     } catch {
       /* a transcript must never break a task */

@@ -57,6 +57,24 @@ ok(ledgerPrompt(40).includes('40 steps') && /Goal:.*Done:.*Left:.*State:.*Watch 
 const cont = continuationTask('Buy milk', 'Goal: milk', 40, ['use the corner shop']);
 ok(cont.startsWith('Buy milk') && cont.includes('40 steps into this task') && cont.includes('Ledger:\nGoal: milk') && cont.includes('- use the corner shop'), `continuation task carries task, ledger and follow-ups: ${cont.slice(0, 80)}`);
 
+// 0. The size trigger: ledgerEvery off, ledgerTokens 5000, an adapter whose context grows by 1,000 tokens a turn
+//    since its last start → a ledger once the last request passed 5,000, then again 5 turns after the restart.
+{
+  let sinceStart = 0;
+  const base = adapter(12);
+  const inner = base.a as unknown as { start: (t: string) => void; step: (o: Observation) => Promise<ModelTurn> };
+  const origStart = inner.start.bind(inner);
+  const origStep = inner.step.bind(inner);
+  inner.start = (t: string) => { sinceStart = 0; origStart(t); };
+  inner.step = async (o: Observation) => { const turn = await origStep(o); sinceStart++; return { ...turn, usage: { input: sinceStart * 1000, output: 5 } }; };
+  const events: AgentEvent[] = [];
+  const runner = new AgentRunner({ computer, adapter: base.a, maxSteps: 40, screenshotWidth: 320, settleMs: 0, ledgerEvery: 0, ledgerTokens: 5000, onEvent: (e) => events.push(e) });
+  await runner.run('Click through the boxes');
+  const ledgers = events.filter((e) => e.type === 'ledger') as Extract<AgentEvent, { type: 'ledger' }>[];
+  ok(runner.currentStatus === 'done' && ledgers.length === 2 && ledgers[0].step === 5 && ledgers[1].step === 10, `size-triggered ledgers after 5 and 10 steps with ledgerEvery off: ${ledgers.map((l) => l.step)} (${runner.currentStatus})`);
+  ok(base.starts.length === 3, `each size cut restarts the conversation: ${base.starts.length} starts`);
+}
+
 // 1. 90 steps with ledgerEvery 40 → ledgers after 40 and 80, three conversations, events, fresh look each time.
 {
   let runner!: AgentRunner;

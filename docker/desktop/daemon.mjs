@@ -12,6 +12,9 @@
 //                                    all confined to $HOME — the file exchange with the user)
 //                                 (+ page_find {query,limit} / page_read {scope,limit} — answered by
 //                                    the Deskfish page bridge, a WebExtension in Firefox, see below)
+//                                 (+ run_command {command,timeout_seconds,cwd} → {stdout,stderr,exit,
+//                                    timedOut,ms}: bash as the bot user, not queued, killed on timeout
+//                                    or when the caller goes away)
 //   GET  /                        health + screen size (+ whether the page bridge is connected)
 //   GET  /screenshot.png          current screen (handy in a browser)
 //   GET  /bridge/next             long-poll used by the page bridge extension (returns a job or {})
@@ -248,7 +251,7 @@ async function typeRun(text, delay) {
       child.stdin.end(text);
     });
   } catch (err) {
-    console.log(`type_text: xdotool could not type ${JSON.stringify(text.slice(0, 40))} (${err.message.split('\n')[1] ?? err.message}); pasting instead`);
+    console.log(`type_text: xdotool could not type ${maskSecrets(JSON.stringify(text.slice(0, 40)))} (${err.message.split('\n')[1] ?? err.message}); pasting instead`);
     await pasteText(text);
   }
 }
@@ -293,8 +296,86 @@ function safePath(p) {
   return abs;
 }
 
+// ---------- secrets never reach this log ----------
+// The extension masks its own log and transcripts (src/agent/secrets.ts); this is the same idea for
+// the daemon's request log, which once held a GitHub token from a `git push https://user:TOKEN@…`.
+const SECRET_TOKENS = [
+  /\bgh[pousr]_[A-Za-z0-9]{20,}/g,
+  /\bgithub_pat_[A-Za-z0-9_]{20,}/g,
+  /\bsk-[A-Za-z0-9_-]{20,}/g,
+  /\bxai-[A-Za-z0-9]{20,}/g,
+  /\bglpat-[A-Za-z0-9_-]{20,}/g,
+  /\bnpm_[A-Za-z0-9]{36}\b/g,
+  /\bxox[abprs]-[A-Za-z0-9-]{10,}/g,
+  /\bAKIA[0-9A-Z]{16}\b/g,
+  /\bAIza[0-9A-Za-z_-]{35}\b/g,
+  /\beyJ[A-Za-z0-9_-]{16,}\.eyJ[A-Za-z0-9_-]{16,}\.[A-Za-z0-9_-]{10,}/g,
+];
+function maskSecrets(text) {
+  let out = String(text);
+  for (const re of SECRET_TOKENS) out = out.replace(re, (m) => `${(m.match(/^([A-Za-z]{2,5}[_-])/) || [, m.slice(0, 4)])[1]}***`);
+  out = out.replace(/(\b(?:Bearer|Basic|Token)\s+)[A-Za-z0-9._~+/=-]{16,}/g, '$1***');
+  out = out.replace(/(\b[a-z][a-z0-9+.-]*:\/\/[^\s/:@]+:)[^\s@/]+(@)/gi, '$1***$2');
+  out = out.replace(/(\b(?:[A-Za-z0-9_-]*(?:token|secret|password|passwd|pwd|api[_-]?key|access[_-]?key)[A-Za-z0-9_-]*)\s*=\s*["']?)([^\s"'&;]{6,})/gi, (m, k, v) => (v.length >= 16 || /[0-9@#$%^&*+/=_-]/.test(v) ? `${k}***` : m));
+  return out;
+}
+
+// ---------- run_command ----------
+// The terminal without the screen. bash -lc as the bot user in its home (or a folder under it),
+// stdin closed so nothing waits for input, its own process group so a timeout — or the caller
+// hanging up, i.e. the task was stopped — kills the whole tree. Not queued behind xdotool: a test
+// suite must not hold up screenshots and clicks, and it touches no input device. Output is
+// captured up to a limit per stream; the extension cuts it further for the model.
+const CMD_MAX_TIMEOUT_MS = 600_000;
+const CMD_CAPTURE_LIMIT = 256 * 1024;
+async function runCommand(body, signal) {
+  const command = String(body.command ?? '');
+  if (!command.trim()) throw new Error('run_command needs a command');
+  const timeoutMs = Math.min(CMD_MAX_TIMEOUT_MS, Math.max(1000, Math.round(Number(body.timeout_seconds) || 60) * 1000));
+  const cwd = body.cwd ? safePath(body.cwd) : HOME;
+  const started = Date.now();
+  return new Promise((resolve, reject) => {
+    const child = spawn('bash', ['-lc', command], {
+      cwd,
+      detached: true,
+      stdio: ['ignore', 'pipe', 'pipe'],
+      env: { ...process.env, HOME, LANG: 'C.UTF-8', LC_ALL: 'C.UTF-8', TERM: 'dumb', NO_COLOR: '1', PAGER: 'cat', GIT_PAGER: 'cat', GIT_TERMINAL_PROMPT: '0' },
+    });
+    let stdout = '';
+    let stderr = '';
+    let truncated = false;
+    let timedOut = false;
+    let killed = false;
+    const collect = (which) => (chunk) => {
+      const cur = which === 'out' ? stdout : stderr;
+      if (cur.length >= CMD_CAPTURE_LIMIT) return void (truncated = true);
+      const next = cur + chunk.toString('utf8');
+      const cut = next.length > CMD_CAPTURE_LIMIT ? next.slice(0, CMD_CAPTURE_LIMIT) : next;
+      if (cut.length < next.length) truncated = true;
+      if (which === 'out') stdout = cut;
+      else stderr = cut;
+    };
+    child.stdout.on('data', collect('out'));
+    child.stderr.on('data', collect('err'));
+    const kill = () => {
+      killed = true;
+      try { process.kill(-child.pid, 'SIGTERM'); } catch { /* already gone */ }
+      setTimeout(() => { try { process.kill(-child.pid, 'SIGKILL'); } catch { /* already gone */ } }, 2000).unref();
+    };
+    const timer = setTimeout(() => { timedOut = true; kill(); }, timeoutMs);
+    const onAbort = () => kill();
+    signal?.addEventListener('abort', onAbort, { once: true });
+    const done = () => { clearTimeout(timer); signal?.removeEventListener('abort', onAbort); };
+    child.on('error', (err) => { done(); reject(err); });
+    child.on('close', (code) => {
+      done();
+      resolve({ stdout, stderr, exit: timedOut || killed ? null : code, timedOut, ms: Date.now() - started, ...(truncated ? { truncated: true } : {}) });
+    });
+  });
+}
+
 // ---------- actions ----------
-async function handle(body) {
+async function handle(body, extra = {}) {
   const { action } = body;
   const coords = body.coordinates;
   const moveIf = async () => {
@@ -480,6 +561,9 @@ async function handle(body) {
       return answer.data;
     }
 
+    case 'run_command':
+      return runCommand(body, extra.signal);
+
     default:
       throw new Error(`unknown action "${action}"`);
   }
@@ -552,9 +636,17 @@ const server = http.createServer(async (req, res) => {
         return json(res, 400, { success: false, error: 'invalid JSON' });
       }
       try {
-        const data = await enqueue(() => handle(body));
+        let data;
+        if (body.action === 'run_command') {
+          // Outside the input queue (see runCommand); a client that hangs up mid-command (Stop) kills it.
+          const ctl = new AbortController();
+          res.on('close', () => { if (!res.writableFinished) ctl.abort(); });
+          data = await handle(body, { signal: ctl.signal });
+        } else {
+          data = await enqueue(() => handle(body));
+        }
         const log = body.action === 'write_file' ? { ...body, data: '<redacted>' } : body;
-        console.log(`${new Date().toISOString()} ${JSON.stringify(log)}`.slice(0, 200));
+        console.log(`${new Date().toISOString()} ${maskSecrets(JSON.stringify(log))}`.slice(0, 200));
         return json(res, 200, data === undefined ? { success: true } : { success: true, data });
       } catch (err) {
         console.log(`${new Date().toISOString()} ${body.action} ERROR ${err.message}`);

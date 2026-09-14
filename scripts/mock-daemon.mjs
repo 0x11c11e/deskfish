@@ -144,6 +144,16 @@ async function handle(body) {
       const hits = elements.filter((e) => e.name.toLowerCase().includes(q) || e.role === q).map((e, i) => ({ ...e, score: 100 - i }));
       return { success: true, data: { ...page, elements: hits, total: elements.length } };
     }
+    case 'run_command': {
+      // A canned terminal, so the loop's run_command path can be exercised without a shell:
+      // echoes the command; "fail" in it → exit 127 with stderr; "sleep" in it → timed out.
+      const command = String(body.command ?? '');
+      log(JSON.stringify(command.slice(0, 60)));
+      if (!command.trim()) return { success: false, error: 'run_command needs a command' };
+      if (/\bfail\b/.test(command)) return { success: true, data: { stdout: '', stderr: `bash: ${command}: command not found`, exit: 127, timedOut: false, ms: 4 } };
+      if (/\bsleep\b/.test(command)) return { success: true, data: { stdout: '', stderr: '', exit: null, timedOut: true, ms: 1000 } };
+      return { success: true, data: { stdout: `mock output of: ${command}\n`, stderr: '', exit: 0, timedOut: false, ms: 3 } };
+    }
     default:
       log('(unsupported)');
       return { success: false, error: `mock daemon does not implement ${action}` };

@@ -1,6 +1,6 @@
 import type { AgentEvent, AgentStatus } from '../agent/loop';
 import { describeAction } from '../computer/types';
-import { costUsd, priceFor } from '../agent/pricing';
+import { costUsd, priceForConfig } from '../agent/pricing';
 import { formatSize } from '../desktop/files';
 import type { DesktopStatus } from '../desktop/manager';
 import type { DesktopFile, FromChat, ToChat, UiConfig } from './protocol';
@@ -42,9 +42,10 @@ const attachmentsEl = $<HTMLDivElement>('attachments');
 let status: AgentStatus = 'idle';
 let statusMessage = '';
 let desktop: DesktopStatus = { state: 'unknown' };
-let usage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, reportedUsd: 0 };
+let usage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cacheWrite1h: 0, reportedUsd: 0 };
 let currentModel = '';
 let currentProvider = '';
+let currentBaseUrl = '';
 
 const compact = (n: number): string => (n >= 1e6 ? `${(n / 1e6).toFixed(2)}M` : n >= 1e4 ? `${Math.round(n / 1e3)}k` : n.toLocaleString());
 
@@ -57,7 +58,7 @@ function renderUsage(): void {
   }
   const parts = [`${compact(total)} in`, `${compact(usage.output)} out`];
   if (usage.cacheRead) parts.push(`${Math.round((usage.cacheRead / total) * 100)}% cached`);
-  const price = currentProvider === 'anthropic' ? priceFor(currentModel) : undefined;
+  const price = priceForConfig({ provider: currentProvider, model: currentModel, baseUrl: currentBaseUrl });
   const fmt = (usd: number) => `$${usd < 0.1 ? usd.toFixed(3) : usd.toFixed(2)}`;
   if (usage.reportedUsd > 0) parts.push(fmt(usage.reportedUsd));
   else if (price) parts.push(`≈ ${fmt(costUsd(usage, price))}`);
@@ -398,6 +399,7 @@ function renderConfig(c: UiConfig): void {
   maxSteps = c.maxSteps > 0 ? c.maxSteps : 0;
   currentModel = c.model;
   currentProvider = c.provider;
+  currentBaseUrl = c.baseUrl;
   renderUsage();
   modelText.replaceChildren();
   if (c.provider === 'mock') {
@@ -688,6 +690,23 @@ function onEvent(e: AgentEvent): void {
       el.className = `action${e.result.ok ? '' : ' failed'}`;
       el.textContent = `${describeAction(e.action)}${e.result.ok ? '' : ` — ${e.result.error}`}`;
       el.title = `step ${e.step}: ${el.textContent}`;
+      if (e.action.type === 'run_command' && e.result.ok && e.result.command) {
+        // As a terminal agent shows it: the command and its verdict on the line, the output folded under it.
+        el.textContent += ` → ${e.result.message ?? ''}`;
+        el.classList.add('command');
+        const out = e.result.command;
+        const text = `${out.stdout}${out.stderr ? `${out.stdout && !out.stdout.endsWith('\n') ? '\n' : ''}[stderr]\n${out.stderr}` : ''}`.replace(/\s+$/, '');
+        if (text) {
+          const d = document.createElement('details');
+          d.className = 'command-output';
+          const s = document.createElement('summary');
+          s.textContent = 'output';
+          const pre = document.createElement('pre');
+          pre.textContent = text;
+          d.append(s, pre);
+          el.appendChild(d);
+        }
+      }
       appendAction(el, !e.result.ok);
       break;
     }
@@ -729,6 +748,7 @@ function onEvent(e: AgentEvent): void {
         output: usage.output + e.output,
         cacheRead: usage.cacheRead + (e.cacheRead ?? 0),
         cacheWrite: usage.cacheWrite + (e.cacheWrite ?? 0),
+        cacheWrite1h: usage.cacheWrite1h + (e.cacheWrite1h ?? 0),
         reportedUsd: usage.reportedUsd + (e.costUsd ?? 0),
       };
       renderUsage();
@@ -880,7 +900,7 @@ function resetChat(): void {
   reflection = undefined;
   if (standby) clearInterval(standby.timer);
   standby = undefined;
-  usage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, reportedUsd: 0 };
+  usage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cacheWrite1h: 0, reportedUsd: 0 };
   renderUsage();
   pending.length = 0;
   renderAttachments();

@@ -17,10 +17,11 @@ import { ChatStore, parseTranscript, type ChatTranscript, type ReplayItem } from
 import { DEFAULT_SELF } from './agent/seed';
 import type { AgentNotes } from './agent/adapters/types';
 import * as fs from 'node:fs';
-import { priceFor } from './agent/pricing';
+import { priceForConfig } from './agent/pricing';
 import { AgentRunner, type AgentEvent, type AgentStatus } from './agent/loop';
 import { DesktopDaemonComputer } from './computer/daemon';
 import { describeAction } from './computer/types';
+import { maskSecrets } from './agent/secrets';
 import { API_KEY_SECRET, readConfig } from './config';
 import { PRESETS, isLocalEndpoint, keySlotFor, presetFor, type Preset } from './agent/presets';
 import { DOWNLOADS_DIR, DownloadsWatcher, UPLOADS_DIR, formatSize, isTemporary, safeFileName } from './desktop/files';
@@ -246,7 +247,7 @@ export class AgentController implements vscode.Disposable {
 
     const runner = await this.ensureRunner();
     if (!runner) return;
-    this.output.appendLine(`▶ task: ${task}`);
+    this.output.appendLine(`▶ task: ${maskSecrets(task)}`);
     void runner.run(task).catch((err) => {
       this.emit({ type: 'status', status: 'error', message: err instanceof Error ? err.message : String(err) });
     });
@@ -281,7 +282,7 @@ export class AgentController implements vscode.Disposable {
     // A follow-up task continues the previous conversation (the model keeps its context) as long
     // as the last run ended cleanly and the model setup is unchanged. After stop/error the
     // adapter may hold half-finished tool calls, so those start fresh.
-    const fingerprint = JSON.stringify([cfg.provider, cfg.model, cfg.baseUrl, cfg.anthropicWorkspaceId, cfg.autonomy, cfg.daemonUrl, apiKey]);
+    const fingerprint = JSON.stringify([cfg.provider, cfg.model, cfg.baseUrl, cfg.anthropicWorkspaceId, cfg.autonomy, cfg.daemonUrl, apiKey, cfg.effort, cfg.cacheTtl]);
     let runner = this.runner;
     if (!runner || runner.currentStatus !== 'done' || fingerprint !== this.runnerFingerprint) {
       try {
@@ -297,6 +298,8 @@ export class AgentController implements vscode.Disposable {
           notes: () => this.notes(),
           promptCaching: cfg.promptCaching,
           temperature: typeof cfg.temperature === 'number' ? cfg.temperature : undefined,
+          cacheTtl: cfg.cacheTtl,
+          effort: cfg.effort || undefined,
         });
         const gen = this.generation;
         runner = new AgentRunner({
@@ -326,8 +329,9 @@ export class AgentController implements vscode.Disposable {
           },
           reflectEvery: cfg.reflectEvery,
           ledgerEvery: cfg.ledgerEvery,
+          ledgerTokens: cfg.ledgerTokens,
           budgetUsd: cfg.maxCostUsd,
-          price: cfg.provider === 'anthropic' ? priceFor(cfg.model) : undefined,
+          price: priceForConfig({ provider: cfg.provider, model: cfg.model, baseUrl: cfg.baseUrl }),
           onEvent: (e) => {
             if (gen === this.generation) this.emit(e);
           },
@@ -541,7 +545,7 @@ export class AgentController implements vscode.Disposable {
   /** Keep a message typed during a reflection; `afterRun` starts it when the reflection ends. */
   private hold(text: string, attachments?: DesktopFile[]): void {
     const how = this.held.add(text, attachments ?? []);
-    this.output.appendLine(`⏳ held until her reflection ends: ${text}`);
+    this.output.appendLine(`⏳ held until her reflection ends: ${maskSecrets(text)}`);
     this.postEmitter.fire({
       kind: 'notice',
       text: how === 'held' ? 'She is reflecting. Your message waits and starts as a task when she finishes.' : 'Added to the message waiting for her reflection to end.',
@@ -971,7 +975,12 @@ export class AgentController implements vscode.Disposable {
     } else if (e.type === 'assistant') {
       this.output.appendLine(`🤖 ${e.text}`);
     } else if (e.type === 'action') {
-      this.output.appendLine(`  #${e.step} ${describeAction(e.action)} → ${e.result.ok ? 'ok' : `error: ${e.result.error}`}`);
+      this.output.appendLine(`  #${e.step} ${describeAction(e.action)} → ${e.result.ok ? 'ok' : `error: ${e.result.error}`}${e.action.type === 'run_command' && e.result.message ? ` (${e.result.message})` : ''}`);
+      if (e.action.type === 'run_command' && e.result.command) {
+        // The command's output, as the model saw it (trimmed), so a pull request can be followed from the log.
+        const out = e.result.command;
+        for (const l of `${out.stdout}${out.stderr ? `\n[stderr]\n${out.stderr}` : ''}`.split('\n')) if (l.trim()) this.output.appendLine(`     │ ${l}`);
+      }
     } else if (e.type === 'charter_objection') {
       for (const l of e.lines) this.output.appendLine(`  ✋ she disagrees with her charter: ${l}`);
       void vscode.window.showWarningMessage(`Deskfish: in her reflection she disagreed with her charter — "${e.lines[0]}"`, 'Edit charter', 'Show log').then((c) => {

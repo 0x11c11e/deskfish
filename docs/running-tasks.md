@@ -30,7 +30,8 @@ so you can scroll back through the day's work.
 
 **The counter and the status row.** Two lines under the conversation. The first is a running
 count for the conversation: tokens in, tokens out, how much came from the prompt cache, and
-a cost where Deskfish can tell (Claude models used directly, or the charge OpenRouter reports).
+a cost where Deskfish can tell (Claude or Kimi used directly, at list prices, or the charge
+OpenRouter reports).
 "In" counts everything the model processed; because each step re-sends the conversation so
 far, that number grows quickly on long tasks, and the cached share is what keeps it cheap.
 Below it, the status row says *Ready*, *Working*, *Paused*, *Done*, *Stopped* or *Error*,
@@ -176,13 +177,15 @@ well under a second.
   be stuck"* so you decide what to do. Scrolling a long page or working through a form is not a
   stall: the screen changes and the actions differ.
 - **A cost budget, if you want one.** `deskfish.maxCostUsd` works where Deskfish can see a
-  cost: Claude models used directly (known list prices) or OpenRouter, which reports the
+  cost: Claude or Kimi used directly (known list prices) or OpenRouter, which reports the
   charge. At 80% the agent is told to wrap up; once a turn reaches the budget it takes no
   more actions, writes a summary and stops, and **continue** resumes. It is a brake, not a
   hard ceiling: the turn that crosses the line and the wrap-up itself can go a little over.
   Other endpoints report tokens only, so no budget can be enforced there.
 - Screenshots are pruned in batches, keeping the three most recent; older ones are replaced
-  by a note. The ledger replaces the older text every forty steps; the saved transcript keeps
+  by a note, and long results such as a page's text or a command's output shrink to their first
+  line once four newer ones exist. The ledger replaces the older text every forty steps, or
+  sooner when the conversation grows past a hundred thousand tokens; the saved transcript keeps
   everything.
 - One task at a time, on one screen. There is no audio and no webcam in the tank.
 

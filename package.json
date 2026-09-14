@@ -326,7 +326,7 @@
         "deskfish.maxCostUsd": {
           "type": "number",
           "default": 0,
-          "description": "Cost budget per task in US dollars: at list prices for Claude models used directly, or the cost OpenRouter reports. 0 = none. At 80% the agent is told to wrap up; at the budget it summarizes and stops, and \"continue\" resumes."
+          "description": "Cost budget per task in US dollars: at list prices for Claude or Kimi used directly, or the cost OpenRouter reports. 0 = none. At 80% the agent is told to wrap up; at the budget it summarizes and stops, and \"continue\" resumes."
         },
         "deskfish.screenshotWidth": {
           "type": "number",
@@ -402,6 +402,33 @@
           "type": "number",
           "default": 5,
           "description": "A scheduled task still starts this many minutes after its due time when Deskfish only just started (VS Code was opened a little late). Later than that, the occurrence is reported as missed and skipped. A task that was due while the agent was busy always runs once she is free."
+        },
+        "deskfish.ledgerTokens": {
+          "type": "number",
+          "default": 100000,
+          "description": "Also write a ledger and restart the conversation when the last request's context (input plus cache) passed this many tokens, whatever the step count. Keeps a text-heavy task (many page reads, long command output) from paying for a huge context on every step. 0 = only by step count."
+        },
+        "deskfish.cacheTtl": {
+          "type": "string",
+          "enum": [
+            "1h",
+            "5m"
+          ],
+          "default": "1h",
+          "description": "Anthropic prompt cache lifetime. 1h: the cached conversation survives the pauses between your messages, a standby and a slow command, at 2× instead of 1.25× the input price on each step's few new tokens. 5m: the cheaper write, for back-to-back requests only; after five idle minutes the whole conversation is re-written at cache-write price."
+        },
+        "deskfish.effort": {
+          "type": "string",
+          "enum": [
+            "",
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ],
+          "default": "",
+          "description": "Anthropic only: how hard the model thinks on each turn. Empty = the provider's default (high). Lower effort means fewer thinking tokens, faster turns and fewer, more consolidated actions; medium is worth measuring on your own tasks. Applies from the next new conversation."
         },
         "deskfish.promptCaching": {
           "type": "string",

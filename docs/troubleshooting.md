@@ -124,7 +124,7 @@ you would rather run it yourself from the **…** menu. See [Memory](memory#refl
 ## The memory chip says "1 not saved"
 
 Open it: the agent tried to save something over its size limit, a playbook over 2,500
-characters or a fact over 400. The message tells it exactly how much to cut, and it usually
+characters or a fact over 600. The message tells it exactly how much to cut, and it usually
 writes a shorter one right after, which shows in the same chip. Nothing to do on your side.
 
 ## The agent got the date wrong

@@ -20,6 +20,12 @@ export interface DeskfishConfig {
   userName: string;
   /** Every this many steps of a task the agent writes a ledger and the conversation restarts from it (0 = never). */
   ledgerEvery: number;
+  /** Also write a ledger when the conversation passes this many tokens (0 = only by steps). */
+  ledgerTokens: number;
+  /** Anthropic prompt-cache TTL: 1h (default) or 5m. */
+  cacheTtl: '5m' | '1h';
+  /** Anthropic thinking effort per turn; '' = the provider's default. */
+  effort: '' | 'low' | 'medium' | 'high' | 'xhigh' | 'max';
   /** A scheduled task still fires this many minutes after its due moment if Deskfish only just started; later it is missed. */
   scheduleGraceMinutes: number;
   /** Cache breakpoints on OpenAI-compatible endpoints: auto (OpenRouter only), on, off. */
@@ -59,6 +65,9 @@ export function readConfig(): DeskfishConfig {
     reflectEvery: c.get<number>('reflectEvery', 5),
     scheduleGraceMinutes: c.get<number>('scheduleGraceMinutes', 5),
     ledgerEvery: c.get<number>('ledgerEvery', 40),
+    ledgerTokens: c.get<number>('ledgerTokens', 100000),
+    cacheTtl: c.get<'5m' | '1h'>('cacheTtl', '1h'),
+    effort: c.get<'' | 'low' | 'medium' | 'high' | 'xhigh' | 'max'>('effort', ''),
     userName: c.get<string>('userName', '').trim(),
     promptCaching: c.get<'auto' | 'on' | 'off'>('promptCaching', 'auto'),
     temperature: c.get<number | null>('temperature', null),

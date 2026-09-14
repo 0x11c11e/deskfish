@@ -3,10 +3,12 @@
 #   debian:bookworm-slim  (28 MB)        base
 #   Xvfb + Openbox + x11vnc + websockify  virtual screen, window manager, remote view
 #   tint2 + feh + librsvg                 bottom panel (launchers + open windows), wallpaper
-#   firefox-esr + xterm                   the apps (+ curl, python3/pip/requests, git, jq, poppler's pdftotext/pdftoppm,
+#   firefox-esr + xterm                   the apps (+ curl, python3/pip/requests, git, gh, jq, poppler's pdftotext/pdftoppm,
 #                                         zip/unzip, nano in the terminal; libavcodec so Firefox plays H.264/AAC video)
+#   Node.js 22 + npm (nodejs.org)         runs the daemon; lets the bot run its own test suite before a pull request
 #   xdotool + scrot                       hands + eyes
-#   daemon.mjs (Node)                     the control API on :9990  (+ /websockify proxy for noVNC)
+#   daemon.mjs (Node)                     the control API on :9990  (+ /websockify proxy for noVNC; run_command runs
+#                                         shell commands for the agent without the screen)
 #   bridge/ (WebExtension)                the page bridge: lets the agent read the Firefox page and
 #                                         find elements by name (find / read_page tools)
 #
@@ -18,10 +20,21 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       xvfb openbox x11vnc websockify xdotool scrot xclip xterm x11-xserver-utils \
       tint2 feh librsvg2-bin \
       firefox-esr libgl1-mesa-dri dbus-x11 fonts-dejavu-core fonts-liberation2 \
-      nodejs ca-certificates procps \
-      curl python3 python3-pip python3-requests jq git zip unzip nano less xinput \
+      ca-certificates procps \
+      curl python3 python3-pip python3-requests jq git gh zip unzip nano less xinput \
       poppler-utils libavcodec59 \
     && rm -rf /var/lib/apt/lists/*
+
+# Node.js 22 (LTS) from nodejs.org, checksum-verified against its SHASUMS256.txt. Debian's nodejs
+# is 18 without npm; the daemon runs on this one, and so does `npm test` on the bot's own source.
+RUN set -eu; arch=$(dpkg --print-architecture); case "$arch" in amd64) a=x64 ;; arm64) a=arm64 ;; *) echo "unsupported architecture $arch" >&2; exit 1 ;; esac; \
+    base=https://nodejs.org/dist/latest-v22.x; \
+    curl -fsSL "$base/SHASUMS256.txt" -o /tmp/SHASUMS256.txt; \
+    f=$(grep -o "node-v22\.[0-9.]*-linux-$a\.tar\.gz" /tmp/SHASUMS256.txt | head -1); \
+    curl -fsSL "$base/$f" -o "/tmp/$f"; \
+    (cd /tmp && grep " $f\$" SHASUMS256.txt | sha256sum -c -); \
+    tar -xzf "/tmp/$f" -C /usr/local --strip-components=1 --exclude='*/CHANGELOG.md' --exclude='*/README.md' --exclude='*/LICENSE'; \
+    rm -f "/tmp/$f" /tmp/SHASUMS256.txt; node --version; npm --version
 
 RUN useradd -m -u 1000 -s /bin/bash bot
 

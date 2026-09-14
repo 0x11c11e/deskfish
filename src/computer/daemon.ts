@@ -63,7 +63,7 @@ export class DesktopDaemonComputer implements ComputerProvider {
     return { png, width, height };
   }
 
-  async execute(action: ComputerAction): Promise<ActionResult> {
+  async execute(action: ComputerAction, signal?: AbortSignal): Promise<ActionResult> {
     try {
       switch (action.type) {
         case 'screenshot':
@@ -126,6 +126,17 @@ export class DesktopDaemonComputer implements ComputerProvider {
         case 'read_page': {
           const r = await this.call({ action: 'page_read', scope: action.scope ?? 'interactive' });
           return { ok: true, page: r.data as ActionResult['page'] };
+        }
+
+        case 'run_command': {
+          // The daemon enforces the command's own timeout; the request gets a margin on top of it,
+          // and Stop aborts the request, which makes the daemon kill the process.
+          const timeoutSeconds = action.timeoutSeconds ?? 60;
+          const r = await this.call(
+            { action: 'run_command', command: action.command, timeout_seconds: timeoutSeconds, ...(action.cwd ? { cwd: action.cwd } : {}) },
+            { signal, timeoutMs: (timeoutSeconds + 30) * 1000 },
+          );
+          return { ok: true, command: r.data as unknown as ActionResult['command'] };
         }
 
         case 'wait_for':
@@ -210,13 +221,17 @@ export class DesktopDaemonComputer implements ComputerProvider {
     return [];
   }
 
-  private async call(body: Record<string, unknown>): Promise<DaemonResponse> {
+  private async call(body: Record<string, unknown>, opts: { signal?: AbortSignal; timeoutMs?: number } = {}): Promise<DaemonResponse> {
     const url = `${this.baseUrl.replace(/\/+$/, '')}/computer-use/computer`;
     const headers: Record<string, string> = { 'content-type': 'application/json' };
     if (this.opts.token) headers.authorization = `Bearer ${this.opts.token}`;
+    const signals: AbortSignal[] = [];
+    if (opts.signal) signals.push(opts.signal);
+    if (opts.timeoutMs) signals.push(AbortSignal.timeout(opts.timeoutMs));
+    const signal = signals.length ? AbortSignal.any(signals) : undefined;
     let r: Response;
     try {
-      r = await this.fetchImpl(url, { method: 'POST', headers, body: JSON.stringify(body) });
+      r = await this.fetchImpl(url, { method: 'POST', headers, body: JSON.stringify(body), ...(signal ? { signal } : {}) });
     } catch (err) {
       throw new Error(`cannot reach desktop daemon at ${this.baseUrl}: ${err instanceof Error ? err.message : String(err)}`);
     }

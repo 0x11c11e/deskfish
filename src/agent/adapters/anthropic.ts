@@ -18,6 +18,10 @@ import {
   WAIT_FOR_TOOL_DESCRIPTION,
   WAIT_FOR_TOOL_PARAMETERS,
   waitForAction,
+  RUN_COMMAND_TOOL_NAME,
+  RUN_COMMAND_TOOL_DESCRIPTION,
+  RUN_COMMAND_TOOL_PARAMETERS,
+  runCommandAction,
   READ_PAGE_TOOL_DESCRIPTION,
   READ_PAGE_TOOL_PARAMETERS,
   readPageAction,
@@ -68,6 +72,8 @@ import {
   zoomAction,
 } from '../actions';
 import { charterNote, docsNote, journalNote, memoryNote, modelNote, playbookNote, screenNote, selfNote, systemPrompt, tankNote } from '../prompts';
+import { diffNotes } from '../notesDelta';
+import { KEEP_LONG_RESULTS, PRUNE_TEXT_BATCH, isLongResult, shortenResult } from '../prune';
 import type { AgentNotes } from './types';
 import { describeResult, type AdapterConfig, type ModelAdapter, type ModelTurn, type Observation } from './types';
 
@@ -75,6 +81,7 @@ type BetaMessageParam = Anthropic.Beta.BetaMessageParam;
 type BetaContentBlockParam = Anthropic.Beta.BetaContentBlockParam;
 type BetaImageBlockParam = Anthropic.Beta.BetaImageBlockParam;
 type BetaToolResultBlockParam = Anthropic.Beta.BetaToolResultBlockParam;
+type CacheMark = { type: 'ephemeral'; ttl?: '5m' | '1h' };
 
 const COMPUTER_USE_BETA = 'computer-use-2025-11-24';
 const FALLBACK_BETA = 'server-side-fallback-2026-07-01';
@@ -105,6 +112,7 @@ export class AnthropicAdapter implements ModelAdapter {
   readonly name = 'anthropic';
   private readonly client: Anthropic;
   private readonly maxImages: number;
+  private readonly maxTextResults: number;
   private messages: BetaMessageParam[] = [];
   private system = '';
   private screen = { width: 1280, height: 720 };
@@ -124,6 +132,7 @@ export class AnthropicAdapter implements ModelAdapter {
       ...(cfg.workspaceId ? { defaultHeaders: { 'anthropic-workspace-id': cfg.workspaceId } } : {}),
     });
     this.maxImages = cfg.maxImages ?? 3;
+    this.maxTextResults = cfg.maxTextResults ?? KEEP_LONG_RESULTS;
   }
 
   start(task: string, screen: { width: number; height: number }): void {
@@ -154,6 +163,15 @@ export class AnthropicAdapter implements ModelAdapter {
     ]
       .filter(Boolean)
       .join('\n\n');
+  }
+
+  /** What changed in the notes since the system prompt was built, without touching that prompt (it is the cached prefix). */
+  notesDelta(): string | undefined {
+    if (!this.cfg.notes) return undefined;
+    const next = this.cfg.notes();
+    const delta = diffNotes(this.notes, next);
+    this.notes = next;
+    return delta;
   }
 
   addUserMessage(text: string): void {
@@ -216,6 +234,7 @@ export class AnthropicAdapter implements ModelAdapter {
       this.messages.push({ role: 'user', content });
     }
     this.pruneImages();
+    this.pruneText();
     this.moveCacheBreakpoint();
 
     const useFallback = this.cfg.refusalFallback !== false && this.fallbackSupported;
@@ -240,6 +259,7 @@ export class AnthropicAdapter implements ModelAdapter {
           else if (block.name === FIND_TOOL_NAME) actions.push(findAction(block.input));
           else if (block.name === READ_PAGE_TOOL_NAME) actions.push(readPageAction(block.input));
           else if (block.name === WAIT_FOR_TOOL_NAME) actions.push(waitForAction(block.input));
+          else if (block.name === RUN_COMMAND_TOOL_NAME) actions.push(runCommandAction(block.input));
           else if (block.name === REMEMBER_TOOL_NAME) actions.push(rememberAction(block.input));
           else if (block.name === FORGET_TOOL_NAME) actions.push(forgetAction(block.input));
           else if (block.name === REVISE_SELF_TOOL_NAME) actions.push(reviseSelfAction(block.input));
@@ -274,6 +294,7 @@ export class AnthropicAdapter implements ModelAdapter {
         output: response.usage.output_tokens,
         cacheRead: response.usage.cache_read_input_tokens ?? 0,
         cacheWrite: response.usage.cache_creation_input_tokens ?? 0,
+        cacheWrite1h: response.usage.cache_creation?.ephemeral_1h_input_tokens ?? 0,
       },
     };
   }
@@ -332,7 +353,9 @@ export class AnthropicAdapter implements ModelAdapter {
       ...(useFallback ? { fallbacks: 'default' as const } : {}),
       context_management: { edits: [{ type: 'compact_20260112' }] },
       thinking: { type: 'adaptive' },
-      system: [{ type: 'text', text: this.system, cache_control: { type: 'ephemeral' } }],
+      // Effort trades thinking depth for tokens and seconds; unset = the provider's default.
+      ...(this.cfg.effort ? { output_config: { effort: this.cfg.effort } } : {}),
+      system: [{ type: 'text', text: this.system, cache_control: this.cacheMark() }],
       tools: [
         {
           type: 'computer_20251124',
@@ -354,6 +377,7 @@ export class AnthropicAdapter implements ModelAdapter {
         { name: FIND_TOOL_NAME, description: FIND_TOOL_DESCRIPTION, input_schema: FIND_TOOL_PARAMETERS },
         { name: READ_PAGE_TOOL_NAME, description: READ_PAGE_TOOL_DESCRIPTION, input_schema: READ_PAGE_TOOL_PARAMETERS },
         { name: WAIT_FOR_TOOL_NAME, description: WAIT_FOR_TOOL_DESCRIPTION, input_schema: WAIT_FOR_TOOL_PARAMETERS },
+        { name: RUN_COMMAND_TOOL_NAME, description: RUN_COMMAND_TOOL_DESCRIPTION, input_schema: RUN_COMMAND_TOOL_PARAMETERS },
         ...(this.cfg.docsIndex
           ? [{ name: READ_DOCS_TOOL_NAME, description: READ_DOCS_TOOL_DESCRIPTION, input_schema: READ_DOCS_TOOL_PARAMETERS }]
           : []),
@@ -397,8 +421,19 @@ export class AnthropicAdapter implements ModelAdapter {
       for (const b of m.content as Array<{ cache_control?: unknown }>) delete b.cache_control;
       last = m;
     }
-    const blocks = last?.content as Array<{ cache_control?: { type: 'ephemeral' } }> | undefined;
-    if (blocks?.length) blocks[blocks.length - 1].cache_control = { type: 'ephemeral' };
+    const blocks = last?.content as Array<{ cache_control?: CacheMark }> | undefined;
+    if (blocks?.length) blocks[blocks.length - 1].cache_control = this.cacheMark();
+  }
+
+  /**
+   * The breakpoint's TTL. 1 hour by default: a person's reply, a standby or a slow command routinely
+   * takes more than the 5 minutes of the default cache, and every expiry re-wrote the whole
+   * conversation at cache-write price (a two-step text answer cost $0.60 on 2026-09-14 for that
+   * reason). The 1-hour write costs 2× input instead of 1.25× on the few thousand new tokens of
+   * each step — about a cent — and the prefix then survives the gaps.
+   */
+  private cacheMark(): CacheMark {
+    return this.cfg.cacheTtl === '5m' ? { type: 'ephemeral' } : { type: 'ephemeral', ttl: '1h' };
   }
 
   /**
@@ -429,6 +464,38 @@ export class AnthropicAdapter implements ModelAdapter {
         seen++;
         if (seen > this.maxImages) blocks[j] = { type: 'text', text: '[earlier screenshot omitted]' };
       });
+    }
+  }
+
+  /**
+   * Keep only the newest long tool results whole (page text, command output, a documentation page);
+   * older ones shrink to their first line (see ../prune.ts). Batched like the images so the cached
+   * prefix is rewritten once every few results, not every step.
+   */
+  private pruneText(): void {
+    type Slot = { result?: BetaToolResultBlockParam; blocks?: BetaContentBlockParam[]; index?: number; text: string };
+    const slots: Slot[] = [];
+    for (const m of this.messages) {
+      if (m.role !== 'user' || !Array.isArray(m.content)) continue;
+      for (const b of m.content) {
+        if (b.type !== 'tool_result') continue;
+        if (typeof b.content === 'string') {
+          if (isLongResult(b.content)) slots.push({ result: b, text: b.content });
+          continue;
+        }
+        if (!Array.isArray(b.content)) continue;
+        const blocks = b.content as BetaContentBlockParam[];
+        for (let j = 0; j < blocks.length; j++) {
+          const c = blocks[j];
+          if (c.type === 'text' && isLongResult(c.text)) slots.push({ blocks, index: j, text: c.text });
+        }
+      }
+    }
+    if (slots.length <= this.maxTextResults + PRUNE_TEXT_BATCH) return;
+    for (const s of slots.slice(0, slots.length - this.maxTextResults)) {
+      const short = shortenResult(s.text);
+      if (s.result) s.result.content = short;
+      else if (s.blocks && s.index !== undefined) s.blocks[s.index] = { type: 'text', text: short };
     }
   }
 }

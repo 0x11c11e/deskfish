@@ -35,6 +35,7 @@ The model is given a small set of tools, the same on every provider:
 | `zoom` | Magnify part of the screen to read small text or find an exact click point. Changes nothing |
 | `find` | Find links, buttons, fields and text on the web page open in Firefox by what they say, and get their exact click coordinates. See below. Changes nothing |
 | `read_page` | List every control on the page in Firefox with its state and position, or read the page's text. Changes nothing |
+| `run_command` | Run a shell command in the tank's terminal environment and get its output back as text, without the screen: reading and editing files, git, tests, scripts. Time-limited, and cut at about 20,000 characters |
 | `ask_user` | Stop and hand the desktop to you, with a reason. See [Knocking on the glass](knocking-on-the-glass) |
 | `read_docs` | Read a page of this documentation, so it can answer questions about Deskfish accurately. Changes nothing |
 | `remember` / `forget` | Save one durable fact to its [long-term memory](memory), or delete matching ones |
@@ -45,9 +46,13 @@ The model is given a small set of tools, the same on every provider:
 The agent is also told, in its standing instructions, exactly which tools these are and what
 its computer contains, so it does not have to discover by trial that there is no `wget` but
 there is `curl`. Beyond those tools it has no other channel into the tank. The terminal is a
-normal shell with `bash`, `python3` (with `pip` and `requests`), `curl`, `git`, `jq`, the
-`pdftotext` and `pdftoppm` tools for PDFs, `zip`/`unzip`, `nano` and `less`, but there is no
-root, no `sudo` and no system package manager. The network is whatever the tank can reach:
+normal shell with `bash`, `python3` (with `pip` and `requests`), `curl`, `git` and the GitHub
+CLI `gh`, Node.js 22 with `npm`, `jq`, the `pdftotext` and `pdftoppm` tools for PDFs,
+`zip`/`unzip`, `nano` and `less`, but there is no root, no `sudo` and no system package manager.
+With `run_command` the agent uses that shell without the screen: the command runs as its own
+user with input closed, and it gets the output, the exit code and the time back as text. You see
+the command and a one-line verdict in the folded actions chip, with the output under it, and the
+full text in the Deskfish output log. The network is whatever the tank can reach:
 the internet through your machine, and your LAN like any program you run; see
 [Security and privacy](security-and-privacy#network-exposure).
 
@@ -130,8 +135,9 @@ it, that is cheap, but never free: left alone, the last steps of a long task wou
 times the first ones, and a model that has been reading the same long transcript for an hour
 can lose the thread of what it was doing. Both problems have the same fix.
 
-Every forty steps (`deskfish.ledgerEvery`, 0 to turn it off) the agent is asked to write a
-**ledger**: the goal with its limits, what is done and the concrete facts it established,
+Every forty steps (`deskfish.ledgerEvery`, 0 to turn it off), or sooner once the conversation
+has grown past a size (`deskfish.ledgerTokens`, a hundred thousand tokens by default), the agent
+is asked to write a **ledger**: the goal with its limits, what is done and the concrete facts it established,
 what is left, the current state of the screen, and the traps it hit. The conversation is then
 restarted from that ledger and a fresh screenshot, with anything you said mid-task carried
 along. The cost of a step no longer grows with the length of the task, since the context is
@@ -140,6 +146,19 @@ fading memory of a hundred screenshots.
 
 The ledger shows in the chat as a folded card, so you can read what it carried over, and it
 is kept in the transcript.
+
+## Its own source code
+
+Deskfish is open source, and the agent is told where its code lives: the repository holds the
+loop, the tools, the tank recipe and these pages. It may read it any time and clone it in its
+terminal. To change something, it is told to work in a fork under a GitHub account of its own,
+run the test suite, and open a pull request with the change and its reasoning. Nothing it writes
+runs until you merge it and install the new build: a pull request from a fork has no access to
+the repository, every pull request runs the tests before anyone reads it, and a build installed
+from a file never updates itself. The agent asked for exactly this arrangement, a person outside
+the loop reviewing changes to the faculties it would use to review them. Keep your own GitHub
+login out of the tank and protect the main branch so a merge needs a review; see
+[Security and privacy](security-and-privacy#its-own-source-code).
 
 ## Screenshots and coordinates
 
@@ -150,9 +169,11 @@ still costs the same tokens per screenshot, just at a smaller scale, which is wh
 screens make small targets harder rather than easier.
 
 Images are pruned in batches: after each prune only the three most recent stay in the
-conversation, and older ones are replaced by the note *earlier screenshot omitted*. The text
-of the conversation stays until the next ledger replaces the older part of it; the saved
-transcript keeps all of it.
+conversation, and older ones are replaced by the note *earlier screenshot omitted*. Long text
+results are pruned the same way: a page's text, a command's output or a documentation page
+stays whole while it is one of the four newest and then shrinks to its first line, with a note
+that the agent can ask for it again. The rest of the conversation stays until the next ledger
+replaces the older part of it; the saved transcript keeps all of it.
 
 ## Keys and shortcuts
 
@@ -200,5 +221,5 @@ repeated actions earn a nudge to change approach, then a hand-over to you.
 
 It knows the desktop is its own and that it is the tank, a sandboxed Linux computer; that you
 talk to it from the Deskfish sidebar in VS Code and can watch its screen in the Desktop tab;
-how the tank is networked; and the local date and time, given at the start of every run. The
-one thing it is not told is which AI provider it runs on.
+how the tank is networked; the local date and time, given at the start of every run; and, in
+one line, which model runs it and where.

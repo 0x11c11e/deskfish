@@ -653,6 +653,46 @@ svg {
   opacity: 1;
 }
 
+/* A run_command line keeps its text on one line but may unfold its output underneath. */
+.action.command {
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
+}
+
+.command-output summary {
+  cursor: pointer;
+  user-select: none;
+  font-size: 10px;
+  color: var(--vscode-descriptionForeground);
+  padding: 1px 0;
+}
+
+.command-output summary::-webkit-details-marker {
+  display: none;
+}
+
+.command-output summary::before {
+  content: '▸ ';
+}
+
+.command-output[open] summary::before {
+  content: '▾ ';
+}
+
+.command-output pre {
+  margin: 2px 0 4px;
+  padding: 4px 6px;
+  max-height: 240px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 11px;
+  border-radius: 4px;
+  background: var(--vscode-textCodeBlock-background);
+  color: var(--vscode-foreground);
+}
+
 /* ---------- hand-over card ---------- */
 
 .needs-user {

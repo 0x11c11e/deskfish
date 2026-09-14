@@ -2,11 +2,13 @@ import type { ActionResult, ComputerAction, ComputerProvider } from '../computer
 import { scalePng } from '../image/resize';
 import { renderZoom } from '../image/zoom';
 import { renderPage } from './page';
+import { cutMiddle, renderCommand, summarizeCommand } from './command';
 import type { ModelAdapter, ModelTurn, Observation } from './adapters/types';
 import type { DocsLibrary } from './docs';
 import { costUsd, type Price } from './pricing';
 import { frameDiff, type ScaledImage } from '../image/resize';
 import { describeAction } from '../computer/types';
+import { maskDeep, maskSecrets } from './secrets';
 import type { MemoryStore } from './memory';
 import type { SelfStore } from './self';
 import type { JournalStore } from './journal';
@@ -43,7 +45,7 @@ export type AgentEvent =
   | { type: 'screenshot'; step: number; jpegBase64: string; width: number; height: number }
   /** The model handed the desktop to the human. Carries the screen as it looked at that moment. */
   | { type: 'needs_user'; step: number; reason: string; jpegBase64: string; width: number; height: number }
-  | { type: 'usage'; input: number; output: number; cacheRead?: number; cacheWrite?: number; costUsd?: number }
+  | { type: 'usage'; input: number; output: number; cacheRead?: number; cacheWrite?: number; cacheWrite1h?: number; costUsd?: number }
   /** A task just ended and was journaled; `due` = it is time for a reflection (tasks since the last one reached the threshold). */
   | { type: 'task_finished'; outcome: string; tasksSinceReflection: number; due: boolean }
   /** A reflection's answers to the three fixed questions, with the previous answer and her verdict per question (folded in the chat, never in her reply). */
@@ -75,6 +77,8 @@ export interface AgentRunnerOptions {
   journal?: JournalStore;
   /** Condense the conversation every this many steps: she writes a ledger and continues from it. 0/undefined = never. */
   ledgerEvery?: number;
+  /** Also condense when the last request's context (input + cache) passed this many tokens. 0/undefined = only by steps. */
+  ledgerTokens?: number;
   /** How often standby (wait_for) looks at the screen, in ms. Default: every 3–10 s depending on the wait's length. Tests set it low. */
   standbyPollMs?: number;
   /** Reflect after this many finished tasks (0 = only when asked); also when the tasks' salience adds up. */
@@ -108,7 +112,13 @@ export class AgentRunner {
   /** Per-run bookkeeping for the journal. */
   private current?: { task: string; reflection: boolean; steps: number; spentUsd: number; lastAssistant: string; revisions: number; journaled: boolean; handovers: number; notes: number; followUps: number; said: string[]; ledger?: string; ledgers: number };
 
-  constructor(private readonly opts: AgentRunnerOptions) {}
+  private readonly opts: AgentRunnerOptions;
+
+  constructor(opts: AgentRunnerOptions) {
+    // Every event is masked on the way out: the chat, the output log and the transcript never see a
+    // credential the model typed, ran or read. The model's own copy is the only real one.
+    this.opts = { ...opts, onEvent: (e) => opts.onEvent(maskDeep(e)) };
+  }
 
   get currentStatus(): AgentStatus {
     return this.status;
@@ -151,12 +161,15 @@ export class AgentRunner {
   private abort?: AbortController;
   /** Resolves any wait/settle sleep early. */
   private wakeSleep?: () => void;
+  /** Hangs up on a run_command in flight; the daemon kills the process when the caller goes away. */
+  private cancelCommand?: AbortController;
 
   stop(): void {
     if (!this.isActive) return;
     this.stopRequested = true;
     if (this.status === 'running') this.setStatus('running', 'Stopping…');
     this.abort?.abort();
+    this.cancelCommand?.abort();
     this.wakeSleep?.();
     this.pauseGate?.resolve();
     this.pauseGate = undefined;
@@ -249,6 +262,7 @@ export class AgentRunner {
     let lastFrame: ScaledImage | undefined;
     let lastActions = '';
     let repeatStreak = 0;
+    let lastContext = 0; // input + cache tokens of the last request, for the size-triggered ledger
     let stallNudges = 0;
     const pendingNotes: string[] = [];
     this.setStatus('running', runOpts.reflection ? 'Reflecting…' : 'Starting…');
@@ -265,16 +279,19 @@ export class AgentRunner {
       this.scale = { x: native.width / scaled.width, y: native.height / scaled.height };
       this.scaledSize = scaled;
       this.noticeTamper();
+      let notesDelta: string | undefined;
       if (this.started) {
-        // A follow-up task on the same runner continues the adapter's conversation with
-        // full context instead of resetting it.
+        // A follow-up task on the same runner continues the adapter's conversation with full
+        // context instead of resetting it. The system prompt is deliberately NOT rebuilt here: it
+        // is the front of the cached prefix, and rebuilding it (the journal's "Recently" changes
+        // after every task) re-wrote the whole conversation at cache-write price on every
+        // follow-up. What changed outside the conversation rides in the first note instead.
         adapter.addUserMessage(task);
+        notesDelta = adapter.notesDelta?.();
       } else {
         adapter.start(task, scaled);
         this.started = true;
       }
-      // Memory, self and journal may have changed since the conversation began.
-      adapter.refreshNotes?.();
 
       // She has no clock of her own: without this, a journal line from an hour ago reads as "yesterday".
       const env = this.opts.environmentNote?.();
@@ -286,7 +303,7 @@ export class AgentRunner {
           limited
             ? `You have up to ${maxSteps} steps (model turns) for this task; use them economically.`
             : 'There is no fixed step limit for this task: work until it is done. Every step costs money, so be economical.'
-        }`,
+        }${notesDelta ? `\n\n${notesDelta}` : ''}`,
       );
       for (let step = 1; step <= maxSteps; step++) {
         if (this.current) this.current.steps = step;
@@ -298,10 +315,14 @@ export class AgentRunner {
         // Long tasks: every `ledgerEvery` steps she writes a ledger and the conversation restarts from it,
         // so the cost of a step stops growing with the task and the thread survives the cut.
         const every = this.opts.ledgerEvery ?? 0;
-        if (every > 0 && step > 1 && (step - 1) % every === 0 && !this.current?.reflection) {
+        const tokens = this.opts.ledgerTokens ?? 0;
+        const bySteps = every > 0 && (step - 1) % every === 0;
+        const bySize = tokens > 0 && lastContext >= tokens;
+        if (step > 1 && (bySteps || bySize) && !this.current?.reflection) {
           const condensed = await this.condense(step, obs);
           if (!condensed) return; // stopped meanwhile
           obs = condensed.obs;
+          lastContext = 0;
           if (condensed.usage) {
             onEvent({ type: 'usage', ...condensed.usage });
             if (condensed.usage.costUsd !== undefined) spentUsd += condensed.usage.costUsd;
@@ -322,6 +343,7 @@ export class AgentRunner {
 
         const turn = await this.modelStep(obs);
         if (turn.usage) {
+          lastContext = turn.usage.input + (turn.usage.cacheRead ?? 0) + (turn.usage.cacheWrite ?? 0);
           onEvent({ type: 'usage', ...turn.usage });
           if (turn.usage.costUsd !== undefined) spentUsd += turn.usage.costUsd;
           else if (this.opts.price) spentUsd += costUsd(turn.usage, this.opts.price);
@@ -389,6 +411,33 @@ export class AgentRunner {
                 : { ok: false, error: raw.error ?? 'the page could not be read' };
             results.push(result);
             onEvent({ type: 'action', step, action, result: { ok: result.ok, error: result.error } });
+            continue;
+          }
+
+          if (action.type === 'run_command') {
+            // The tank runs it outside its input queue; Stop hangs up, which kills it. Passive for
+            // the screen: no settle, no stall bookkeeping. The full text is for the model; the chip
+            // gets a trimmed copy to unfold, the log a one-line summary.
+            const ctl = new AbortController();
+            this.cancelCommand = ctl;
+            let raw: ActionResult;
+            try {
+              raw = await computer.execute(action, ctl.signal);
+            } finally {
+              this.cancelCommand = undefined;
+            }
+            if (await this.shouldStop()) return;
+            const out = raw.ok ? raw.command : undefined;
+            const result: ActionResult = out ? { ok: true, message: renderCommand(action, out) } : { ok: false, error: raw.error ?? 'the command could not be run' };
+            results.push(result);
+            onEvent({
+              type: 'action',
+              step,
+              action,
+              result: out
+                ? { ok: true, message: summarizeCommand(out), command: { ...out, stdout: cutMiddle(out.stdout, 12_000), stderr: cutMiddle(out.stderr, 4_000) } }
+                : { ok: false, error: result.error },
+            });
             continue;
           }
 
@@ -530,7 +579,7 @@ export class AgentRunner {
     const outcomeText = outcome === 'done' ? 'done' : outcome === 'stopped' ? 'stopped by the user' : outcome === 'limit' ? 'stopped at the limit' : 'ended with an error';
     const salience = salienceOf({ steps: cur.steps, costUsd: cur.spentUsd, outcome: outcomeText, handovers: cur.handovers, notes: cur.notes, followUps: cur.followUps });
     const said = cur.said.length ? ` — You told me: ${cur.said.map((s) => `"${s.replace(/\s+/g, ' ').trim().slice(0, 120)}"`).join(' | ')}` : '';
-    journal.appendTask({ task: cur.task, outcome: outcomeText, steps: cur.steps, costUsd: cur.spentUsd, summary: (cur.lastAssistant || '') + said, salience });
+    journal.appendTask({ task: cur.task, outcome: outcomeText, steps: cur.steps, costUsd: cur.spentUsd, summary: maskSecrets((cur.lastAssistant || '') + said), salience });
     const c = journal.taskFinished(salience);
     const every = this.opts.reflectEvery ?? 0;
     const due = every > 0 && !!this.opts.self && (c.tasks >= every || c.salience >= SALIENCE_THRESHOLD);
@@ -641,7 +690,7 @@ export class AgentRunner {
       }
       case 'note': {
         if (this.current) this.current.notes++;
-        journal.appendNote(action.text);
+        journal.appendNote(maskSecrets(action.text));
         return { ok: true, message: 'Noted in your journal.' };
       }
     }
