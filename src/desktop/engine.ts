@@ -66,14 +66,41 @@ export class DesktopEngine {
     return r.stdout.trim() === wanted ? 'current' : 'stale';
   }
 
-  /** Streams build output to the log; progress gets the "STEP x/y" lines. */
-  build(cli: ContainerCli, verb = 'Building'): Promise<void> {
+  /**
+   * Streams build output to the log. Progress says what the build is doing and how long it takes:
+   * the prefix first ("… — a few minutes the first time"), then "<prefix> — step X of Y" on every
+   * STEP line, and inside a step what apt is doing (the one long step, the package install, runs for
+   * minutes and would otherwise look stuck). At most one progress call per second; STEP lines at once.
+   */
+  build(cli: ContainerCli, verb: 'Building' | 'Updating' = 'Building'): Promise<void> {
     let label: string[] = [];
     try {
       label = ['--label', `${RECIPE_LABEL}=${recipeHash(this.cfg.buildContext)}`];
     } catch {
       // unlabelled image: rebuilt at every start until the recipe can be read — better than never
     }
+    const prefix = verb === 'Updating' ? 'Updating the desktop image after the update — a few minutes' : 'Building the desktop image — a few minutes the first time';
+    let base = prefix;
+    let shown = '';
+    let shownAt = 0;
+    let pending: string | undefined;
+    let timer: NodeJS.Timeout | undefined;
+    const emit = (message: string) => {
+      if (timer) clearTimeout(timer);
+      timer = undefined;
+      pending = undefined;
+      if (message === shown) return;
+      shown = message;
+      shownAt = Date.now();
+      this.log.progress(message);
+    };
+    const offer = (message: string) => {
+      const wait = shownAt + 1000 - Date.now();
+      if (wait <= 0) return emit(message);
+      pending = message;
+      timer ??= setTimeout(() => pending !== undefined && emit(pending), wait);
+    };
+    emit(prefix);
     this.log.info(`${cli} build ${label.join(' ')} -t ${DESKTOP_IMAGE} ${this.cfg.buildContext}`);
     return new Promise((resolve, reject) => {
       const child = spawn(cli, ['build', ...label, '-t', DESKTOP_IMAGE, this.cfg.buildContext], { stdio: ['ignore', 'pipe', 'pipe'] });
@@ -84,15 +111,29 @@ export class DesktopEngine {
           if (!line) continue;
           tail = line;
           this.log.info(`  ${line}`);
-          const step = line.match(/^(?:STEP|Step)\s+(\d+)\/(\d+)/i);
-          if (step) this.log.progress(`${verb} the desktop image — step ${step[1]} of ${step[2]}…`);
-          else if (/^#\d+ \[\d+\/\d+\]/.test(line)) this.log.progress(`${verb} the desktop image — ${line.replace(/^#\d+ /, '')}`);
+          // podman/buildah and the classic builder print "STEP 3/24: …"; BuildKit "#7 [3/24] RUN …"
+          // and prefixes a command's output with "#7 12.3 ".
+          const step = line.match(/^(?:STEP|Step)\s+(\d+)\/(\d+)/i) ?? line.match(/^#\d+ \[(?:[^\]\s]+ )?(\d+)\/(\d+)\]/);
+          if (step) {
+            base = `${prefix} — step ${step[1]} of ${step[2]}`;
+            emit(base);
+            continue;
+          }
+          const output = line.replace(/^#\d+ \d+(?:\.\d+)? /, '');
+          const get = output.match(/^Get:(\d+) /);
+          if (get) offer(`${base} · downloading packages (${get[1]})`);
+          else if (/^Unpacking /.test(output)) offer(`${base} · unpacking packages`);
+          else if (/^Setting up /.test(output)) offer(`${base} · setting up packages`);
         }
       };
       child.stdout.on('data', onData);
       child.stderr.on('data', onData);
-      child.on('error', reject);
-      child.on('close', (code) => (code === 0 ? resolve() : reject(new Error(`image build failed (exit ${code}): ${tail}`))));
+      const done = () => {
+        if (timer) clearTimeout(timer);
+        timer = undefined;
+      };
+      child.on('error', (err) => { done(); reject(err); });
+      child.on('close', (code) => { done(); if (code === 0) resolve(); else reject(new Error(`image build failed (exit ${code}): ${tail}`)); });
     });
   }
 
@@ -163,11 +204,9 @@ export class DesktopEngine {
     const cli = await this.resolveCli();
     const state = await this.imageState(cli);
     if (state === 'missing') {
-      this.log.progress('Building the desktop image (first time only — a few minutes)…');
       await this.build(cli);
     } else if (state === 'stale') {
       // The extension was updated with a new tank recipe: rebuild (cached layers make it quick).
-      this.log.progress('Updating the desktop image to this version of Deskfish (a few minutes)…');
       await this.build(cli, 'Updating');
     }
     this.log.progress('Starting the desktop container…');
