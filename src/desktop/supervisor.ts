@@ -36,7 +36,23 @@ export interface SupervisorOptions {
   createEngine?: (cfg: EngineConfig, log: EngineLog) => EngineLike;
 }
 
-export class DesktopSupervisor extends EventEmitter {
+/** What `DesktopManager` needs from a supervisor: the one in the service, or its mirror over the gateway's socket (`GatewayClient.desktop`). */
+export interface SupervisorLike extends EventEmitter {
+  readonly current: DesktopStatus;
+  readonly runtime: RuntimeStatus | undefined;
+  readonly runtimeMissing: boolean;
+  readonly networkMode: 'isolated' | 'host' | undefined;
+  refresh(): Promise<DesktopStatus>;
+  detectRuntime(): Promise<RuntimeStatus>;
+  startPolling(intervalMs?: number): void;
+  stopPolling(): void;
+  ensureOn(): Promise<boolean>;
+  start(): Promise<boolean>;
+  stop(): Promise<void>;
+  toggle(): Promise<void>;
+}
+
+export class DesktopSupervisor extends EventEmitter implements SupervisorLike {
   private status: DesktopStatus = { state: 'unknown' };
   private busy?: Promise<void>;
   private poll?: NodeJS.Timeout;

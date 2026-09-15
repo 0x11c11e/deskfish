@@ -44,8 +44,8 @@ apart" or "publish the ad set and check the stats when it has finished processin
 uses its `wait_for` tool: Deskfish watches the screen for it without spending steps and wakes
 it when something changes or the time is up, for up to two hours at a stretch. Tasks on a
 timer, such as every Monday at seven, are [schedules](schedules): they start themselves while
-VS Code is open, wait for the agent if she is busy, and are reported as missed rather than run
-late if Deskfish was closed at the time.
+Deskfish runs (in the background, with or without VS Code open), wait for the agent if she is
+busy, and are reported as missed rather than run late if Deskfish was not running at the time.
 
 ## Will it buy things, send messages, or delete anything?
 
@@ -124,8 +124,11 @@ chat and the agent's memory of it are cleared; the desktop is left as it is.
 
 ## Does the conversation survive a VS Code reload?
 
-The model's live context does not, but nothing is lost: every chat is saved as a transcript.
-After a reload, the clock icon in the sidebar's title bar (or **Deskfish: Past Chats…**) lists
+Yes. Deskfish runs in a background process of its own, which VS Code starts and which keeps
+running when VS Code is closed or reloaded: a task carries on, and the reopened sidebar shows the
+chat as it stands. The model's live context is lost only when that process restarts (the
+computer restarts, or Deskfish updates), and even then nothing is lost: every chat is saved as a
+transcript. After such a restart, the clock icon in the sidebar's title bar (or **Deskfish: Past Chats…**) lists
 past chats; open one to read it, or continue it in a new chat. The agent then gets up to the
 latest 16,000 characters of that transcript as context, with no images: a fresh conversation
 with the old one as notes, not the old one resumed. Within a window, every new task continues

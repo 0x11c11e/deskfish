@@ -1,12 +1,13 @@
 import * as vscode from 'vscode';
-import type { DesktopStatus, DesktopSupervisor } from './supervisor';
+import type { DesktopStatus, SupervisorLike } from './supervisor';
 import { terminalCommand, type RuntimeStatus } from './runtime';
 
 export type { DesktopState, DesktopStatus } from './supervisor';
 
 /**
  * VS Code-side face of the desktop: the state machine, the health poll and the engine live in the
- * vscode-free `DesktopSupervisor` (owned by the service); this adds what only VS Code can show — the
+ * vscode-free `DesktopSupervisor` (owned by the service in the gateway, mirrored here through the
+ * client); this adds what only VS Code can show — the
  * progress notification while it turns on, error popups, the passt warning and the visible install
  * terminal.
  */
@@ -18,7 +19,7 @@ export class DesktopManager implements vscode.Disposable {
   private readonly off: (() => void)[] = [];
 
   constructor(
-    private readonly supervisor: DesktopSupervisor,
+    private readonly supervisor: SupervisorLike,
     private readonly output: vscode.OutputChannel,
   ) {
     const on = (name: string, fn: (...args: any[]) => void) => {

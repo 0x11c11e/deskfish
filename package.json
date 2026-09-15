@@ -32,6 +32,9 @@
     "Other"
   ],
   "main": "./dist/extension.js",
+  "bin": {
+    "deskfish": "dist/cli.js"
+  },
   "activationEvents": [
     "onStartupFinished"
   ],
@@ -166,6 +169,10 @@
       {
         "command": "deskfish.deletePastChats",
         "title": "Deskfish: Delete Past Chats"
+      },
+      {
+        "command": "deskfish.setGatewayToken",
+        "title": "Deskfish: Set Gateway Token"
       }
     ],
     "menus": {
@@ -454,6 +461,24 @@
           "minimum": 0,
           "maximum": 2,
           "description": "Sampling temperature for OpenAI-compatible endpoints. Leave unset (null): no temperature is sent and every model runs at its provider default, which reasoning models such as kimi-k3 and GPT-5 insist on. Set a number (0 for the most repeatable clicks) only for models that accept one. The Anthropic provider uses adaptive thinking, which fixes its temperature."
+        },
+        "deskfish.gateway.placement": {
+          "type": "string",
+          "enum": [
+            "local",
+            "remote"
+          ],
+          "enumDescriptions": [
+            "Deskfish runs on this computer: the extension starts it in the background and it keeps working when VS Code is closed. The default.",
+            "Deskfish runs on another machine: set deskfish.gateway.url and enter its token with \"Deskfish: Set Gateway Token\"."
+          ],
+          "default": "local",
+          "description": "Where the Deskfish gateway runs: the process that owns the desktop, the agent, her memory, chats and schedules. VS Code is one client of it. Reload the window after changing."
+        },
+        "deskfish.gateway.url": {
+          "type": "string",
+          "default": "",
+          "description": "Address of a remote gateway (placement remote), e.g. http://127.0.0.1:9980 through an SSH tunnel or a Tailscale address. Empty with placement local: this computer, port 9980. Reload the window after changing."
         }
       }
     }
@@ -472,6 +497,7 @@
     "@types/node": "^22.10.0",
     "@types/pngjs": "^6.0.5",
     "@types/vscode": "^1.95.0",
+    "@types/ws": "^8.18.1",
     "esbuild": "^0.24.2",
     "tsx": "^4.23.13",
     "typescript": "^5.7.2"
@@ -480,7 +506,8 @@
     "@anthropic-ai/sdk": "latest",
     "@novnc/novnc": "^1.5.0",
     "jpeg-js": "^0.4.4",
-    "pngjs": "^7.0.0"
+    "pngjs": "^7.0.0",
+    "ws": "^8.21.3"
   },
   "author": {
     "name": "Iman Reihanian"

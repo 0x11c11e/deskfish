@@ -153,11 +153,13 @@ lives in the `deskfish-home` volume until you delete it:
 podman volume rm deskfish-home      # or: docker volume rm deskfish-home
 ```
 
-The model's live context is dropped when you reload VS Code or start a new chat; the chat
+The model's live context is dropped when you start a new chat or Deskfish's background process
+restarts (the computer restarts, or Deskfish updates), not when you close or reload VS Code; the chat
 itself is saved as a transcript and can be reopened from **Past Chats…**. The fact file
 persists until you edit or empty it (**Forget All Memories (facts)** clears facts only); the
 self file, the journal and the playbooks are separate files with commands of their own. The
-full step log is in the Deskfish output channel for the life of the window.
+full step log is in `logs/gateway.log` in Deskfish's data folder, and in the Deskfish output
+channel while a window is open.
 
 ## Its own source code
 

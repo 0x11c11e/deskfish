@@ -1000,8 +1000,8 @@ window.addEventListener('message', (ev: MessageEvent<ToChat>) => {
             break;
         }
       }
-      append(bubble('memory', `${m.title}. Type below to continue it, or press + for a new chat.`));
-      empty.hidden = true;
+      if (!m.live) append(bubble('memory', `${m.title}. Type below to continue it, or press + for a new chat.`));
+      if (!m.live || m.items.length) empty.hidden = true;
       break;
     }
     case 'event':

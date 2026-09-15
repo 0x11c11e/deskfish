@@ -33,8 +33,8 @@ export type ToChat =
   | { type: 'user'; text: string }
   /** A line from Deskfish itself (not the bot): a missed schedule, for instance. */
   | { type: 'notice'; text: string }
-  /** A past chat rendered into the sidebar (after newChat), read-only until the user types. */
-  | { type: 'replay'; title: string; items: ReplayItem[] }
+  /** A past chat rendered into the sidebar (after newChat), read-only until the user types. `live`: the current chat, rebuilt after (re)connecting to the gateway; no "past chat" line. */
+  | { type: 'replay'; title: string; items: ReplayItem[]; live?: boolean }
   /** Files the user picked were copied to the desktop's Uploads folder; show them in the composer. */
   | { type: 'attached'; files: DesktopFile[] }
   /** A new file appeared in the desktop's Downloads folder. */

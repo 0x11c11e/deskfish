@@ -24,8 +24,10 @@ import { keySlotFor } from '../agent/presets';
 import { DOWNLOADS_DIR, DownloadsWatcher, UPLOADS_DIR, formatSize, isTemporary, safeFileName, type NewDownload } from '../desktop/files';
 import { DesktopSupervisor, type DesktopStatus, type SupervisorOptions } from '../desktop/supervisor';
 import type { DesktopFile } from '../webview/protocol';
-import type { DeskfishConfig } from './config';
+import { applyConfigPatch, type DeskfishConfig } from './config';
+import type { ChatInfo, EditableFile, RunRequest, Snapshot } from './protocol';
 import { SecretsFile } from './storage';
+import { VERSION } from './version';
 
 /** Files travel as base64 inside JSON; keep them at a size that stays snappy. */
 export const MAX_TRANSFER = 100 * 1024 * 1024;
@@ -91,7 +93,11 @@ export class DeskfishService extends EventEmitter {
   /** A message typed while she reflects: it starts as a task when the reflection ends. */
   private readonly held = new HeldMessage<DesktopFile>();
   /** Tasks submitted while another one runs: each starts after the one before it ends. */
-  private readonly queue: { task: string; attachments?: DesktopFile[] }[] = [];
+  private readonly queue: { task: string; attachments?: DesktopFile[]; opts?: RunOptions }[] = [];
+  /** A run or reflection was accepted and is waiting for the desktop to come on; later runs queue behind it. */
+  private starting = false;
+  /** Bumped by stop(): a run still waiting for the desktop sees it and does not start. */
+  private stopSeq = 0;
   /** Schedules: tasks that start themselves while Deskfish is running. */
   readonly schedules: ScheduleStore;
   private scheduleTimer?: NodeJS.Timeout;
@@ -99,7 +105,10 @@ export class DeskfishService extends EventEmitter {
   /** Occurrences seen due while she was busy: they fire when she is free, however long that takes. */
   private readonly pendingSchedules = new Set<string>();
   private status: AgentStatus = 'idle';
-  private lastScreenshot?: { dataUrl: string; width: number; height: number };
+  private statusMessage?: string;
+  private lastScreenshot?: { dataUrl: string; width: number; height: number; step: number };
+  /** Usage totals of the current chat (a client that connects late shows the same counter). */
+  private usage?: Extract<AgentEvent, { type: 'usage' }>;
   /** The desktop container: state machine, health poll, engine. */
   readonly desktop: DesktopSupervisor;
   /** Reports new files in the desktop's Downloads folder while the desktop is on. */
@@ -246,8 +255,9 @@ export class DeskfishService extends EventEmitter {
     return !!this.runner?.reflecting;
   }
 
+  /** A run is active, or accepted and waiting for the desktop to come on. */
   get busy(): boolean {
-    return !!this.runner?.isActive;
+    return this.starting || !!this.runner?.isActive;
   }
 
   get latestScreenshot() {
@@ -260,13 +270,26 @@ export class DeskfishService extends EventEmitter {
    * next one continues the same conversation so follow-ups keep their context. Turns the desktop
    * on first if it is off.
    */
-  async run(task: string, attachments?: DesktopFile[]): Promise<void> {
-    if (this.runner?.isActive) {
+  async run(task: string, attachments?: DesktopFile[], opts?: RunOptions): Promise<void> {
+    if (this.busy) {
       // A reflection is hers alone: the person's message waits for it to end, then starts as a task.
-      if (this.runner.reflecting) this.hold(task, attachments);
-      else this.enqueue(task, attachments);
+      if (this.runner?.isActive && this.runner.reflecting) this.hold(task, attachments);
+      else this.enqueue(task, attachments, opts);
       return;
     }
+    // Until the runner is running, `starting` keeps a second run (or a reflection, or a due schedule)
+    // from passing the check above while the desktop is still turning on.
+    this.starting = true;
+    try {
+      await this.startRun(task, attachments);
+    } finally {
+      this.starting = false;
+    }
+  }
+
+  private async startRun(task: string, attachments?: DesktopFile[]): Promise<void> {
+    const gen = this.generation;
+    const stopSeq = this.stopSeq;
     task = withAttachments(task, attachments);
     const cfgNow = this.cfg;
     if (!this.transcript) this.transcript = this.chats.start(task, { model: cfgNow.model, provider: cfgNow.provider });
@@ -280,7 +303,13 @@ export class DeskfishService extends EventEmitter {
     // turning on — the Desktop tab shows the progress).
     this.fire('task', { text: task });
 
-    if (!(await this.desktop.ensureOn())) {
+    const on = await this.desktop.ensureOn();
+    if (gen !== this.generation) return; // New chat while the desktop turned on: this task went with the old chat.
+    if (stopSeq !== this.stopSeq) {
+      this.emitEvent({ type: 'status', status: 'stopped', message: 'Stopped before the desktop was on' });
+      return;
+    }
+    if (!on) {
       this.emitEvent({ type: 'status', status: 'error', message: `The desktop is not running${this.desktop.current.message ? `: ${this.desktop.current.message}` : ''}` });
       return;
     }
@@ -299,11 +328,24 @@ export class DeskfishService extends EventEmitter {
    * triggered by the task counter (deskfish.reflectEvery) rather than by the user.
    */
   async reflect(auto = false): Promise<'busy' | 'started' | 'failed'> {
-    if (this.runner?.isActive) return 'busy';
-    if (!(await this.desktop.ensureOn())) {
-      if (!auto) this.emitEvent({ type: 'status', status: 'error', message: 'The desktop is not running' });
-      return 'failed';
+    if (this.busy) return 'busy';
+    this.starting = true;
+    try {
+      const gen = this.generation;
+      const stopSeq = this.stopSeq;
+      const on = await this.desktop.ensureOn();
+      if (gen !== this.generation || stopSeq !== this.stopSeq) return 'failed';
+      if (!on) {
+        if (!auto) this.emitEvent({ type: 'status', status: 'error', message: 'The desktop is not running' });
+        return 'failed';
+      }
+      return this.startReflection(auto);
+    } finally {
+      this.starting = false;
     }
+  }
+
+  private startReflection(auto: boolean): 'started' | 'failed' {
     const runner = this.ensureRunner();
     if (!runner) return 'failed';
     this.log(`— reflection (${auto ? 'automatic' : 'asked by the user'}) —`);
@@ -523,8 +565,8 @@ export class DeskfishService extends EventEmitter {
   }
 
   /** A task submitted while another runs waits its turn; `afterRun` starts it. */
-  private enqueue(task: string, attachments?: DesktopFile[]): void {
-    this.queue.push({ task, attachments });
+  private enqueue(task: string, attachments?: DesktopFile[], opts?: RunOptions): void {
+    this.queue.push({ task, attachments, opts });
     this.log(`⏳ queued until the current task ends: ${maskSecrets(task)}`);
     this.fire('notice', { text: 'She is busy with a task. This one starts when that one ends.' });
   }
@@ -547,7 +589,7 @@ export class DeskfishService extends EventEmitter {
       return;
     }
     const next = this.queue.shift();
-    if (next) setTimeout(() => void this.run(next.task, next.attachments), 0);
+    if (next) setTimeout(() => void this.run(next.task, next.attachments, next.opts), 0);
   }
 
   pause(): void {
@@ -560,6 +602,7 @@ export class DeskfishService extends EventEmitter {
 
   /** Stop: the running task ends and the tasks waiting behind it are dropped (Stop means stop). */
   stop(): void {
+    if (this.starting) this.stopSeq++;
     if (this.queue.length) {
       const n = this.queue.length;
       this.queue.length = 0;
@@ -589,7 +632,7 @@ export class DeskfishService extends EventEmitter {
         this.fire('schedule', { kind: 'missed', text, task: d.schedule.task, dueAt: d.dueAt, auto: true });
         continue;
       }
-      if (this.runner?.isActive) {
+      if (this.busy) {
         // Busy: after she finishes, not instead of it.
         if (!this.pendingSchedules.has(key)) {
           this.pendingSchedules.add(key);
@@ -626,7 +669,7 @@ export class DeskfishService extends EventEmitter {
   async runSchedule(id: string): Promise<void> {
     const s = this.schedules.get(id);
     if (!s) return;
-    if (this.transcript && !this.runner?.isActive) this.newConversation();
+    if (this.transcript && !this.busy) this.newConversation();
     this.fire('schedule', { kind: 'fired', text: `⏰ ${s.task}`, task: s.task, auto: false });
     await this.run(s.task);
   }
@@ -644,6 +687,8 @@ export class DeskfishService extends EventEmitter {
     this.runnerFingerprint = undefined;
     this.held.clear();
     this.queue.length = 0;
+    this.usage = undefined;
+    this.lastScreenshot = undefined;
     this.log('— new chat —');
     this.emitEvent({ type: 'status', status: 'idle', message: 'New chat' });
     this.fire('reset');
@@ -771,6 +816,62 @@ export class DeskfishService extends EventEmitter {
     await this.desktop.start();
   }
 
+  /* ---------- for clients of the gateway ---------- */
+
+  /** Everything a client needs to render the present as one that watched from the start. */
+  snapshot(): Snapshot {
+    const t = this.transcript;
+    return {
+      name: 'deskfish',
+      version: VERSION,
+      protocol: 1,
+      dataDir: this.dataDir,
+      status: this.status,
+      statusMessage: this.statusMessage,
+      screenFree: this.screenFree,
+      busy: this.busy,
+      queued: this.queue.length,
+      chat: t ? parseTranscript(this.chats.read(t.file)) : [],
+      usage: this.usage,
+      screenshot: this.lastScreenshot,
+      desktop: { status: this.desktop.current, networkMode: this.desktop.networkMode },
+      config: this.cfg,
+      keys: this.secrets.slots(),
+    };
+  }
+
+  /** Settings from a client, checked key by key. */
+  patchConfig(patch: Record<string, unknown>): DeskfishConfig {
+    this.setConfig(applyConfigPatch(this.cfg, patch));
+    return this.cfg;
+  }
+
+  /** memory.md (created with its header the first time) or the charter (the default until the user writes one). */
+  readHerFile(file: EditableFile): { text: string; facts: number } {
+    if (file === 'memory.md') return { text: fs.readFileSync(this.memory.ensureFile(), 'utf8'), facts: this.memory.list().length };
+    return { text: fs.readFileSync(this.ensureCharterFile(), 'utf8'), facts: 0 };
+  }
+
+  /** The user edited memory.md or the charter. */
+  writeHerFile(file: EditableFile, text: string): void {
+    const target = file === 'memory.md' ? this.memory.file : this.charterFile;
+    fs.mkdirSync(path.dirname(target), { recursive: true });
+    fs.writeFileSync(target, text);
+    this.log(`— ${file} edited by the user —`);
+  }
+
+  chatList(): ChatInfo[] {
+    return this.chats.list().map((c) => ({ name: c.name, startedAt: c.startedAt, firstTask: c.firstTask, bytes: c.bytes }));
+  }
+
+  /** A past chat by its file name (never a path). */
+  chatByName(name: string) {
+    if (path.basename(name) !== name || !name.endsWith('.md')) throw new Error('no such chat');
+    const chat = this.chats.list().find((c) => c.name === name);
+    if (!chat) throw new Error('no such chat');
+    return chat;
+  }
+
   /** Emit to every listener; one listener that throws does not keep the others from hearing it. */
   private fire(name: string, payload?: unknown): void {
     for (const l of this.listeners(name)) {
@@ -786,6 +887,7 @@ export class DeskfishService extends EventEmitter {
     this.record(e);
     if (e.type === 'status') {
       this.status = e.status;
+      this.statusMessage = e.message;
       this.log(`● ${e.status}${e.message ? ` — ${e.message}` : ''}`);
       // A schedule that came due while she was busy runs as soon as she is free.
       if ((e.status === 'done' || e.status === 'stopped' || e.status === 'error') && this.pendingSchedules.size) setTimeout(() => void this.tickSchedules(), 4_000);
@@ -816,8 +918,11 @@ export class DeskfishService extends EventEmitter {
         // Give the user a moment to type a follow-up; a new task wins over the reflection.
         this.autoReflectTimer = setTimeout(() => void this.reflect(true), 2500);
       }
+    } else if (e.type === 'usage') {
+      const u = this.usage;
+      this.usage = { type: 'usage', input: (u?.input ?? 0) + e.input, output: (u?.output ?? 0) + e.output, cacheRead: (u?.cacheRead ?? 0) + (e.cacheRead ?? 0), cacheWrite: (u?.cacheWrite ?? 0) + (e.cacheWrite ?? 0), cacheWrite1h: (u?.cacheWrite1h ?? 0) + (e.cacheWrite1h ?? 0), costUsd: (u?.costUsd ?? 0) + (e.costUsd ?? 0) };
     } else if (e.type === 'screenshot') {
-      this.lastScreenshot = { dataUrl: `data:image/jpeg;base64,${e.jpegBase64}`, width: e.width, height: e.height };
+      this.lastScreenshot = { dataUrl: `data:image/jpeg;base64,${e.jpegBase64}`, width: e.width, height: e.height, step: e.step };
     } else if (e.type === 'needs_user') {
       this.log(`✋ needs you: ${e.reason}`);
     }
@@ -836,6 +941,9 @@ export class DeskfishService extends EventEmitter {
     this.removeAllListeners();
   }
 }
+
+/** Carried with a run for unattended runs (step 5 of the gateway plan); not acted on yet. */
+export type RunOptions = Pick<RunRequest, 'unattended' | 'maxCostUsd' | 'reason'>;
 
 /** Tell the model where attached files landed; the paths are what it needs, not the bytes. */
 function withAttachments(text: string, files?: DesktopFile[]): string {

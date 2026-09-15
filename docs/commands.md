@@ -28,7 +28,7 @@ Deskfish; the commands exist for keyboard people and for keybindings.
 | **Deskfish: Open Her Journal** | Opens the journal: one line per finished task and per note the agent left itself. Also under the **…** menu |
 | **Deskfish: Open Her Playbooks** | Opens the playbooks: the how-to notes the agent wrote for itself per site or task. Also under the **…** menu |
 | **Deskfish: Edit Her Charter** | Opens the charter, the maker's ten commitments with reasons that sit above the agent's self page, starting from the default. Also under the **…** menu |
-| **Deskfish: Schedule a Task…** | Asks when (once, daily, weekly, every N minutes) and what; the task starts itself at that time while VS Code is open. See [Schedules](schedules). Also under the **…** menu |
+| **Deskfish: Schedule a Task…** | Asks when (once, daily, weekly, every N minutes) and what; the task starts itself at that time while Deskfish runs, which it keeps doing in the background when VS Code is closed. See [Schedules](schedules). Also under the **…** menu |
 | **Deskfish: Scheduled Tasks…** | Lists the schedules with their next time and last outcome; run one now or remove it. Also under the **…** menu |
 | **Deskfish: Let Her Reflect** | Runs a reflection now: the agent, alone with its notes, saves facts and may revise its self file. Also under the **…** menu |
 | **Deskfish: Export Her Memory…** | Writes one JSON file with the facts, the playbooks, the self file with its history, the journal with its state, the charter if you wrote one, and the past chats. Also under the **…** menu |

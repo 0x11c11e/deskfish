@@ -96,8 +96,9 @@ The conversation starts fresh when:
 - you click **+** (New chat) in the title bar of the sidebar, or
 - you press **Stop**, or the task ends in an error, or
 - you change the provider, the model, the base URL or the API key, or
-- you reload VS Code (the model's live context is gone; the saved transcript can be reopened,
-  see [Past chats](memory#past-chats)).
+- Deskfish's background process restarts, after a restart of the computer or an update (closing
+  or reloading VS Code does not do it; after a restart the saved transcript can be reopened, see
+  [Past chats](memory#past-chats)).
 
 ## Starting fresh
 

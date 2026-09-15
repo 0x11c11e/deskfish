@@ -10,28 +10,46 @@ import { API_KEY_SECRET, readConfig } from './config';
 import { PRESETS, isLocalEndpoint, keySlotFor, presetFor, type Preset } from './agent/presets';
 import { formatSize, safeFileName, type NewDownload } from './desktop/files';
 import { DesktopManager } from './desktop/manager';
-import { DeskfishService, MAX_TRANSFER, type MemoryBundle } from './gateway/service';
-import { dataDir, migrateData } from './gateway/storage';
+import { GatewayClient } from './gateway/client';
+import { DEFAULT_PORT, type Snapshot } from './gateway/protocol';
+import { MAX_TRANSFER, type MemoryBundle } from './gateway/service';
+import { ensureLocalGateway } from './gateway/spawn';
+import { dataDir, ensureToken, migrateData } from './gateway/storage';
+import { VERSION } from './gateway/version';
+import { HerFilesProvider } from './ui/herFiles';
 import type { DesktopFile, UiConfig } from './webview/protocol';
 
 const msg = (err: unknown) => (err instanceof Error ? err.message : String(err));
 
-/** Secret-storage key of the per-install HMAC secret that signs the self file. */
+/** Secret-storage key of the per-install HMAC secret that signed the self file before the gateway (it moved to the data dir). */
 const SELF_KEY_SECRET = 'deskfish.selfKey';
+/** Secret-storage key of a remote gateway's token. */
+export const GATEWAY_TOKEN_SECRET = 'deskfish.gateway.token';
+
+export type Placement = 'local' | 'remote';
+
+export function readGatewaySettings(): { placement: Placement; url: string } {
+  const c = vscode.workspace.getConfiguration('deskfish.gateway');
+  return { placement: c.get<Placement>('placement', 'local') === 'remote' ? 'remote' : 'local', url: c.get<string>('url', '').trim().replace(/\/+$/, '') };
+}
 
 /**
  * The VS Code side of Deskfish: commands, notifications, the output channel, file pickers and save
  * dialogs, the clipboard, the model picker and SecretStorage. Everything else — the stores, the
  * runner and its queue, transcripts, schedules, the Downloads watcher, the desktop — belongs to the
- * `DeskfishService`, which runs in-process for now. Settings and keys are pushed into it; its
- * events come back out to the chat sidebar and the Desktop tab.
+ * gateway, a process of its own (started in the background on this computer, or on another
+ * machine), reached through a `GatewayClient`. Settings and keys are pushed into it on every
+ * connect and change; its events come back out to the chat sidebar and the Desktop tab.
  */
 export class AgentController implements vscode.Disposable {
-  readonly service: DeskfishService;
+  readonly client: GatewayClient;
   readonly desktop: DesktopManager;
   private openDesktop?: (opts?: { preserveFocus?: boolean }) => void;
   private lastSaveDir?: string;
   private readonly subs: vscode.Disposable[] = [];
+  private startError?: string;
+  private tailShown = false;
+  private askedToken = false;
 
   /** Fires when the user starts a new chat (the UI clears its log). */
   readonly onDidReset: vscode.Event<void>;
@@ -43,9 +61,15 @@ export class AgentController implements vscode.Disposable {
   readonly onDidPost: vscode.Event<{ kind: 'user' | 'notice'; text: string }>;
   /** A new file appeared in the desktop's Downloads folder. */
   readonly onDidDownload: vscode.Event<NewDownload>;
+  /** Connected (again) to the gateway: the views re-render from the snapshot. */
+  readonly onDidConnect: vscode.Event<Snapshot>;
 
-  /** Her files move out of globalStorage into the data dir (once) before the service opens them. */
+  /** Her files move out of globalStorage into the data dir (once) before a local gateway opens them. */
   static async create(ctx: vscode.ExtensionContext, output: vscode.OutputChannel): Promise<AgentController> {
+    const gw = readGatewaySettings();
+    if (gw.placement === 'remote') {
+      return new AgentController(ctx, output, gw.url || `http://127.0.0.1:${DEFAULT_PORT}`, (await ctx.secrets.get(GATEWAY_TOKEN_SECRET)) ?? '', 'remote');
+    }
     const cfg = readConfig();
     const slots = new Set([...PRESETS.map((p) => keySlotFor(p.provider, p.baseUrl)), keySlotFor(cfg.provider, cfg.baseUrl)].filter((s): s is string => !!s));
     try {
@@ -71,32 +95,62 @@ export class AgentController implements vscode.Disposable {
         if (c) output.show();
       });
     }
-    return new AgentController(ctx, output);
+    return new AgentController(ctx, output, `http://127.0.0.1:${DEFAULT_PORT}`, ensureToken(dataDir()), 'local');
   }
 
   private constructor(
     private readonly ctx: vscode.ExtensionContext,
     private readonly output: vscode.OutputChannel,
+    url: string,
+    token: string,
+    readonly placement: Placement,
   ) {
-    this.service = new DeskfishService({
-      dataDir: dataDir(),
-      resourceDir: ctx.extensionPath,
-      config: readConfig(),
+    this.client = new GatewayClient({
+      url,
+      token,
+      client: 'vscode',
+      version: VERSION,
       log: (line) => this.output.appendLine(line),
+      // A local gateway that went away (killed, crashed, the machine slept) is started again.
+      beforeReconnect: placement === 'local' ? () => this.ensureLocal() : undefined,
     });
-    this.desktop = new DesktopManager(this.service.desktop, output);
+    this.desktop = new DesktopManager(this.client.desktop, output);
     this.onDidReset = this.relay<void>('reset');
     this.onDidReplay = this.relay('replay');
     this.onDidSchedule = this.relay('schedule');
     this.onDidPost = (listener) => this.relay<{ text: string }>('notice')((n) => listener({ kind: 'notice', text: n.text }));
     this.onDidDownload = this.relay('download');
+    this.onDidConnect = this.relay('connected');
 
     this.subs.push(
+      vscode.workspace.registerFileSystemProvider(HerFilesProvider.scheme, new HerFilesProvider(this.client), { isCaseSensitive: true }),
       vscode.workspace.onDidChangeConfiguration((e) => {
-        if (e.affectsConfiguration('deskfish')) void this.syncSettings();
+        if (e.affectsConfiguration('deskfish.gateway')) {
+          void vscode.window.showInformationMessage('Deskfish: the gateway setting changed. Reload the window to connect to it.', 'Reload').then((c) => {
+            if (c) void vscode.commands.executeCommand('workbench.action.reloadWindow');
+          });
+        } else if (e.affectsConfiguration('deskfish')) void this.syncSettings();
       }),
       this.ctx.secrets.onDidChange((e) => {
-        if (e.key.startsWith('deskfish.')) void this.syncSettings();
+        if (e.key.startsWith('deskfish.apiKey')) void this.syncSettings();
+      }),
+      this.relay<Snapshot>('connected')((snap) => {
+        this.startError = undefined;
+        this.output.appendLine(`— connected to the Deskfish gateway ${snap.version} at ${this.client.url} (her data: ${snap.dataDir}) —`);
+        void this.syncSettings();
+        if (!this.tailShown) {
+          // What the gateway did before this window: the last lines of its log, once.
+          this.tailShown = true;
+          void this.client.call('log.tail', { lines: 40 }).then((lines) => {
+            if (lines.length) this.output.appendLine(`— the gateway's recent log —\n${lines.join('\n')}\n— live from here —`);
+          }, () => {});
+        }
+      }),
+      this.relay<string>('log')((line) => this.output.appendLine(line)),
+      this.relay<void>('unauthorized')(() => {
+        if (this.placement !== 'remote' || this.askedToken) return;
+        this.askedToken = true;
+        void this.askGatewayToken('The gateway refused the token. Enter the token from its data folder (gateway.token).');
       }),
       this.relay<{ text: string }>('task')(() => {
         // The Desktop tab is the screen: show it as soon as a task is submitted (even while the tank
@@ -117,38 +171,106 @@ export class AgentController implements vscode.Disposable {
     );
   }
 
-  /** A service event as a VS Code event. */
+  /** A client event as a VS Code event. */
   private relay<T>(name: string): vscode.Event<T> {
     return (listener: (e: T) => unknown) => {
       const fn = (e: T) => listener(e);
-      this.service.on(name, fn);
-      return new vscode.Disposable(() => this.service.off(name, fn));
+      this.client.on(name, fn);
+      return new vscode.Disposable(() => this.client.off(name, fn));
     };
   }
 
-  /** Push settings and the key, then open her self (its signing key is in the data dir's secrets file). Call once before the first task. */
-  async init(): Promise<void> {
-    await this.syncSettings();
-    this.service.init();
+  /** Start the local gateway when none answers. An error is shown once, until a connect succeeds. */
+  private async ensureLocal(): Promise<void> {
+    try {
+      await ensureLocalGateway({
+        dataDir: dataDir(),
+        entry: path.join(this.ctx.extensionPath, 'dist', 'gateway.js'),
+        execPath: process.execPath,
+        version: VERSION,
+        log: (line) => this.output.appendLine(line),
+      });
+    } catch (err) {
+      const text = msg(err);
+      this.output.appendLine(`✖ ${text}`);
+      if (this.startError !== text) {
+        this.startError = text;
+        void vscode.window.showErrorMessage(`Deskfish could not start its gateway — ${text}`, 'Show log').then((c) => {
+          if (c) this.output.show();
+        });
+      }
+      throw err;
+    }
   }
 
-  /** Push the current settings and the current provider's key into the service. */
+  /** Connect to the gateway (starting it on this computer when needed). Waits a while for the first connection, never forever. */
+  async init(): Promise<void> {
+    if (this.placement === 'local') await this.ensureLocal().catch(() => {});
+    else if (!(await this.ctx.secrets.get(GATEWAY_TOKEN_SECRET))) await this.askGatewayToken('Deskfish runs on another machine. Enter its gateway token (the gateway.token file in its data folder).');
+    void this.client.connect();
+    await this.client.whenConnected(15_000).catch(() => this.output.appendLine(`… still waiting for the gateway at ${this.client.url}`));
+  }
+
+  /** "Deskfish: Set Gateway Token" — for a gateway on another machine. */
+  async askGatewayToken(prompt = 'The token of the Deskfish gateway on another machine (the gateway.token file in its data folder).'): Promise<void> {
+    const value = await vscode.window.showInputBox({ title: 'Deskfish gateway token', prompt, password: true, ignoreFocusOut: true });
+    if (value === undefined) return;
+    if (value.trim()) await this.ctx.secrets.store(GATEWAY_TOKEN_SECRET, value.trim());
+    else await this.ctx.secrets.delete(GATEWAY_TOKEN_SECRET);
+    const choice = await vscode.window.showInformationMessage('Deskfish: gateway token saved. Reload the window to connect with it.', 'Reload');
+    if (choice) void vscode.commands.executeCommand('workbench.action.reloadWindow');
+  }
+
+  /** Push the current settings and the current provider's key into the gateway. */
   private async syncSettings(): Promise<void> {
+    if (!this.client.connected) return;
     const cfg = readConfig();
     const slot = keySlotFor(cfg.provider, cfg.baseUrl);
     const key = await this.apiKey();
-    this.service.setConfig(cfg);
-    // Only a key VS Code holds is pushed: a slot empty here may hold a key set elsewhere. Clearing is setApiKey's.
-    if (slot && key) this.service.setKey(slot, key);
+    try {
+      await this.client.call('config.set', { patch: cfg });
+      // Only a key VS Code holds is pushed: a slot empty here may hold a key set elsewhere. Clearing is setApiKey's.
+      if (slot && key) await this.client.call('key.set', { slot, key });
+    } catch (err) {
+      this.output.appendLine(`settings → gateway failed: ${msg(err)}`);
+    }
   }
 
-  get memory() {
-    return this.service.memory;
+  /** Run a gateway call from a button or command: an error becomes a popup instead of an unhandled rejection. */
+  private attempt<T>(what: string, p: Promise<T>): Promise<T | undefined> {
+    return p.catch((err) => {
+      this.output.appendLine(`✖ ${what}: ${msg(err)}`);
+      void vscode.window.showErrorMessage(`Deskfish: could not ${what} — ${msg(err)}`);
+      return undefined;
+    });
   }
 
-  /** Opens the charter for editing (creates it from the default the first time). */
+  /** Opens her facts for editing (saving sends them to the gateway). */
+  async editMemory(): Promise<void> {
+    await vscode.window.showTextDocument(HerFilesProvider.uri('memory.md'));
+  }
+
+  async clearMemory(): Promise<void> {
+    const mem = await this.attempt('read her memories', this.client.call('memory.read', { file: 'memory.md' }));
+    if (!mem) return;
+    const count = mem.facts;
+    if (!count) {
+      void vscode.window.showInformationMessage('Deskfish has no memories to forget.');
+      return;
+    }
+    const choice = await vscode.window.showWarningMessage(
+      `Forget all ${count} ${count === 1 ? 'fact' : 'facts'} she remembers? Her self file and her journal are not touched.`,
+      { modal: true },
+      'Forget all',
+    );
+    if (choice !== 'Forget all') return;
+    if ((await this.attempt('forget her memories', this.client.call('memory.clearFacts'))) === undefined) return;
+    void vscode.window.showInformationMessage('Deskfish: all memories forgotten.');
+  }
+
+  /** Opens the charter for editing (the default text until the user writes their own). */
   async editCharter(): Promise<void> {
-    await vscode.window.showTextDocument(vscode.Uri.file(this.service.ensureCharterFile()));
+    await vscode.window.showTextDocument(HerFilesProvider.uri('charter.md'));
   }
 
   /** Lets the controller bring up the desktop panel when the bot asks for the user. */
@@ -157,16 +279,21 @@ export class AgentController implements vscode.Disposable {
   }
 
   get currentStatus(): AgentStatus {
-    return this.service.currentStatus;
+    return this.client.status;
   }
 
   /** The current run is a reflection: the desktop is free for the person. */
   get screenFree(): boolean {
-    return this.service.screenFree;
+    return this.client.screenFree;
   }
 
   get latestScreenshot() {
-    return this.service.latestScreenshot;
+    return this.client.latestScreenshot;
+  }
+
+  /** The live view's address: the gateway's `/vnc`, piped to the tank's websockify. */
+  vncUrl(): string {
+    return this.client.vncUrl();
   }
 
   onEvent(listener: (e: AgentEvent) => void): vscode.Disposable {
@@ -175,13 +302,14 @@ export class AgentController implements vscode.Disposable {
 
   async uiConfig(): Promise<UiConfig> {
     const cfg = readConfig();
+    const slot = keySlotFor(cfg.provider, cfg.baseUrl);
     return {
       provider: cfg.provider,
       model: cfg.model,
       baseUrl: cfg.baseUrl,
       daemonUrl: cfg.daemonUrl,
       vncUrl: cfg.vncUrl,
-      hasApiKey: !!(await this.apiKey()),
+      hasApiKey: !!(await this.apiKey()) || (!!slot && this.client.keys.includes(slot)),
       maxSteps: cfg.maxSteps,
       desktop: this.desktop.current,
     };
@@ -190,34 +318,34 @@ export class AgentController implements vscode.Disposable {
   /** Start a task (queued behind a running one, held during a reflection). */
   async run(task: string, attachments?: DesktopFile[]): Promise<void> {
     await this.syncSettings();
-    await this.service.run(task, attachments);
+    await this.attempt('start the task', this.client.run(task, attachments));
   }
 
   /** Let her reflect now (the command). */
-  async reflect(auto = false): Promise<void> {
+  async reflect(): Promise<void> {
     await this.syncSettings();
-    const r = await this.service.reflect(auto);
-    if (r === 'busy' && !auto) void vscode.window.showInformationMessage('Deskfish: she is busy; let her finish first.');
+    const r = await this.attempt('start a reflection', this.client.reflect());
+    if (r === 'busy') void vscode.window.showInformationMessage('Deskfish: she is busy; let her finish first.');
   }
 
   say(text: string, attachments?: DesktopFile[]): void {
-    this.service.say(text, attachments);
+    void this.attempt('send the message', this.client.say(text, attachments));
   }
 
   pause(): void {
-    this.service.pause();
+    void this.attempt('pause', this.client.pause());
   }
 
   resume(): void {
-    this.service.resume();
+    void this.attempt('resume', this.client.resume());
   }
 
   stop(): void {
-    this.service.stop();
+    void this.attempt('stop', this.client.stop());
   }
 
   newConversation(): void {
-    this.service.newConversation();
+    void this.attempt('start a new chat', this.client.newConversation());
   }
 
   /** What only VS Code shows for an event: popups, and the Desktop tab when she knocks. */
@@ -247,7 +375,8 @@ export class AgentController implements vscode.Disposable {
 
   /** Past chats: open one read-only-ish in an editor, or continue it in a new chat. */
   async pastChats(): Promise<void> {
-    const all = this.service.chats.list();
+    const all = await this.attempt('list past chats', this.client.call('chats.list'));
+    if (!all) return;
     if (!all.length) {
       void vscode.window.showInformationMessage('Deskfish: no past chats yet. Every chat is saved from now on.');
       return;
@@ -266,39 +395,43 @@ export class AgentController implements vscode.Disposable {
     );
     if (!what) return;
     if (what.action === 'open') {
-      await vscode.window.showTextDocument(vscode.Uri.file(pick.chat.file), { preview: true });
+      await vscode.window.showTextDocument(HerFilesProvider.uri(`chats/${pick.chat.name}`), { preview: true });
       return;
     }
-    this.service.openChat(pick.chat.file, pick.chat.startedAt);
+    await this.attempt('open the chat', this.client.call('chats.continue', { name: pick.chat.name }));
   }
 
   async deletePastChats(): Promise<void> {
-    const n = this.service.chats.list().length;
+    const all = await this.attempt('list past chats', this.client.call('chats.list'));
+    if (!all) return;
+    const n = all.length;
     if (!n) {
       void vscode.window.showInformationMessage('Deskfish: there are no past chats.');
       return;
     }
     const choice = await vscode.window.showWarningMessage(`Delete all ${n} past chat${n === 1 ? '' : 's'}? Her journal, facts and self are not touched.`, { modal: true }, 'Delete');
     if (choice !== 'Delete') return;
-    this.service.deleteAllChats();
+    await this.attempt('delete past chats', this.client.call('chats.delete'));
   }
 
   /* ---------- who she is, her journal, backups ---------- */
 
-  /** A read-only view of the self file (markdown preview of a copy; the real file has no edit command on purpose). */
+  /** A read-only view of the self file (markdown preview of a local copy; the real file has no edit command on purpose). */
   async showSelf(): Promise<void> {
+    const page = await this.attempt('read her self page', this.client.call('self.read'));
+    if (page === undefined) return;
     const file = path.join(this.ctx.globalStorageUri.fsPath, 'who-she-is.md');
     fs.mkdirSync(path.dirname(file), { recursive: true });
-    fs.writeFileSync(file, this.service.whoSheIs());
+    fs.writeFileSync(file, page);
     await vscode.commands.executeCommand('markdown.showPreview', vscode.Uri.file(file));
   }
 
   async openJournal(): Promise<void> {
-    await vscode.window.showTextDocument(vscode.Uri.file(this.service.journal.ensureFile()));
+    await vscode.window.showTextDocument(HerFilesProvider.uri('journal.md'));
   }
 
   async openPlaybook(): Promise<void> {
-    await vscode.window.showTextDocument(vscode.Uri.file(this.service.playbook.ensureFile()));
+    await vscode.window.showTextDocument(HerFilesProvider.uri('playbook.md'));
   }
 
   /** One JSON file with everything that makes her: facts, self (+ history), journal (+ state). No keys. */
@@ -310,7 +443,9 @@ export class AgentController implements vscode.Disposable {
       title: 'Export her memory',
     });
     if (!target) return;
-    fs.writeFileSync(target.fsPath, JSON.stringify(this.service.exportBundle(), null, 1));
+    const bundle = await this.attempt('export her memory', this.client.call('export'));
+    if (!bundle) return;
+    fs.writeFileSync(target.fsPath, JSON.stringify(bundle, null, 1));
     this.output.appendLine(`— memory exported to ${target.fsPath} —`);
     void vscode.window.showInformationMessage(`Deskfish: her memory is saved to ${path.basename(target.fsPath)}.`);
   }
@@ -336,7 +471,7 @@ export class AgentController implements vscode.Disposable {
       'Import',
     );
     if (choice !== 'Import') return;
-    this.service.importBundle(bundle as MemoryBundle & { self: string });
+    if ((await this.attempt('import her memory', this.client.call('import', { bundle }))) === undefined) return;
     this.output.appendLine(`— memory imported from ${picked[0].fsPath} —`);
     void vscode.window.showInformationMessage('Deskfish: her memory is imported. The next chat starts from it.');
   }
@@ -350,7 +485,7 @@ export class AgentController implements vscode.Disposable {
         { label: 'Every week, on a day at a time', mode: 'weekly' as const },
         { label: 'Every N minutes or hours', mode: 'every' as const },
       ],
-      { title: 'Deskfish: schedule a task — when?', placeHolder: 'Runs only while VS Code is open; a missed time is skipped, not run late' },
+      { title: 'Deskfish: schedule a task — when?', placeHolder: 'Runs while the Deskfish gateway runs, with or without VS Code; a missed time is skipped, not run late' },
     );
     if (!kind) return;
     let when: When | undefined;
@@ -380,7 +515,7 @@ export class AgentController implements vscode.Disposable {
     const task = await vscode.window.showInputBox({ title: 'What should she do?', prompt: 'The task, as you would type it in the chat', placeHolder: 'e.g. Order my usual coffee from the Starbucks site for pickup at 7:30; under $10; tell me the total', ignoreFocusOut: true });
     if (!task) return;
     try {
-      const s = this.service.addSchedule(task, when);
+      const s = await this.client.call('schedules.add', { task, when });
       const next = nextDueAfter(s, Date.now());
       void vscode.window.showInformationMessage(`Scheduled ${describeWhen(s.when)}${next ? `, next ${formatLocal(next)}` : ''}: ${s.task}`);
     } catch (err) {
@@ -390,13 +525,15 @@ export class AgentController implements vscode.Disposable {
 
   /** "Deskfish: Scheduled Tasks…": list, run now, or remove. */
   async scheduledTasks(): Promise<void> {
-    const items = this.service.schedules.list();
+    const listed = await this.attempt('list scheduled tasks', this.client.call('schedules.list'));
+    if (!listed) return;
+    const items = listed.schedules;
     if (!items.length) {
       const c = await vscode.window.showInformationMessage('Deskfish has no scheduled tasks.', 'Schedule one…');
       if (c) await this.scheduleTask();
       return;
     }
-    const lines = this.service.schedules.describe();
+    const lines = listed.lines;
     const pick = await vscode.window.showQuickPick(
       items.map((s, i) => ({ label: describeWhen(s.when), description: s.task, detail: lines[i].split(' — ')[1]?.split(' · ').slice(1).join(' · '), id: s.id })),
       { title: 'Deskfish: scheduled tasks', placeHolder: 'Pick one to run it now or remove it' },
@@ -404,13 +541,13 @@ export class AgentController implements vscode.Disposable {
     if (!pick) return;
     const action = await vscode.window.showQuickPick(['Run it now', 'Remove it'], { title: pick.description });
     if (action === 'Remove it') {
-      this.service.removeSchedule(pick.id);
+      await this.attempt('remove the schedule', this.client.call('schedules.remove', { id: pick.id }));
     } else if (action === 'Run it now') {
-      if (this.service.busy) {
+      if (this.client.status === 'running' || this.client.status === 'paused') {
         void vscode.window.showInformationMessage('Deskfish: she is busy; the task will run when she is free.');
       }
       await this.syncSettings();
-      await this.service.runSchedule(pick.id);
+      await this.attempt('run the scheduled task', this.client.call('schedules.runNow', { id: pick.id }));
     }
   }
 
@@ -444,21 +581,20 @@ export class AgentController implements vscode.Disposable {
     const where = presetFor(cfg.provider, cfg.baseUrl)?.label ?? cfg.baseUrl ?? cfg.provider;
     const value = await vscode.window.showInputBox({
       title: `API key for ${where} (${cfg.model})`,
-      prompt: 'Stored in the OS keychain via VS Code SecretStorage, one key per provider. Leave empty to clear.',
+      prompt: 'Stored in the OS keychain via VS Code SecretStorage and in the Deskfish gateway\'s secrets file, one key per provider. Leave empty to clear.',
       password: true,
       ignoreFocusOut: true,
     });
     if (value === undefined) return;
     if (value.trim()) {
       await this.ctx.secrets.store(slot, value.trim());
-      this.service.setKey(slot, value.trim());
+      if ((await this.attempt('save the key in the gateway', this.client.call('key.set', { slot, key: value.trim() }))) === undefined) return;
       void vscode.window.showInformationMessage(`Deskfish: API key for ${where} saved.`);
     } else {
       await this.ctx.secrets.delete(slot);
-      this.service.setKey(slot, undefined);
+      if ((await this.attempt('clear the key in the gateway', this.client.call('key.set', { slot, key: '' }))) === undefined) return;
       void vscode.window.showInformationMessage(`Deskfish: API key for ${where} cleared.`);
     }
-    this.service.announceStatus();
   }
 
   /** The "Change" button: pick where the model comes from, then the model, then the key if one is missing. */
@@ -519,14 +655,14 @@ export class AgentController implements vscode.Disposable {
   }
 
   /** Release any stuck key/button on the bot's display (called by the Desktop pane on focus loss, before the user interacts, etc.). */
-  releaseInput(): Promise<void> {
-    return this.service.releaseInput();
+  async releaseInput(): Promise<void> {
+    await this.client.releaseInput().catch(() => null);
   }
 
   /** Host clipboard → bot desktop. Returns true if the desktop clipboard now holds the host text. */
   async pushClipboardToDesktop(): Promise<boolean> {
     if (this.desktop.current.state !== 'on') return false;
-    return this.service.clipboardSet(await vscode.env.clipboard.readText());
+    return this.client.call('clipboard.set', { text: await vscode.env.clipboard.readText() }).catch(() => false);
   }
 
   /**
@@ -534,13 +670,14 @@ export class AgentController implements vscode.Disposable {
    * '' when polling.
    */
   async pullClipboardFromDesktop(hint: string): Promise<void> {
-    const text = await this.service.clipboardGet(hint);
-    if (text !== undefined) await vscode.env.clipboard.writeText(text);
+    if (!this.client.connected) return;
+    const text = await this.client.call('clipboard.get', { hint }).catch(() => null);
+    if (text !== null) await vscode.env.clipboard.writeText(text);
   }
 
   /*
    * Files. The desktop shares no folder with this computer; files are copied explicitly, in both
-   * directions, through the daemon — so the same code works for a desktop on another machine.
+   * directions, through the gateway and the daemon — so the same code works for a desktop on another machine.
    */
 
   /** Pick files on this computer and copy them into the desktop's Uploads folder. */
@@ -552,7 +689,7 @@ export class AgentController implements vscode.Disposable {
       openLabel: 'Attach',
     });
     if (!uris?.length) return [];
-    if (!(await this.desktop.ensureOn())) {
+    if (!(await this.attempt('turn on the desktop', this.desktop.ensureOn()))) {
       void vscode.window.showErrorMessage('Deskfish: the desktop is not running, so the files could not be copied to it.');
       return [];
     }
@@ -562,7 +699,7 @@ export class AgentController implements vscode.Disposable {
       try {
         const data = await vscode.workspace.fs.readFile(uri);
         if (data.byteLength > MAX_TRANSFER) throw new Error(`larger than ${formatSize(MAX_TRANSFER)}`);
-        const file = await this.service.uploadFile(name, data);
+        const file = await this.client.uploadFile(name, data);
         out.push(file);
         this.output.appendLine(`📎 ${uri.fsPath} → ${file.path} (${formatSize(data.byteLength)})`);
       } catch (err) {
@@ -574,7 +711,7 @@ export class AgentController implements vscode.Disposable {
 
   /** Files currently in the desktop's Downloads folder (for the "save a file" command). */
   listDownloads(): Promise<DesktopFile[]> {
-    return this.service.listDownloads();
+    return this.client.call('files.list');
   }
 
   /** Copy a desktop file to this computer through a save dialog. Undefined when cancelled. */
@@ -587,7 +724,7 @@ export class AgentController implements vscode.Disposable {
       saveLabel: 'Save',
     });
     if (!target) return undefined;
-    const data = await this.service.readFile(file);
+    const data = await this.client.readFile(file);
     await vscode.workspace.fs.writeFile(target, data);
     this.lastSaveDir = path.dirname(target.fsPath);
     this.output.appendLine(`📥 ${file.path} → ${target.fsPath} (${formatSize(data.length)})`);
@@ -595,17 +732,18 @@ export class AgentController implements vscode.Disposable {
   }
 
   /** Power off: stop a running task first, then the container. */
-  stopDesktop(): Promise<void> {
-    return this.service.stopDesktop();
+  async stopDesktop(): Promise<void> {
+    await this.attempt('turn off the desktop', this.client.call('desktop.off'));
   }
 
   /** Off and on again: the fix for a hung Firefox, a stuck daemon, or new network settings. Files and logins are kept. */
-  restartDesktop(): Promise<void> {
-    return this.service.restartDesktop();
+  async restartDesktop(): Promise<void> {
+    await this.attempt('restart the desktop', this.client.call('desktop.restart'));
   }
 
+  /** The window closes; the gateway (and a running task) keeps going. */
   dispose(): void {
     this.subs.forEach((s) => s.dispose());
-    this.service.dispose();
+    this.client.close();
   }
 }

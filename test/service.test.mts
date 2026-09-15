@@ -4,7 +4,9 @@
 // (never two model calls at once); a message said during a reflection is held and started after it;
 // Stop drops what is queued; a due schedule seen while busy fires after the task; the Downloads
 // watcher's event comes out of the service; setConfig with a new model leaves a running task's
-// runner alone and the next run gets a new one. Nothing here touches podman or the real desktop.
+// runner alone and the next run gets a new one; two runs submitted while the tank is still turning on
+// start one after the other, and Stop in that window keeps the task from starting. Nothing here
+// touches podman or the real desktop.
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import http from 'node:http';
@@ -88,6 +90,7 @@ const baseUrl = `http://127.0.0.1:${(model.address() as AddressInfo).port}/v1`;
 
 // ---------- the service ----------
 const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'deskfish-service-'));
+const dataDir2 = fs.mkdtempSync(path.join(os.tmpdir(), 'deskfish-service-slow-'));
 const cfg: DeskfishConfig = {
   provider: 'openai-compatible', autonomy: 'free', baseUrl, model: 'model-a', anthropicWorkspaceId: '', maxSteps: 0, maxCostUsd: 0,
   reflectEvery: 0, userName: '', ledgerEvery: 0, ledgerTokens: 0, cacheTtl: '1h', effort: '', scheduleGraceMinutes: 5, promptCaching: 'off',
@@ -226,11 +229,45 @@ try {
   const file = service.chats.list()[0].file;
   service.openChat(file, 'earlier');
   ok(seen.some((s) => s.name === 'replay' && Array.isArray(s.payload.items)), 'a past chat replays as items');
+
+  // 9. runs submitted while the tank is still turning on (checkpoint 1): the second waits in the queue
+  let tankOn = false;
+  let startCalls = 0;
+  const slow = new DeskfishService({
+    dataDir: dataDir2, resourceDir: ROOT, config: cfg,
+    createEngine: () => ({ isHealthy: async () => tankOn && (await probe()), start: async () => { startCalls++; await sleep(300); tankOn = true; }, stop: async () => { tankOn = false; }, inspectNetworkMode: async () => 'isolated' as const, networkMode: 'isolated' as const }),
+  });
+  slow.setKey('deskfish.apiKey.127.0.0.1', 'dummy');
+  slow.init(newSelfKey());
+  const slowStatuses: { status: string; message?: string }[] = [];
+  slow.on('event', (e: AgentEvent) => { if (e.type === 'status') slowStatuses.push(e); });
+  closeGate();
+  maxInflight = inflight;
+  const pJ = slow.run('TASK-J first while the tank starts');
+  await sleep(50);
+  ok(slow.busy && !tankOn, 'busy while the tank is still starting');
+  await slow.run('TASK-K second while the tank starts');
+  ok(slow.queued === 1, 'the second run is queued, not started beside the first');
+  ok((await slow.reflect()) === 'busy', 'a reflection asked while the tank starts says busy');
+  await pJ;
+  await until(() => requests.some((q) => q.text.includes('TASK-J')) && inflight === 1, 'J at the model');
+  openGate();
+  await until(() => requests.some((q) => q.text.includes('TASK-K')) && !slow.busy, 'K ran after J');
+  ok(startCalls === 1 && maxInflight === 1, `the tank started once and one model call at a time (starts ${startCalls}, max ${maxInflight})`);
+  await slow.desktop.stop();
+  const pL = slow.run('TASK-L stopped before the tank is on');
+  await sleep(50);
+  slow.stop();
+  await pL;
+  await sleep(100);
+  ok(!requests.some((q) => q.text.includes('TASK-L')) && slowStatuses.some((s) => s.status === 'stopped' && /before the desktop was on/.test(s.message ?? '')) && !slow.busy, 'Stop while the tank starts: the task never starts');
+  slow.dispose();
 } finally {
   service.dispose();
   daemon.close();
   model.close();
   fs.rmSync(dataDir, { recursive: true, force: true });
+  fs.rmSync(dataDir2, { recursive: true, force: true });
 }
 console.log(`service: ${n} checks passed`);
 process.exit(0);

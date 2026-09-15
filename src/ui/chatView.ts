@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import { readConfig } from '../config';
 import type { AgentController } from '../controller';
+import type { Snapshot } from '../gateway/protocol';
 import type { FromChat, ToChat } from '../webview/protocol';
 import { nonce } from './html';
 
@@ -26,7 +27,15 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
 
     const desktop = this.controller.desktop;
     const subs: vscode.Disposable[] = [
-      view.webview.onDidReceiveMessage((m: FromChat) => void this.onMessage(m)),
+      view.webview.onDidReceiveMessage((m: FromChat) =>
+        this.onMessage(m).catch((err) => void vscode.window.showErrorMessage(`Deskfish: ${err instanceof Error ? err.message : String(err)}`)),
+      ),
+      // Connected again (the gateway restarted, or the link dropped): rebuild the chat from the gateway's present.
+      this.controller.onDidConnect((snap) => {
+        this.render(snap);
+        void this.sendConfig();
+        void this.autoStart();
+      }),
       this.controller.onEvent((event) => this.send({ type: 'event', event })),
       this.controller.onDidReset(() => this.send({ type: 'newChat' })),
       this.controller.onDidReplay((r) => this.send({ type: 'replay', ...r })),
@@ -62,11 +71,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     switch (m.type) {
       case 'ready':
         await this.sendConfig();
-        await desktop.refresh();
-        if (readConfig().autoStart && !this.autoStarted && desktop.current.state === 'off' && !desktop.runtimeMissing) {
-          this.autoStarted = true;
-          void desktop.start();
-        }
+        // A window opened mid-task shows the task as a window that watched it from the start.
+        await this.controller.client.refreshSnapshot((snap) => this.render(snap)).catch(() => undefined);
+        await this.autoStart();
         break;
       case 'refresh':
         await desktop.refresh();
@@ -135,6 +142,28 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         await desktop.installRuntime();
         break;
     }
+  }
+
+  /** Turn the desktop on once per window when the setting asks for it (after the gateway answers). */
+  private async autoStart(): Promise<void> {
+    const desktop = this.controller.desktop;
+    if (!readConfig().autoStart || this.autoStarted || !this.controller.client.connected) return;
+    await desktop.refresh().catch(() => undefined);
+    if (desktop.current.state === 'off' && !desktop.runtimeMissing) {
+      this.autoStarted = true;
+      void desktop.start().catch(() => undefined);
+    }
+  }
+
+  /** The current chat, its usage and step, and the running status, from a gateway snapshot. */
+  private render(s: Snapshot): void {
+    this.send({ type: 'newChat' });
+    if (s.chat.length) this.send({ type: 'replay', title: '', items: s.chat, live: true });
+    if (s.usage) this.send({ type: 'event', event: s.usage });
+    if (s.screenshot) this.send({ type: 'event', event: { type: 'screenshot', step: s.screenshot.step, jpegBase64: '', width: s.screenshot.width, height: s.screenshot.height } });
+    // A finished run's status line is already in the transcript; only a live one is re-announced.
+    if (s.status === 'running' || s.status === 'paused') this.send({ type: 'event', event: { type: 'status', status: s.status, message: s.statusMessage, ...(s.screenFree ? { screenFree: true } : {}) } });
+    this.send({ type: 'desktop', status: s.desktop.status });
   }
 
   private async sendConfig(): Promise<void> {

@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { readConfig, vncUrlWithToken } from '../config';
+import { readConfig } from '../config';
 import type { AgentController } from '../controller';
 import type { DesktopState } from '../desktop/manager';
 import type { FromDesktop, ToDesktop } from '../webview/protocol';
@@ -60,7 +60,16 @@ export class DesktopPanel {
         this.lastDesktopState = status.state;
       }),
       vscode.workspace.onDidChangeConfiguration((e) => {
-        if (e.affectsConfiguration('deskfish.desktop')) this.sendConnect();
+        // The gateway reads the tank's address when the view connects; give the settings push a moment.
+        if (e.affectsConfiguration('deskfish.desktop')) setTimeout(() => this.sendConnect(), 500);
+      }),
+      // A gateway that restarted (or a dropped link): reconnect the live view and re-announce the state.
+      this.controller.onDidConnect((snap) => {
+        this.send({ type: 'desktop', status: snap.desktop.status });
+        this.lastDesktopState = snap.desktop.status.state;
+        this.sendConnect();
+        this.send({ type: 'agentStatus', status: snap.status, message: snap.statusMessage, screenFree: snap.screenFree });
+        if (snap.screenshot) this.send({ type: 'screenshot', dataUrl: snap.screenshot.dataUrl, width: snap.screenshot.width, height: snap.screenshot.height });
       }),
     );
     // Bot → host clipboard: x11vnc's cut-text push is unreliable, so while the pane is visible and
@@ -108,9 +117,9 @@ export class DesktopPanel {
     }
   }
 
+  /** The live view goes through the gateway's `/vnc` (one port, one token), which pipes it to the tank's websockify. */
   private sendConnect(): void {
-    const cfg = readConfig();
-    this.send({ type: 'connect', url: vncUrlWithToken(cfg), password: cfg.vncPassword || undefined });
+    this.send({ type: 'connect', url: this.controller.vncUrl(), password: readConfig().vncPassword || undefined });
   }
 
   private send(m: ToDesktop): void {
@@ -120,14 +129,13 @@ export class DesktopPanel {
   private html(): string {
     const webview = this.panel.webview;
     const n = nonce();
-    const cfg = readConfig();
     const css = webview.asWebviewUri(vscode.Uri.joinPath(this.ctx.extensionUri, 'media', 'desktop.css'));
     const js = webview.asWebviewUri(vscode.Uri.joinPath(this.ctx.extensionUri, 'dist', 'webview', 'desktop.js'));
-    // The websocket origin must be allowed explicitly; localhost variants are allowed regardless so
-    // the default setup works without touching CSP.
+    // The websocket origin (the gateway) must be allowed explicitly; localhost variants are allowed
+    // regardless so the default setup works without touching CSP.
     let wsOrigin = '';
     try {
-      const u = new URL(cfg.vncUrl);
+      const u = new URL(this.controller.vncUrl());
       wsOrigin = `${u.protocol}//${u.host}`;
     } catch {
       /* invalid URL — the webview will report it */

@@ -60,3 +60,56 @@ export function vncUrlWithToken(cfg: DeskfishConfig): string {
     return cfg.vncUrl;
   }
 }
+
+/** The defaults, as in package.json's `contributes.configuration`: what a gateway runs on before any client pushed settings. */
+export const DEFAULT_CONFIG: DeskfishConfig = {
+  provider: 'anthropic',
+  autonomy: 'free',
+  baseUrl: '',
+  model: 'claude-opus-5',
+  anthropicWorkspaceId: '',
+  maxSteps: 0,
+  maxCostUsd: 0,
+  reflectEvery: 5,
+  scheduleGraceMinutes: 5,
+  ledgerEvery: 40,
+  ledgerTokens: 100000,
+  cacheTtl: '1h',
+  effort: '',
+  userName: '',
+  promptCaching: 'auto',
+  temperature: null,
+  screenshotWidth: 1280,
+  settleMs: 800,
+  daemonUrl: 'http://localhost:9990',
+  daemonToken: '',
+  vncUrl: 'ws://localhost:9990/websockify',
+  vncPassword: '',
+  composeFile: '',
+  containerCli: 'auto',
+  screen: '1280x800x24',
+  autoStart: true,
+  openDesktopOnRun: true,
+};
+
+const ENUMS: Partial<Record<keyof DeskfishConfig, readonly string[]>> = {
+  provider: ['anthropic', 'openai-compatible', 'mock'],
+  autonomy: ['free', 'guided'],
+  cacheTtl: ['1h', '5m'],
+  effort: ['', 'low', 'medium', 'high', 'xhigh', 'max'],
+  promptCaching: ['auto', 'on', 'off'],
+  containerCli: ['auto', 'docker', 'podman'],
+};
+
+/** `cfg` with `patch` applied; throws on an unknown key or a value of the wrong type. */
+export function applyConfigPatch(cfg: DeskfishConfig, patch: Record<string, unknown>): DeskfishConfig {
+  const next: Record<string, unknown> = { ...cfg };
+  for (const [key, value] of Object.entries(patch)) {
+    if (!Object.prototype.hasOwnProperty.call(DEFAULT_CONFIG, key)) throw new Error(`unknown setting: ${key}`);
+    const k = key as keyof DeskfishConfig;
+    const ok = k === 'temperature' ? value === null || (typeof value === 'number' && Number.isFinite(value)) : typeof value === typeof DEFAULT_CONFIG[k] && (typeof value !== 'number' || Number.isFinite(value));
+    if (!ok || (ENUMS[k] && !ENUMS[k]!.includes(value as string))) throw new Error(`bad value for ${key}`);
+    next[key] = value;
+  }
+  return next as unknown as DeskfishConfig;
+}

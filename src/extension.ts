@@ -9,7 +9,6 @@ export async function activate(ctx: vscode.ExtensionContext): Promise<void> {
   const output = vscode.window.createOutputChannel('Deskfish');
   const controller = await AgentController.create(ctx, output);
   const desktop = controller.desktop;
-  await controller.init();
   const openDesktop = (opts?: { preserveFocus?: boolean }) => DesktopPanel.show(ctx, controller, output, opts);
   controller.setDesktopOpener(openDesktop);
 
@@ -32,32 +31,16 @@ export async function activate(ctx: vscode.ExtensionContext): Promise<void> {
     }),
     vscode.commands.registerCommand('deskfish.stopAgent', () => controller.stop()),
     vscode.commands.registerCommand('deskfish.newChat', () => controller.newConversation()),
-    vscode.commands.registerCommand('deskfish.editMemory', async () => {
-      const file = controller.memory.ensureFile();
-      await vscode.window.showTextDocument(vscode.Uri.file(file));
-    }),
-    vscode.commands.registerCommand('deskfish.clearMemory', async () => {
-      const count = controller.memory.list().length;
-      if (!count) {
-        void vscode.window.showInformationMessage('Deskfish has no memories to forget.');
-        return;
-      }
-      const choice = await vscode.window.showWarningMessage(
-        `Forget all ${count} ${count === 1 ? 'fact' : 'facts'} she remembers? Her self file and her journal are not touched.`,
-        { modal: true },
-        'Forget all',
-      );
-      if (choice !== 'Forget all') return;
-      controller.service.clearFacts();
-      void vscode.window.showInformationMessage('Deskfish: all memories forgotten.');
-    }),
+    vscode.commands.registerCommand('deskfish.editMemory', () => controller.editMemory()),
+    vscode.commands.registerCommand('deskfish.clearMemory', () => controller.clearMemory()),
+    vscode.commands.registerCommand('deskfish.setGatewayToken', () => controller.askGatewayToken()),
     vscode.commands.registerCommand('deskfish.showSelf', () => controller.showSelf()),
     vscode.commands.registerCommand('deskfish.openJournal', () => controller.openJournal()),
     vscode.commands.registerCommand('deskfish.openPlaybook', () => controller.openPlaybook()),
     vscode.commands.registerCommand('deskfish.editCharter', () => controller.editCharter()),
     vscode.commands.registerCommand('deskfish.pastChats', () => controller.pastChats()),
     vscode.commands.registerCommand('deskfish.deletePastChats', () => controller.deletePastChats()),
-    vscode.commands.registerCommand('deskfish.reflect', () => controller.reflect(false)),
+    vscode.commands.registerCommand('deskfish.reflect', () => controller.reflect()),
     vscode.commands.registerCommand('deskfish.scheduleTask', () => controller.scheduleTask()),
     vscode.commands.registerCommand('deskfish.scheduledTasks', () => controller.scheduledTasks()),
     vscode.commands.registerCommand('deskfish.exportMemory', () => controller.exportMemory()),
@@ -88,9 +71,12 @@ export async function activate(ctx: vscode.ExtensionContext): Promise<void> {
       }
     }),
   );
+  // Start (or find) the gateway and connect after the views are registered: the sidebar renders at once and fills in when it answers.
+  void controller.init();
 }
 
 export function deactivate(): void {
-  // Disposables registered in activate() handle cleanup. The desktop container keeps running so
-  // the next session starts instantly; turn it off from the sidebar if you want it gone.
+  // Disposables registered in activate() handle cleanup. The gateway (and a task it is running) and
+  // the desktop container keep running, so closing VS Code interrupts nothing and the next window
+  // picks up where this one was; `deskfish stop` ends the gateway.
 }

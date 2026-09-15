@@ -1,6 +1,6 @@
 ---
 title: Schedules
-description: Tasks that start themselves, once at a time or on a repeat, while VS Code is open, and what happens when the time is missed.
+description: Tasks that start themselves, once at a time or on a repeat, while Deskfish runs, and what happens when the time is missed.
 section: Using Deskfish
 order: 6
 ---
@@ -32,13 +32,15 @@ agent's storage, so they survive reloads, restarts and any number of shutdowns.
   last Monday's report in front of her next Monday.
 - **The agent is busy.** The task waits and starts as soon as she finishes, however long that
   takes. Busy never means skipped.
-- **Deskfish was not running, or the laptop was asleep.** A schedule only fires while VS Code
-  is open, Deskfish is loaded and the machine is awake. If the laptop was off or asleep, or VS
-  Code closed, at the due time and Deskfish only sees the moment later, the occurrence is
+- **Deskfish was not running, or the laptop was asleep.** A schedule only fires while Deskfish
+  runs and the machine is awake. Deskfish runs in the background from the first time VS Code
+  starts it until the computer restarts or you stop it, so closing VS Code does not stop a
+  schedule. If the laptop was off or asleep at the due time and Deskfish only sees the moment
+  later, the occurrence is
   **missed**: a notice appears in the chat, the log and her journal, and the
   task waits for its next time. A report meant for 7:00 should not quietly run at lunchtime.
   The one exception is a short grace, five minutes by default
-  (`deskfish.scheduleGraceMinutes`), for the case where you opened VS Code a moment late.
+  (`deskfish.scheduleGraceMinutes`), for the case where Deskfish started a moment late.
 
 Shutting the laptop ten times before Monday changes nothing. Only the due moment matters.
 
