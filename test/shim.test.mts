@@ -174,7 +174,7 @@ class FakeSocket implements SocketLike {
 
   host.api('desktop').postMessage({ type: 'ready' });
   host.api('chat').postMessage({ type: 'ready' });
-  ok(types(postsFor('desktop')) === 'desktop,connect,agentStatus' && postsFor('chat').length === 0, `before the gateway answers: the live view connects, the chat waits (${types(postsFor('desktop'))})`);
+  ok(posts.length === 0, `before the gateway answers: both views wait for the snapshot, no connect attempt on an unknown desktop (${posts.length} posted)`);
   host.start();
   const s = sockets[0];
   ok(s.url === 'ws://gw/ws?token=tok', 'the socket goes to /ws with the token');

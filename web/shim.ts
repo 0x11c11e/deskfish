@@ -330,12 +330,13 @@ export class WebHost {
   }
 
   /**
-   * A browser cannot see why a WebSocket was refused. After three refusals in a row, ask the
+   * A browser cannot see why a WebSocket was refused. From the third refusal in a row, ask the
    * gateway over HTTP: any path but `/status` answers 401 first when the token is wrong, and then
-   * the page reloads into the sign-in page.
+   * the page reloads into the sign-in page (a gateway that is not reachable is asked again after
+   * the next refusal).
    */
   private async checkToken(): Promise<void> {
-    if (this.failures !== 3) return;
+    if (this.failures < 3) return;
     try {
       const res = await this.env.fetch('/docs', { method: 'HEAD', headers: { authorization: `Bearer ${this.env.token}` } });
       if (res.status === 401) this.env.ui.reload();
@@ -490,7 +491,9 @@ export class WebHost {
     switch (m.type) {
       case 'ready':
         this.ready.desktop = true;
-        this.send({ chat: [], desktop: this.mirror.desktopState() });
+        // Before the gateway has answered there is nothing to connect to: the snapshot brings the view its
+        // state (an attempt on an unknown desktop left "connection lost" on the pill when it was just off).
+        if (this.connected) this.send({ chat: [], desktop: this.mirror.desktopState() });
         break;
       case 'clipboardSync':
         // Only a paste reads this browser's clipboard (a read may ask for permission); focus and clicks do not.
@@ -732,6 +735,8 @@ export function browserUi(doc: Document): HostUi {
         ui.toast('The browser blocked the documentation tab; allow pop-ups for this page.');
         return;
       }
+      // The new tab keeps no handle on this page (a site someone types into that tab could otherwise navigate it).
+      tab.opener = null;
       load().then(
         (blob) => {
           const url = URL.createObjectURL(blob);

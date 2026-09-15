@@ -101,6 +101,9 @@ function applyInputMode(): void {
   agentEl.className = agentStatus;
 }
 
+/** The pill while the desktop is not on. */
+const offText = () => (desktop.state === 'starting' ? 'desktop starting…' : 'desktop off');
+
 function connect(force = false): void {
   if (!conn) return;
   // Already live on this URL? Then a repeated connect request is noise — reconnecting would black
@@ -110,7 +113,7 @@ function connect(force = false): void {
   connectedUrl = conn.url;
   if (desktop.state !== 'on' && desktop.state !== 'unknown') {
     // Nothing to connect to yet; the fallback explains and offers to turn it on.
-    setStatusText(desktop.state === 'starting' ? 'desktop starting…' : 'desktop off');
+    setStatusText(offText());
     showFallback(true);
     return;
   }
@@ -146,7 +149,9 @@ function connect(force = false): void {
     connected = false;
     connecting = false;
     const clean = (ev as CustomEvent<{ clean: boolean }>).detail?.clean;
-    setStatusText(clean ? 'disconnected — reconnecting…' : 'connection lost — reconnecting…', 'error');
+    // A desktop already known to be off is not a lost connection.
+    if (desktop.state !== 'on' && desktop.state !== 'unknown') setStatusText(offText());
+    else setStatusText(clean ? 'disconnected — reconnecting…' : 'connection lost — reconnecting…', 'error');
     showFallback(true);
     scheduleReconnect();
   });
@@ -454,6 +459,8 @@ window.addEventListener('message', (ev: MessageEvent<ToDesktop>) => {
         showFallback(true);
         // The desktop is on (every 15 s health ping says so) but we are not connected: retry.
         if (desktop.state === 'on' && !connecting && !retryTimer) scheduleReconnect();
+        // Not on: the pill says so instead of keeping the last attempt's "connection lost".
+        else if (desktop.state !== 'on' && desktop.state !== 'unknown') setStatusText(offText());
       }
       break;
     case 'connect':
