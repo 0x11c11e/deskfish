@@ -2,14 +2,13 @@ import * as path from 'node:path';
 import * as vscode from 'vscode';
 import { AgentController } from './controller';
 import { formatSize } from './desktop/files';
-import { DesktopManager } from './desktop/manager';
 import { ChatViewProvider } from './ui/chatView';
 import { DesktopPanel } from './ui/desktopPanel';
 
 export async function activate(ctx: vscode.ExtensionContext): Promise<void> {
   const output = vscode.window.createOutputChannel('Deskfish');
-  const desktop = new DesktopManager(ctx, output);
-  const controller = new AgentController(ctx, output, desktop);
+  const controller = new AgentController(ctx, output);
+  const desktop = controller.desktop;
   await controller.init();
   const openDesktop = (opts?: { preserveFocus?: boolean }) => DesktopPanel.show(ctx, controller, output, opts);
   controller.setDesktopOpener(openDesktop);
@@ -49,8 +48,7 @@ export async function activate(ctx: vscode.ExtensionContext): Promise<void> {
         'Forget all',
       );
       if (choice !== 'Forget all') return;
-      controller.memory.clear();
-      output.appendLine('— memory cleared by the user —');
+      controller.service.clearFacts();
       void vscode.window.showInformationMessage('Deskfish: all memories forgotten.');
     }),
     vscode.commands.registerCommand('deskfish.showSelf', () => controller.showSelf()),

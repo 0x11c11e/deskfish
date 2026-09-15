@@ -32,7 +32,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       this.controller.onDidReplay((r) => this.send({ type: 'replay', ...r })),
       this.controller.onDidSchedule((s) => this.send(s.kind === 'fired' ? { type: 'user', text: s.text } : { type: 'notice', text: s.text })),
       this.controller.onDidPost((p) => this.send(p.kind === 'user' ? { type: 'user', text: p.text } : { type: 'notice', text: p.text })),
-      this.controller.downloads.onDidDownload((file) => this.send({ type: 'download', file })),
+      this.controller.onDidDownload((file) => this.send({ type: 'download', file })),
       desktop.onDidChange((status) => this.send({ type: 'desktop', status })),
       vscode.workspace.onDidChangeConfiguration((e) => {
         if (e.affectsConfiguration('deskfish')) void this.sendConfig();

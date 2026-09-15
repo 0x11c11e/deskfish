@@ -1,7 +1,7 @@
 import type { ReplayItem } from '../agent/chats';
 import type { AgentEvent, AgentStatus } from '../agent/loop';
 import type { ComputerAction } from '../computer/types';
-import type { DesktopStatus } from '../desktop/manager';
+import type { DesktopStatus } from '../desktop/supervisor';
 
 /** Messages between the extension host and its two webviews. Shared so both sides stay in sync. */
 

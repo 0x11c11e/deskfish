@@ -2,7 +2,7 @@ import type { AgentEvent, AgentStatus } from '../agent/loop';
 import { describeAction } from '../computer/types';
 import { costUsd, priceForConfig } from '../agent/pricing';
 import { formatSize } from '../desktop/files';
-import type { DesktopStatus } from '../desktop/manager';
+import type { DesktopStatus } from '../desktop/supervisor';
 import type { DesktopFile, FromChat, ToChat, UiConfig } from './protocol';
 
 /**

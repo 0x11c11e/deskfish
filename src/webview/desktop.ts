@@ -1,7 +1,7 @@
 import RFB from '@novnc/novnc';
 import type { AgentStatus } from '../agent/loop';
 import type { ComputerAction } from '../computer/types';
-import type { DesktopStatus } from '../desktop/manager';
+import type { DesktopStatus } from '../desktop/supervisor';
 import type { FromDesktop, ToDesktop } from './protocol';
 
 /**

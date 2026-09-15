@@ -1,81 +1,79 @@
 import * as vscode from 'vscode';
-import { readConfig } from '../config';
-import { DesktopEngine } from './engine';
-import { detectRuntime, terminalCommand, type RuntimeStatus } from './runtime';
+import type { DesktopStatus, DesktopSupervisor } from './supervisor';
+import { terminalCommand, type RuntimeStatus } from './runtime';
+
+export type { DesktopState, DesktopStatus } from './supervisor';
 
 /**
- * VS Code-side owner of the desktop: keeps a state machine the UI can render (off / starting / on /
- * stopping / error), runs the engine with a progress notification, and polls the daemon so the
- * state stays truthful even if the container was started or stopped outside VS Code.
+ * VS Code-side face of the desktop: the state machine, the health poll and the engine live in the
+ * vscode-free `DesktopSupervisor` (owned by the service); this adds what only VS Code can show — the
+ * progress notification while it turns on, error popups, the passt warning and the visible install
+ * terminal.
  */
-
-export type DesktopState = 'unknown' | 'off' | 'starting' | 'on' | 'stopping' | 'error';
-
-export interface DesktopStatus {
-  state: DesktopState;
-  message?: string;
-  /** Which container engine is available; `none` carries an install plan for the UI. */
-  runtime?: RuntimeStatus;
-}
-
 export class DesktopManager implements vscode.Disposable {
-  private status: DesktopStatus = { state: 'unknown' };
   private readonly emitter = new vscode.EventEmitter<DesktopStatus>();
   readonly onDidChange = this.emitter.event;
-  private busy?: Promise<void>;
-  private poll?: NodeJS.Timeout;
-  private runtime?: RuntimeStatus;
+  /** Resolves the progress notification opened when the desktop entered `starting`. */
+  private endProgress?: () => void;
+  private readonly off: (() => void)[] = [];
 
   constructor(
-    private readonly ctx: vscode.ExtensionContext,
+    private readonly supervisor: DesktopSupervisor,
     private readonly output: vscode.OutputChannel,
-  ) {}
+  ) {
+    const on = (name: string, fn: (...args: any[]) => void) => {
+      supervisor.on(name, fn);
+      this.off.push(() => supervisor.off(name, fn));
+    };
+    on('change', (s: DesktopStatus) => {
+      this.progress(s);
+      this.emitter.fire(s);
+    });
+    on('hostNetwork', () => this.warnHostNetwork());
+    on('startFailed', (message: string) => {
+      void vscode.window.showErrorMessage(`Deskfish: could not turn on the desktop — ${message}`, 'Show log').then((c) => {
+        if (c) this.output.show();
+      });
+    });
+    on('stopFailed', (message: string) => {
+      void vscode.window.showErrorMessage(`Deskfish: could not stop the desktop — ${message}`);
+    });
+  }
 
   get current(): DesktopStatus {
-    return this.status;
+    return this.supervisor.current;
   }
 
-  private engine(): DesktopEngine {
-    const cfg = readConfig();
-    return new DesktopEngine(
-      {
-        buildContext: vscode.Uri.joinPath(this.ctx.extensionUri, 'docker', 'desktop').fsPath,
-        cli: cfg.containerCli,
-        daemonUrl: cfg.daemonUrl,
-        daemonToken: cfg.daemonToken,
-        vncPassword: cfg.vncPassword,
-        screen: cfg.screen,
-      },
-      {
-        info: (line) => this.output.appendLine(line),
-        progress: (message) => this.set({ state: 'starting', message }),
-      },
-    );
-  }
-
-  /** Probe the daemon. If it answers we are "on", however it was started. */
-  async refresh(): Promise<DesktopStatus> {
-    if (this.busy) return this.status;
-    const healthy = await this.engine().isHealthy();
-    if (healthy) {
-      this.set({ state: 'on' });
-      this.lookupNetworkMode();
-      return this.status;
+  /** A notification with the start's progress lines, open while the desktop is `starting`. */
+  private progress(s: DesktopStatus): void {
+    if (s.state === 'starting') {
+      if (this.endProgress) return;
+      let report: ((message: string) => void) | undefined;
+      const done = new Promise<void>((resolve) => (this.endProgress = resolve));
+      const sub = this.emitter.event((next) => {
+        if (next.state === 'starting' && next.message) report?.(next.message);
+      });
+      void vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: 'Deskfish desktop', cancellable: false }, async (p) => {
+        report = (message) => p.report({ message });
+        await done;
+        sub.dispose();
+      });
+      return;
     }
-    await this.detectRuntime();
-    if (this.status.state !== 'error') this.set({ state: 'off' });
-    return this.status;
+    this.endProgress?.();
+    this.endProgress = undefined;
+  }
+
+  refresh(): Promise<DesktopStatus> {
+    return this.supervisor.refresh();
   }
 
   get runtimeMissing(): boolean {
-    return this.runtime?.cli === 'none';
+    return this.supervisor.runtimeMissing;
   }
 
-  /** podman/docker present? Cheap (`--version` calls); emits a status change when the answer changes. */
-  async detectRuntime(): Promise<RuntimeStatus> {
-    this.runtime = await detectRuntime(readConfig().containerCli);
-    this.set({ ...this.status });
-    return this.runtime;
+  detectRuntime(): Promise<RuntimeStatus> {
+    return this.supervisor.detectRuntime();
   }
 
   /**
@@ -84,26 +82,8 @@ export class DesktopManager implements vscode.Disposable {
    */
   private warnedHostNetwork = false;
 
-  /** How the running tank is networked: known after a start in this session, or looked up once for a tank that was already running. */
-  private lastNetworkMode?: 'isolated' | 'host';
-  private lookingUpNetworkMode = false;
-
   get networkMode(): 'isolated' | 'host' | undefined {
-    return this.lastNetworkMode;
-  }
-
-  private lookupNetworkMode(): void {
-    if (this.lastNetworkMode !== undefined || this.lookingUpNetworkMode) return;
-    this.lookingUpNetworkMode = true;
-    void this.engine()
-      .inspectNetworkMode()
-      .then((mode) => {
-        if (mode) {
-          this.lastNetworkMode = mode;
-          if (mode === 'host') this.warnHostNetwork();
-        }
-      })
-      .finally(() => (this.lookingUpNetworkMode = false));
+    return this.supervisor.networkMode;
   }
 
   /**
@@ -146,7 +126,7 @@ export class DesktopManager implements vscode.Disposable {
   }
 
   async installRuntime(): Promise<void> {
-    const rt = this.runtime?.cli === 'none' ? this.runtime : await this.detectRuntime();
+    const rt = this.supervisor.runtime?.cli === 'none' ? this.supervisor.runtime : await this.detectRuntime();
     if (rt.cli !== 'none') {
       void vscode.window.showInformationMessage(`Deskfish: ${rt.cli} is already installed.`);
       return;
@@ -168,104 +148,34 @@ export class DesktopManager implements vscode.Disposable {
   }
 
   startPolling(intervalMs = 15_000): void {
-    this.stopPolling();
-    this.poll = setInterval(() => void this.refresh(), intervalMs);
+    this.supervisor.startPolling(intervalMs);
   }
 
   stopPolling(): void {
-    if (this.poll) clearInterval(this.poll);
-    this.poll = undefined;
+    this.supervisor.stopPolling();
   }
 
   /** Turn on if needed. Resolves true when the desktop is usable. */
-  async ensureOn(): Promise<boolean> {
-    if ((await this.refresh()).state === 'on') return true;
-    return this.start();
+  ensureOn(): Promise<boolean> {
+    return this.supervisor.ensureOn();
   }
 
-  async start(): Promise<boolean> {
-    if (this.busy) {
-      await this.busy;
-      return this.status.state === 'on';
-    }
-    this.busy = this.doStart();
-    try {
-      await this.busy;
-    } finally {
-      this.busy = undefined;
-    }
-    return this.status.state === 'on';
+  start(): Promise<boolean> {
+    return this.supervisor.start();
   }
 
-  private async doStart(): Promise<void> {
-    const engine = this.engine();
-    if ((await this.detectRuntime()).cli === 'none') {
-      // The sidebar shows the install card; no error notification needed on top.
-      this.output.appendLine('✖ no container engine (podman/docker) found');
-      this.set({ state: 'off', message: 'Podman (or Docker) is not installed yet' });
-      return;
-    }
-    this.set({ state: 'starting', message: 'Turning on the desktop…' });
-    this.output.appendLine('▶ turning on the desktop');
-    try {
-      await vscode.window.withProgress(
-        { location: vscode.ProgressLocation.Notification, title: 'Deskfish desktop', cancellable: false },
-        async (progress) => {
-          const sub = this.onDidChange((s) => {
-            if (s.state === 'starting' && s.message) progress.report({ message: s.message });
-          });
-          try {
-            await engine.start();
-          } finally {
-            sub.dispose();
-          }
-        },
-      );
-      this.set({ state: 'on' });
-      this.output.appendLine('● desktop is on');
-      this.lastNetworkMode = engine.networkMode;
-      if (engine.networkMode === 'host') this.warnHostNetwork();
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      this.output.appendLine(`✖ desktop start failed: ${message}`);
-      this.set({ state: 'error', message: message.split('\n')[0] });
-      void vscode.window.showErrorMessage(`Deskfish: could not turn on the desktop — ${message.split('\n')[0]}`, 'Show log').then((c) => {
-        if (c) this.output.show();
-      });
-    }
+  stop(): Promise<void> {
+    return this.supervisor.stop();
   }
 
-  async stop(): Promise<void> {
-    if (this.busy) await this.busy;
-    this.lastNetworkMode = undefined;
-    this.set({ state: 'stopping', message: 'Turning off the desktop…' });
-    this.output.appendLine('■ turning off the desktop');
-    try {
-      await this.engine().stop();
-      this.set({ state: 'off' });
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      this.set({ state: 'error', message });
-      void vscode.window.showErrorMessage(`Deskfish: could not stop the desktop — ${message}`);
-    }
-  }
-
-  async toggle(): Promise<void> {
-    const s = (await this.refresh()).state;
-    if (s === 'on') await this.stop();
-    else if (s === 'off' || s === 'error' || s === 'unknown') await this.start();
-  }
-
-  /** Emits only on real changes — listeners reconnect/re-render on events, so no noise. */
-  private set(status: DesktopStatus): void {
-    const next: DesktopStatus = { ...status, runtime: this.runtime };
-    if (this.status.state === next.state && this.status.message === next.message && this.status.runtime?.cli === next.runtime?.cli) return;
-    this.status = next;
-    this.emitter.fire(next);
+  toggle(): Promise<void> {
+    return this.supervisor.toggle();
   }
 
   dispose(): void {
     this.stopPolling();
+    this.off.forEach((f) => f());
+    this.endProgress?.();
     this.emitter.dispose();
   }
 }
