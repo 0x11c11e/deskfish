@@ -10,13 +10,16 @@ import { vncUrlWithToken } from './config';
 import { DEFAULT_PORT, EVENT_NAMES, MAX_FRAME, validate, type CommandName, type EventName, type Request } from './protocol';
 import { MAX_TRANSFER, type DeskfishService, type MemoryBundle } from './service';
 import { VERSION } from './version';
+import { WebClient, type WebResponse } from './web';
 
 /**
  * The gateway's network face: one port, one token. `GET /status` answers without the token and says
  * only that a Deskfish gateway is here; everything else needs it (`Authorization: Bearer <token>`, or
  * `?token=` where a browser cannot set headers): `/ws` (the protocol), `/vnc` (a byte pipe to the
  * tank's websockify, so a client needs no second port), `/files` (upload into the tank's Uploads,
- * download a file from the tank), `/` (the web client, step 4). Binds loopback unless `allowRemote`.
+ * download a file from the tank), `/` (the web page: `web.ts`), `/docs` (the documentation). Without the
+ * token `/` answers 401 with a sign-in page that sends the token this browser kept (a form POST, so the
+ * token is in no URL). Binds loopback unless `allowRemote`.
  * No `vscode` import.
  */
 
@@ -32,6 +35,8 @@ export interface GatewayServerOptions {
   logTail?: (lines: number) => string[];
   /** Called after `shutdown` was answered. */
   onShutdown?: () => void;
+  /** The Deskfish folder holding `web/`, `media/`, `dist/webview/`, `dist/web/` and `docs/site/`; without it `/` is a placeholder. */
+  webRoot?: string;
 }
 
 interface Conn {
@@ -59,10 +64,12 @@ export class GatewayServer {
   private readonly log: (line: string) => void;
   private readonly off: (() => void)[] = [];
   private pollers = 0;
+  private readonly web?: WebClient;
 
   constructor(private readonly opts: GatewayServerOptions) {
     this.service = opts.service;
     this.log = opts.log ?? (() => {});
+    if (opts.webRoot) this.web = new WebClient(opts.webRoot);
     this.http = http.createServer((req, res) => void this.onRequest(req, res));
     this.wss = new WebSocketServer({ noServer: true, maxPayload: MAX_FRAME });
     this.http.on('upgrade', (req, socket, head) => this.onUpgrade(req, socket, head));
@@ -132,6 +139,10 @@ export class GatewayServer {
       json(res, 200, { name: 'deskfish', version: VERSION });
       return;
     }
+    if (url.pathname === '/' && this.web?.available() && (req.method === 'GET' || req.method === 'POST')) {
+      await this.servePage(req, res, url).catch((err) => json(res, 500, { error: err instanceof Error ? err.message : String(err) }));
+      return;
+    }
     if (!this.authorized(req, url)) {
       json(res, 401, { error: 'unauthorized' });
       return;
@@ -163,6 +174,11 @@ export class GatewayServer {
         res.end(data);
         return;
       }
+      if (url.pathname === '/docs' && req.method === 'GET') {
+        const docs = this.web?.docs();
+        if (!docs) return json(res, 404, { error: 'not found' });
+        return html(res, 200, docs);
+      }
       if (url.pathname === '/' && req.method === 'GET') {
         res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
         res.end('<!doctype html><meta charset="utf-8"><title>Deskfish</title><p>The Deskfish gateway is running. The web page arrives in a later version.</p>');
@@ -172,6 +188,23 @@ export class GatewayServer {
     } catch (err) {
       json(res, 500, { error: err instanceof Error ? err.message : String(err) });
     }
+  }
+
+  /**
+   * `/`: the page with the token (`?token=` in the link `deskfish` gives, `Authorization`, or a form
+   * POST from the sign-in page), else 401 with the sign-in page.
+   */
+  private async servePage(req: http.IncomingMessage, res: http.ServerResponse, url: URL): Promise<void> {
+    const web = this.web!;
+    if (req.method === 'GET') {
+      if (this.authorized(req, url)) return html(res, 200, web.page(req.headers.host));
+      return html(res, 401, web.signIn(url.searchParams.has('token') ? 'link' : ''));
+    }
+    const form = /^application\/x-www-form-urlencoded\b/i.test(req.headers['content-type'] ?? '') ? await readBody(req, 4096) : undefined;
+    const given = form ? new URLSearchParams(form.toString('utf8')).get('token') ?? undefined : undefined;
+    if (tokenMatches(given, this.opts.token)) return html(res, 200, web.page(req.headers.host));
+    if (!form) res.setHeader('connection', 'close');
+    return html(res, 401, web.signIn('post'));
   }
 
   /* ---------- upgrades: /ws and /vnc ---------- */
@@ -417,6 +450,11 @@ export class GatewayServer {
 function json(res: http.ServerResponse, status: number, body: unknown): void {
   res.writeHead(status, { 'content-type': 'application/json' });
   res.end(JSON.stringify(body));
+}
+
+function html(res: http.ServerResponse, status: number, page: WebResponse): void {
+  res.writeHead(status, page.headers);
+  res.end(page.html);
 }
 
 function refuse(socket: Duplex, status: number, text: string): void {

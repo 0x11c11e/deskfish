@@ -3,6 +3,7 @@ import { readConfig } from '../config';
 import type { AgentController } from '../controller';
 import type { DesktopState } from '../desktop/manager';
 import type { FromDesktop, ToDesktop } from '../webview/protocol';
+import { desktopBody } from './bodies';
 import { nonce } from './html';
 
 /**
@@ -151,23 +152,7 @@ export class DesktopPanel {
 <title>Deskfish — Desktop</title>
 </head>
 <body>
-  <div id="toolbar">
-    <span id="status">disconnected</span>
-    <span id="agent">agent: idle</span>
-    <span class="spacer"></span>
-    <button id="takeover" class="takeover" style="display:none">Take over</button>
-    <button id="reconnect" class="secondary" title="Reconnect the live view">Reconnect</button>
-  </div>
-  <div id="stage">
-    <div id="screen"></div>
-    <div id="fallback">
-      <img id="fallbackImg" alt="">
-      <div id="fallbackTitle" class="title"></div>
-      <div id="fallbackHint" class="hint"></div>
-      <button id="turnOn" class="primary" hidden>Turn on the desktop</button>
-    </div>
-  </div>
-  <script type="module" nonce="${n}" src="${js}"></script>
+${desktopBody()}  <script type="module" nonce="${n}" src="${js}"></script>
 </body>
 </html>`;
   }

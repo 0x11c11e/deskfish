@@ -39,6 +39,8 @@ let agentMessage = '';
 let screenFree = false;
 let desktop: DesktopStatus = { state: 'unknown' };
 let conn: { url: string; password?: string } | undefined;
+/** The address as shown on screen: without its query, which carries the gateway's token. */
+const shownUrl = (url: string) => url.replace(/[?#].*$/, '');
 /* Automatic reconnect: a socket that drops while the desktop stays on (suspend/resume, a
  * websockify hiccup) is retried with backoff instead of waiting for the Reconnect button. */
 let connecting = false;
@@ -112,7 +114,7 @@ function connect(force = false): void {
     showFallback(true);
     return;
   }
-  setStatusText(`connecting to ${conn.url}…`);
+  setStatusText(`connecting to ${shownUrl(conn.url)}…`);
   cancelRetry();
   try {
     rfb = new RFB(screen, conn.url, conn.password ? { credentials: { password: conn.password } } : undefined);
@@ -234,7 +236,7 @@ function showFallback(show: boolean): void {
       break;
     case 'on':
       fallbackTitle.textContent = 'Connecting…';
-      fallbackHint.textContent = conn ? `No VNC connection to ${conn.url} yet. Retrying automatically; click Reconnect to try right now.` : '';
+      fallbackHint.textContent = conn ? `No VNC connection to ${shownUrl(conn.url)} yet. Retrying automatically; click Reconnect to try right now.` : '';
       break;
     default:
       fallbackTitle.textContent = 'The desktop is off';

@@ -1,6 +1,7 @@
 .vscode/**
 node_modules/**
 src/**
+web/*.ts
 scripts/mock-daemon.mjs
 scripts/build-docs.mjs
 esbuild.mjs

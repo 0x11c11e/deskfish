@@ -15,6 +15,8 @@ export interface UiConfig {
   /** Step limit per task (for the "step 12 of 60" counter). */
   maxSteps: number;
   desktop: DesktopStatus;
+  /** How the key row describes a stored key; "Stored in your keychain" when absent (VS Code). */
+  keyStored?: string;
 }
 
 /** A file on the bot's desktop (inside /home/bot). */

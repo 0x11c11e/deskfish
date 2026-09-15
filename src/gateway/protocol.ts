@@ -19,6 +19,8 @@ export const PROTOCOL = 1;
 export const DEFAULT_PORT = 9980;
 /** Largest WebSocket frame; bigger files go through `POST /files`. */
 export const MAX_FRAME = 64 * 1024 * 1024;
+/** Largest file copied into or out of the tank. */
+export const MAX_TRANSFER = 100 * 1024 * 1024;
 
 export type ClientKind = 'vscode' | 'web' | 'cli';
 

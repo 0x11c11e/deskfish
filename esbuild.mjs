@@ -1,6 +1,7 @@
 // Build script: three bundles.
 //   dist/extension.js        - the VS Code extension host code (Node, CJS, `vscode` external)
 //   dist/webview/{chat,desktop}.js - browser bundles for the two webviews (noVNC lives in desktop.js)
+//   dist/web/shim.js         - the web page's stand-in for VS Code (the gateway inlines it into the page it serves)
 //   dist/smoke.js            - headless CLI runner for testing the agent loop without VS Code
 //   dist/gateway.js, dist/cli.js - the gateway (`deskfish serve`, started detached by the extension) and the `deskfish` command
 //   docs/site/index.html     - the documentation site, rendered from docs/*.md (scripts/build-docs.mjs)
@@ -52,6 +53,14 @@ const builds = [
     outdir: 'dist/webview',
     platform: 'browser',
     format: 'esm',
+    target: 'es2022',
+  },
+  {
+    ...common,
+    entryPoints: ['web/shim.ts'],
+    outfile: 'dist/web/shim.js',
+    platform: 'browser',
+    format: 'iife',
     target: 'es2022',
   },
   {

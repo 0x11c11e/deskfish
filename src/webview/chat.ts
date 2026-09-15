@@ -414,7 +414,7 @@ function renderConfig(c: UiConfig): void {
   const local = /localhost|127\.0\.0\.1/.test(c.baseUrl);
   const needsKey = c.provider !== 'mock' && !c.hasApiKey && !local;
   rowKey.classList.toggle('warn', needsKey);
-  keyText.textContent = c.provider === 'mock' ? 'Not needed' : c.hasApiKey ? 'Stored in your keychain' : local ? 'Not needed for a local endpoint' : 'Not set';
+  keyText.textContent = c.provider === 'mock' ? 'Not needed' : c.hasApiKey ? (c.keyStored ?? 'Stored in your keychain') : local ? 'Not needed for a local endpoint' : 'Not set';
   keyBtn.hidden = c.provider === 'mock';
   keyBtn.textContent = c.hasApiKey ? 'Change' : 'Set API key';
   keyBtn.classList.toggle('primary', needsKey);
@@ -507,7 +507,8 @@ function renderSetup(): void {
   if (!show || rt.cli !== 'none') {
     setupEl?.remove();
     setupEl = undefined;
-    empty.hidden = log.children.length > 1;
+    // The log always holds the empty state and the "Newer messages" pill; anything else is a conversation.
+    empty.hidden = Array.from(log.children).some((c) => c !== empty && c !== jump);
     return;
   }
   const plan = rt.install;

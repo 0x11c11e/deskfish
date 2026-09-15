@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<title>Deskfish</title>
+<link rel="icon" href="{{icon}}">
+<style>{{css}}</style>
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body {
+    background: var(--vscode-editor-background);
+    color: var(--vscode-foreground);
+    font-family: var(--vscode-font-family);
+    font-size: var(--vscode-font-size);
+  }
+  /* Chat left, the live view right; at phone width the chat fills the screen and the view follows below. */
+  #panes { display: flex; height: 100vh; height: 100dvh; }
+  #panes iframe { display: block; border: 0; }
+  #chatPane { display: flex; flex-direction: column; flex: 0 0 clamp(330px, 34vw, 470px); border-right: 1px solid var(--vscode-widget-border); background: var(--vscode-sideBar-background); }
+  #chat { flex: 1 1 auto; width: 100%; min-height: 0; }
+  #desktop { flex: 1 1 auto; min-width: 0; background: #111; }
+  /* The chat's title bar, as VS Code's view title: the name, and New chat. */
+  #bar { display: flex; align-items: center; gap: 8px; height: 36px; padding: 0 8px 0 12px; border-bottom: 1px solid var(--vscode-widget-border); }
+  #bar .brand { display: flex; align-items: center; gap: 7px; font-size: 12px; font-weight: 600; letter-spacing: 0.02em; }
+  #bar .brand svg { width: 18px; height: 18px; color: var(--vscode-button-background); }
+  #bar .spacer { flex: 1; }
+  #newChat { display: flex; align-items: center; gap: 5px; padding: 3px 9px; font: inherit; font-size: 11.5px; border: 1px solid var(--vscode-widget-border); border-radius: 6px; cursor: pointer; color: inherit; background: transparent; }
+  #newChat:hover { background: var(--vscode-list-hoverBackground); border-color: var(--vscode-focusBorder); }
+  #newChat svg { width: 12px; height: 12px; }
+  @media (max-width: 760px) {
+    #panes { flex-direction: column; height: auto; }
+    #chatPane { flex: none; width: 100%; height: 100vh; height: 100svh; border-right: 0; border-bottom: 1px solid var(--vscode-widget-border); }
+    #desktop { flex: none; width: 100%; height: calc(62.5vw + 46px); min-height: 300px; }
+  }
+  #conn { position: fixed; top: 0; left: 50%; transform: translateX(-50%); z-index: 9; padding: 4px 12px; border-radius: 0 0 8px 8px; font-size: 12px; color: #fff; background: var(--vscode-editorWarning-foreground); }
+  #toast { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); z-index: 10; max-width: min(560px, calc(100vw - 32px)); padding: 9px 14px; border-radius: 8px; font-size: 12.5px; line-height: 1.45; color: var(--vscode-editor-background); background: var(--vscode-foreground); box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25); }
+  dialog { width: min(440px, calc(100vw - 32px)); padding: 18px 20px; border: 1px solid var(--vscode-widget-border); border-radius: 10px; color: inherit; background: var(--vscode-editor-background); box-shadow: 0 12px 40px rgba(0, 0, 0, 0.3); }
+  dialog::backdrop { background: rgba(0, 0, 0, 0.4); }
+  dialog h2 { margin: 0 0 12px; font-size: 15px; font-weight: 600; }
+  dialog label { display: block; margin: 12px 0 4px; font-size: 12px; color: var(--vscode-descriptionForeground); }
+  dialog input, dialog select { width: 100%; padding: 6px 8px; font: inherit; border: 1px solid var(--vscode-input-border); border-radius: 6px; color: var(--vscode-input-foreground); background: var(--vscode-input-background); }
+  dialog input:focus, dialog select:focus { outline: 1px solid var(--vscode-focusBorder); border-color: var(--vscode-focusBorder); }
+  dialog .hint { margin: 6px 0 0; font-size: 12px; line-height: 1.45; color: var(--vscode-descriptionForeground); }
+  dialog .error { color: var(--vscode-errorForeground); }
+  dialog .actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; }
+  dialog button { padding: 6px 14px; font: inherit; font-size: 12px; border: 1px solid transparent; border-radius: 6px; cursor: pointer; color: var(--vscode-button-secondaryForeground); background: var(--vscode-button-secondaryBackground); }
+  dialog button:hover { background: var(--vscode-button-secondaryHoverBackground); }
+  dialog button.primary { font-weight: 600; color: var(--vscode-button-foreground); background: var(--vscode-button-background); }
+  dialog button.primary:hover { background: var(--vscode-button-hoverBackground); }
+  #logDialog { width: min(900px, calc(100vw - 32px)); }
+  #logText { max-height: 62vh; margin: 0; padding: 10px; overflow: auto; font: 12px/1.45 var(--vscode-editor-font-family); white-space: pre-wrap; word-break: break-word; border-radius: 6px; background: var(--vscode-textCodeBlock-background); }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<script nonce="{{nonce}}">{{shim}}</script>
+<main id="panes">
+  <section id="chatPane">
+    <header id="bar">
+      <span class="brand"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4.5 12c1.9-2.6 4.4-3.7 6.6-3.3 2.3.4 3.9 1.9 4.6 3.3-.7 1.4-2.3 2.9-4.6 3.3-2.2.4-4.7-.7-6.6-3.3z"/><path d="M15.7 12l3.8-2.5v5z"/><circle cx="7.4" cy="11.4" r="1" fill="currentColor" stroke="none"/></svg>Deskfish</span>
+      <span class="spacer"></span>
+      <button id="newChat" type="button" title="Start a new chat. The current one is kept in her past chats."><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>New chat</button>
+    </header>
+    <iframe id="chat" title="Chat" srcdoc="{{chat}}"></iframe>
+  </section>
+  <iframe id="desktop" title="Desktop" srcdoc="{{desktop}}"></iframe>
+</main>
+<div id="conn" role="status" hidden>Connecting to Deskfish…</div>
+<div id="toast" role="alert" hidden></div>
+
+<dialog id="modelDialog">
+  <form method="dialog">
+    <h2>Where does the model come from?</h2>
+    <label for="preset">Provider</label>
+    <select id="preset"></select>
+    <p class="hint" id="presetDetail"></p>
+    <div id="baseUrlRow">
+      <label for="baseUrl">Base URL of the endpoint</label>
+      <input id="baseUrl" type="url" placeholder="https://…/v1" autocomplete="off" spellcheck="false">
+      <p class="hint">The part before /chat/completions, usually ending in /v1.</p>
+    </div>
+    <div id="modelRow">
+      <label for="model">Model</label>
+      <input id="model" list="modelList" autocomplete="off" spellcheck="false">
+      <datalist id="modelList"></datalist>
+      <p class="hint">Pick a suggestion or type any model the provider serves.</p>
+    </div>
+    <p class="hint error" id="modelError" hidden></p>
+    <div class="actions">
+      <button type="button" value="cancel">Cancel</button>
+      <button value="save" class="primary">Use this model</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="keyDialog">
+  <div>
+    <h2 id="keyTitle">API key</h2>
+    <label for="keyInput">Key</label>
+    <input id="keyInput" type="password" autocomplete="off" spellcheck="false">
+    <p class="hint">Kept in the gateway's secrets file (secrets.json in Deskfish's data folder, readable only by the account that runs it), one key per provider. Save it empty to clear it.</p>
+    <div class="actions">
+      <button type="button" value="cancel">Cancel</button>
+      <button type="button" value="save" class="primary">Save</button>
+    </div>
+  </div>
+</dialog>
+
+<dialog id="logDialog">
+  <form method="dialog">
+    <h2>Deskfish log</h2>
+    <pre id="logText"></pre>
+    <div class="actions"><button value="close" class="primary">Close</button></div>
+  </form>
+</dialog>
+</body>
+</html>

@@ -155,6 +155,7 @@ async function serve(o: { dir: string; port: number; host: string; allowRemote: 
     log,
     logTail: (n) => ring.slice(-n),
     onShutdown: () => void shutdown('asked by a client'),
+    webRoot: path.resolve(__dirname, '..'),
   });
   try {
     const port = await server.listen();
@@ -205,6 +206,7 @@ async function status(dir: string, port: number): Promise<number> {
   console.log(`  model:   ${s.config.model} (${s.config.provider})${s.keys.length ? '' : ', no API key'}`);
   console.log(`  desktop: ${s.desktop.status.state}${s.desktop.status.message ? ` — ${s.desktop.status.message}` : ''}`);
   console.log(`  agent:   ${s.status}${s.statusMessage ? ` — ${s.statusMessage}` : ''}${s.queued ? `, ${s.queued} queued` : ''}`);
+  console.log(`  web:     ${client.url}/ — sign in with the token in ${path.join(dir, 'gateway.token')}`);
   client.close();
   return 0;
 }

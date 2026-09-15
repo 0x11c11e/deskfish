@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<title>Deskfish</title>
+<link rel="icon" href="{{icon}}">
+<style>{{css}}</style>
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body { display: flex; align-items: center; justify-content: center; padding: 16px; color: var(--vscode-foreground); background: var(--vscode-sideBar-background); font-family: var(--vscode-font-family); font-size: 14px; }
+  #card { width: min(420px, 100%); padding: 26px 24px; border: 1px solid var(--vscode-widget-border); border-radius: 12px; background: var(--vscode-editor-background); }
+  .mascot { width: 40px; height: 40px; color: var(--vscode-button-background); }
+  h1 { margin: 10px 0 8px; font-size: 18px; font-weight: 600; }
+  p { margin: 0 0 12px; line-height: 1.5; color: var(--vscode-descriptionForeground); }
+  code { font-family: var(--vscode-editor-font-family); font-size: 12.5px; }
+  input { width: 100%; padding: 8px 10px; font: inherit; border: 1px solid var(--vscode-input-border); border-radius: 6px; color: var(--vscode-input-foreground); background: var(--vscode-input-background); }
+  input:focus { outline: 1px solid var(--vscode-focusBorder); border-color: var(--vscode-focusBorder); }
+  button { margin-top: 12px; width: 100%; padding: 8px 14px; font: inherit; font-weight: 600; border: 0; border-radius: 6px; cursor: pointer; color: var(--vscode-button-foreground); background: var(--vscode-button-background); }
+  button:hover { background: var(--vscode-button-hoverBackground); }
+  .error { color: var(--vscode-errorForeground); }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body data-refused="{{refused}}">
+<div id="card" hidden>
+  <svg class="mascot" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4.5 12c1.9-2.6 4.4-3.7 6.6-3.3 2.3.4 3.9 1.9 4.6 3.3-.7 1.4-2.3 2.9-4.6 3.3-2.2.4-4.7-.7-6.6-3.3z"/><path d="M15.7 12l3.8-2.5v5z"/><circle cx="7.4" cy="11.4" r="1" fill="currentColor" stroke="none"/><circle cx="17.5" cy="6" r="1"/><circle cx="19.8" cy="3.6" r=".7"/></svg>
+  <h1>Deskfish</h1>
+  <p>Paste the gateway's token to open her chat and her desktop. It is the file <code>gateway.token</code> in Deskfish's data folder on the computer where she runs. This browser keeps it, so you only do this once.</p>
+  <p class="error" id="refused" hidden>That token was refused.</p>
+  <form id="form">
+    <input type="password" id="token" autocomplete="off" spellcheck="false" aria-label="Gateway token" required>
+    <button type="submit">Open Deskfish</button>
+  </form>
+</div>
+<!-- What is sent: a hidden field, so the browser's password manager never offers to keep the token. -->
+<form method="post" action="/" id="send" hidden><input type="hidden" name="token"></form>
+<script nonce="{{nonce}}">
+(function () {
+  var KEY = 'deskfish.token';
+  var why = document.body.getAttribute('data-refused');
+  // A reload asks again with a plain GET (never "resend the form?"), and a link's token leaves the address bar.
+  history.replaceState(null, '', location.pathname);
+  var form = document.getElementById('form');
+  var input = document.getElementById('token');
+  var send = document.getElementById('send');
+  function submit(token) {
+    send.elements.token.value = token;
+    send.submit();
+  }
+  var stored = null;
+  try { stored = localStorage.getItem(KEY); } catch (e) {}
+  if (why === 'post') {
+    // The token this browser kept was refused (a new token, or another gateway): forget it.
+    try { localStorage.removeItem(KEY); } catch (e) {}
+    stored = null;
+  }
+  if (stored) {
+    submit(stored);
+    return;
+  }
+  if (why) document.getElementById('refused').hidden = false;
+  document.getElementById('card').hidden = false;
+  input.focus();
+  form.addEventListener('submit', function (ev) {
+    ev.preventDefault();
+    var token = input.value.trim();
+    input.value = '';
+    try { localStorage.setItem(KEY, token); } catch (e) {}
+    submit(token);
+  });
+})();
+</script>
+</body>
+</html>

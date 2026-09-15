@@ -25,12 +25,11 @@ import { DOWNLOADS_DIR, DownloadsWatcher, UPLOADS_DIR, formatSize, isTemporary, 
 import { DesktopSupervisor, type DesktopStatus, type SupervisorOptions } from '../desktop/supervisor';
 import type { DesktopFile } from '../webview/protocol';
 import { applyConfigPatch, type DeskfishConfig } from './config';
-import type { ChatInfo, EditableFile, RunRequest, Snapshot } from './protocol';
+import { MAX_TRANSFER, type ChatInfo, type EditableFile, type RunRequest, type Snapshot } from './protocol';
 import { SecretsFile } from './storage';
 import { VERSION } from './version';
 
-/** Files travel as base64 inside JSON; keep them at a size that stays snappy. */
-export const MAX_TRANSFER = 100 * 1024 * 1024;
+export { MAX_TRANSFER };
 
 export interface ServiceOptions {
   /** Where her files live: memory.md, self.md, journal.md, playbook.md, charter.md, chats/, schedules.json. */
