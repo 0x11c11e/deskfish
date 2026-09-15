@@ -24,8 +24,8 @@ three model settings for you; it does not open this list.)
 | `deskfish.baseUrl` | *(empty)* | Endpoint for OpenAI-compatible providers, the part before `/chat/completions`. Leave empty for Anthropic unless you use a gateway |
 | `deskfish.anthropicWorkspaceId` | *(empty)* | Anthropic workspace ID (`wrkspc_…`). Needed only when your Anthropic key is identity-linked; see [Models and providers](models-and-providers#anthropic) |
 
-The API key is not a setting; it is stored in the keychain through **Deskfish: Set LLM API
-Key**.
+The API key is not a setting; **Deskfish: Set LLM API Key** stores it in the keychain and in
+`secrets.json` in Deskfish's data folder (readable only by your user account).
 
 ## Behavior
 

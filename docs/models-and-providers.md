@@ -102,7 +102,8 @@ real model.
 ## Keys
 
 The API key is stored in your operating system's keychain through VS Code's secret
-storage, never in a settings file, and it is sent only to the endpoint you configured.
+storage and in `secrets.json` in Deskfish's data folder (readable only by your user account),
+never in a settings file, and it is sent only to the endpoint you configured.
 Enter it with **Deskfish: Set LLM API Key** or the **Change** button next to *API key*;
 leave the box empty to clear it. Keys are kept one per provider (Anthropic, and one per
 endpoint host such as openrouter.ai or api.x.ai), so switching providers does not lose the

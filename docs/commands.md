@@ -16,7 +16,7 @@ Deskfish; the commands exist for keyboard people and for keybindings.
 | **Deskfish: Turn Desktop On** | Starts the tank (building the image the first time) |
 | **Deskfish: Restart Desktop** | Turns the tank off and on again. A running task is stopped first. Also under the **…** menu
 | **Deskfish: Turn Desktop Off** | Stops a running task if there is one, then shuts the tank down cleanly |
-| **Deskfish: Set LLM API Key** | Asks for the API key and stores it in the operating system's keychain. Leave it empty to clear the stored key. Same as the key chip |
+| **Deskfish: Set LLM API Key** | Asks for the API key and stores it in the operating system's keychain and Deskfish's data folder. Leave it empty to clear the stored key. Same as the key chip |
 | **Deskfish: Stop Agent** | Ends the current task. Same as the Stop button |
 | **Deskfish: Choose Model…** | Picks where the model comes from (Anthropic direct, OpenRouter, xAI, Ollama, LiteLLM, another endpoint, or the demo) and which model, then asks for a key if that provider has none. The **Change** button next to *Model* does the same
 | **Deskfish: Past Chats…** | Lists saved chats, newest first; open a transcript, or continue one in a new chat. The clock icon in the sidebar's title bar

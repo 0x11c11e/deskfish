@@ -25,6 +25,7 @@ import { DOWNLOADS_DIR, DownloadsWatcher, UPLOADS_DIR, formatSize, isTemporary, 
 import { DesktopSupervisor, type DesktopStatus, type SupervisorOptions } from '../desktop/supervisor';
 import type { DesktopFile } from '../webview/protocol';
 import type { DeskfishConfig } from './config';
+import { SecretsFile } from './storage';
 
 /** Files travel as base64 inside JSON; keep them at a size that stays snappy. */
 export const MAX_TRANSFER = 100 * 1024 * 1024;
@@ -35,6 +36,8 @@ export interface ServiceOptions {
   /** What ships with Deskfish: docs/, library/, docker/desktop. The extension's folder today. */
   resourceDir: string;
   config: DeskfishConfig;
+  /** API keys by slot and the self key; `<dataDir>/secrets.json` when not given. */
+  secrets?: SecretsFile;
   /** One line per call; the output channel in VS Code, a log file under the gateway. */
   log?: (line: string) => void;
   /** Tests replace the container engine. */
@@ -71,10 +74,12 @@ export interface MemoryBundle {
  *   `replay`    {title, items} a past chat to render (always right after a reset)
  *   `download`  NewDownload
  *   `config`    DeskfishConfig after setConfig
+ *   `keys`      string[] the slots that hold a key, after one changed (never the keys)
  */
 export class DeskfishService extends EventEmitter {
   private cfg: DeskfishConfig;
-  private readonly keys = new Map<string, string>();
+  /** API keys by slot and the self key, in `secrets.json` (0600). */
+  readonly secrets: SecretsFile;
   private readonly log: (line: string) => void;
   private readonly resourceDir: string;
   readonly dataDir: string;
@@ -126,6 +131,7 @@ export class DeskfishService extends EventEmitter {
     this.log = opts.log ?? (() => {});
     this.resourceDir = opts.resourceDir;
     this.dataDir = opts.dataDir;
+    this.secrets = opts.secrets ?? new SecretsFile(path.join(opts.dataDir, 'secrets.json'));
     this.desktop = new DesktopSupervisor({
       buildContext: path.join(opts.resourceDir, 'docker', 'desktop'),
       config: () => this.cfg,
@@ -155,10 +161,11 @@ export class DeskfishService extends EventEmitter {
 
   /**
    * The self file needs its signing key (per install; a copy of the files elsewhere does not
-   * verify). The caller keeps the key; call once before the first task.
+   * verify): the one in the secrets file, created the first time, unless one is passed. Call once
+   * before the first task, after any migration into the data dir.
    */
-  init(selfKey: string): void {
-    this.self = new SelfStore(path.join(this.dataDir, 'self.md'), selfKey);
+  init(selfKey?: string): void {
+    this.self = new SelfStore(path.join(this.dataDir, 'self.md'), selfKey ?? this.secrets.ensureSelfKey());
     if (this.self.ensureSeed(DEFAULT_SELF)) {
       // Her first day: the seed of who she is, a few starter notes, and a first line in the journal
       // so the story has a beginning (life stories start with birth).
@@ -180,16 +187,15 @@ export class DeskfishService extends EventEmitter {
     this.fire('config', cfg);
   }
 
-  /** The API key for a slot (`deskfish.apiKey.<anthropic|host>`); empty clears it. */
+  /** The API key for a slot (`deskfish.apiKey.<anthropic|host>`), kept in the secrets file; empty clears it. */
   setKey(slot: string, key: string | undefined): void {
-    if (key) this.keys.set(slot, key);
-    else this.keys.delete(slot);
+    if (this.secrets.set(slot, key || undefined)) this.fire('keys', this.secrets.slots());
   }
 
   /** The API key for the current provider's slot. */
   apiKey(): string | undefined {
     const slot = keySlotFor(this.cfg.provider, this.cfg.baseUrl);
-    return slot ? this.keys.get(slot) : undefined;
+    return slot ? this.secrets.get(slot) : undefined;
   }
 
   /** The charter: the user's file when it exists and is not empty, else the default that ships with Deskfish. */

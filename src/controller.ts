@@ -2,7 +2,6 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import * as fs from 'node:fs';
 import * as vscode from 'vscode';
-import { newSelfKey } from './agent/self';
 import { describeWhen, formatLocal, nextDueAfter, type When } from './agent/schedule';
 import { DRIFT_QUESTIONS } from './agent/prompts';
 import type { ReplayItem } from './agent/chats';
@@ -12,6 +11,7 @@ import { PRESETS, isLocalEndpoint, keySlotFor, presetFor, type Preset } from './
 import { formatSize, safeFileName, type NewDownload } from './desktop/files';
 import { DesktopManager } from './desktop/manager';
 import { DeskfishService, MAX_TRANSFER, type MemoryBundle } from './gateway/service';
+import { dataDir, migrateData } from './gateway/storage';
 import type { DesktopFile, UiConfig } from './webview/protocol';
 
 const msg = (err: unknown) => (err instanceof Error ? err.message : String(err));
@@ -44,12 +44,42 @@ export class AgentController implements vscode.Disposable {
   /** A new file appeared in the desktop's Downloads folder. */
   readonly onDidDownload: vscode.Event<NewDownload>;
 
-  constructor(
+  /** Her files move out of globalStorage into the data dir (once) before the service opens them. */
+  static async create(ctx: vscode.ExtensionContext, output: vscode.OutputChannel): Promise<AgentController> {
+    const cfg = readConfig();
+    const slots = new Set([...PRESETS.map((p) => keySlotFor(p.provider, p.baseUrl)), keySlotFor(cfg.provider, cfg.baseUrl)].filter((s): s is string => !!s));
+    try {
+      for (const k of (await ctx.secrets.keys?.()) ?? []) if (k.startsWith(`${API_KEY_SECRET}.`)) slots.add(k);
+    } catch {
+      /* SecretStorage.keys() needs VS Code 1.97; the presets' slots are enough */
+    }
+    const legacy = await ctx.secrets.get(API_KEY_SECRET);
+    const current = keySlotFor(cfg.provider, cfg.baseUrl);
+    try {
+      await migrateData({
+        from: ctx.globalStorageUri.fsPath,
+        to: dataDir(),
+        // A key saved before slots existed belongs to the provider that is active now.
+        readSecret: async (name) => (await ctx.secrets.get(name)) ?? (name === current ? legacy : undefined),
+        slots: [...slots],
+        selfKeySecret: SELF_KEY_SECRET,
+        log: (line) => output.appendLine(line),
+      });
+    } catch (err) {
+      output.appendLine(`✖ moving her files to ${dataDir()} failed: ${msg(err)}`);
+      void vscode.window.showErrorMessage(`Deskfish: could not move her files to ${dataDir()} — ${msg(err)}`, 'Show log').then((c) => {
+        if (c) output.show();
+      });
+    }
+    return new AgentController(ctx, output);
+  }
+
+  private constructor(
     private readonly ctx: vscode.ExtensionContext,
     private readonly output: vscode.OutputChannel,
   ) {
     this.service = new DeskfishService({
-      dataDir: ctx.globalStorageUri.fsPath,
+      dataDir: dataDir(),
       resourceDir: ctx.extensionPath,
       config: readConfig(),
       log: (line) => this.output.appendLine(line),
@@ -96,18 +126,10 @@ export class AgentController implements vscode.Disposable {
     };
   }
 
-  /**
-   * The self file needs its signing key, which lives in VS Code's secret storage (per install; a
-   * copy of the files elsewhere does not verify). Call once before the first task.
-   */
+  /** Push settings and the key, then open her self (its signing key is in the data dir's secrets file). Call once before the first task. */
   async init(): Promise<void> {
-    let key = await this.ctx.secrets.get(SELF_KEY_SECRET);
-    if (!key) {
-      key = newSelfKey();
-      await this.ctx.secrets.store(SELF_KEY_SECRET, key);
-    }
     await this.syncSettings();
-    this.service.init(key);
+    this.service.init();
   }
 
   /** Push the current settings and the current provider's key into the service. */
@@ -116,7 +138,8 @@ export class AgentController implements vscode.Disposable {
     const slot = keySlotFor(cfg.provider, cfg.baseUrl);
     const key = await this.apiKey();
     this.service.setConfig(cfg);
-    if (slot) this.service.setKey(slot, key);
+    // Only a key VS Code holds is pushed: a slot empty here may hold a key set elsewhere. Clearing is setApiKey's.
+    if (slot && key) this.service.setKey(slot, key);
   }
 
   get memory() {

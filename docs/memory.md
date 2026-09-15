@@ -8,8 +8,10 @@ order: 6
 Within one chat the agent has the conversation in front of it, trimmed now and then by the
 ledger (see [Running tasks](running-tasks#what-the-agent-remembers)). Memory is what survives
 **after** the chat is gone: across New chat, across VS Code restarts, across months. Deskfish
-keeps four kinds, in four plain files in its own storage folder on your computer, because they
-behave differently and deserve different rules. Next to them sit the transcripts of past chats
+keeps four kinds, in four plain files in its own data folder on your computer
+(`~/.local/share/deskfish` on Linux, `~/Library/Application Support/deskfish` on macOS,
+`%APPDATA%\deskfish` on Windows; `DESKFISH_HOME` moves it), because they behave differently and
+deserve different rules. Next to them sit the transcripts of past chats
 and, if you wrote one, your charter.
 
 | | What it holds | Who writes it | Who can edit it |

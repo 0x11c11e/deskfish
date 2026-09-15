@@ -82,7 +82,8 @@ Your own screen is never captured. Your clipboard is copied into the tank when y
 Desktop tab or paste there, and whatever is copied inside the tank lands on your clipboard
 while the tab is visible. Clipboard text reaches the model only if it then appears on the
 tank's screen or in a page the agent reads. The API key goes to the provider's endpoint and
-nowhere else; it is stored in the operating system's keychain, not in settings files.
+nowhere else; it is stored in the operating system's keychain and in `secrets.json` in Deskfish's data folder,
+readable only by your user account, never in settings files.
 
 **Credentials in logs.** What the agent types, runs and reads goes to the model as it is, but
 Deskfish masks the credentials it recognises before anything is shown or written down: API

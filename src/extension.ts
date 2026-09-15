@@ -7,7 +7,7 @@ import { DesktopPanel } from './ui/desktopPanel';
 
 export async function activate(ctx: vscode.ExtensionContext): Promise<void> {
   const output = vscode.window.createOutputChannel('Deskfish');
-  const controller = new AgentController(ctx, output);
+  const controller = await AgentController.create(ctx, output);
   const desktop = controller.desktop;
   await controller.init();
   const openDesktop = (opts?: { preserveFocus?: boolean }) => DesktopPanel.show(ctx, controller, output, opts);

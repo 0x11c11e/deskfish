@@ -98,7 +98,8 @@ Common combinations:
 
 To enter or change a key later, run **Deskfish: Set LLM API Key** from the command palette,
 or click **Change** next to *API key* in the sidebar. The key is stored in your operating
-system's keychain through VS Code's secret storage, one per provider. It is never written to a
+system's keychain through VS Code's secret storage, one per provider, and in Deskfish's data
+folder in a file only your user account can read (`secrets.json`). It is never written to a
 settings file.
 
 > [!TIP]
