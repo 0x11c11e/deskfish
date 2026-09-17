@@ -33,6 +33,7 @@ The API key is not a setting; **Deskfish: Set LLM API Key** stores it in the key
 | --- | --- | --- |
 | `deskfish.maxSteps` | `0` | Cap on model turns per task. `0` = no cap: the agent works until it is done or you press Stop. A number stops the task there with a summary; "continue" resumes |
 | `deskfish.maxCostUsd` | `0` | Cost budget per task in dollars: at list prices for Claude or Kimi used directly, or the cost OpenRouter reports. `0` = none. At 80% the agent is told to wrap up; once a turn reaches the budget it takes no more actions and summarizes; "continue" resumes. A brake, not a hard ceiling: the wrap-up can go a little over, and endpoints with no cost source cannot enforce it |
+| `deskfish.unattendedMaxCostUsd` | `2` | Cost budget in dollars for a run nobody asked for and nobody is watching — a scheduled task. Such a run also behaves as `guided` unless the schedule says otherwise. `0` = no budget; a budget on the schedule itself wins. Same limits as `deskfish.maxCostUsd`: it can only act where the cost is known. See [Schedules](schedules#the-fence-on-a-run-nobody-is-watching) |
 | `deskfish.temperature` | *(unset)* | Sampling temperature for OpenAI-compatible endpoints. Unset, none is sent and the model runs at its provider default, which reasoning models such as `kimi-k3` and GPT-5 insist on (they answer any other value with HTTP 400). Set a number, `0` for the most repeatable clicks, only for models that accept one. Not used by the Anthropic provider, whose adaptive thinking fixes the temperature |
 | `deskfish.promptCaching` | `auto` | Cache breakpoints on OpenAI-compatible endpoints: `auto` adds them for openrouter.ai only, `on` for any gateway that passes them through (LiteLLM), `off` never. The Anthropic provider always caches. See [Models and providers](models-and-providers#a-note-on-openrouter) |
 | `deskfish.reflectEvery` | `5` | After how many finished tasks the agent reflects (alone with its journal and notes: saves facts, may revise its self file). `0` = only when you run **Deskfish: Let Her Reflect**. See [Memory](memory#reflection) |
@@ -60,3 +61,16 @@ The API key is not a setting; **Deskfish: Set LLM API Key** stores it in the key
 | `deskfish.desktop.composeFile` | *(empty)* | For people who start the tank with a compose file instead of the power button. The power button does not use it |
 
 The remote-tank settings are explained in [Advanced setups](advanced).
+
+## Where Deskfish runs
+
+Deskfish itself — the desktop, the agent, her memory, her chats and her schedules — lives in a
+background process (the *gateway*) that VS Code starts and that keeps working when VS Code is
+closed. These three settings say where it runs and whether it comes back by itself. Reload the
+window after changing the first two.
+
+| Setting | Default | What it does |
+| --- | --- | --- |
+| `deskfish.gateway.placement` | `local` | `local`: Deskfish runs on this computer and the extension starts it — nothing to set up. `remote`: it runs on another machine; set `deskfish.gateway.url` and enter its token with **Deskfish: Set Gateway Token** |
+| `deskfish.gateway.url` | *(empty)* | Address of the remote one, e.g. `http://127.0.0.1:9980` through an SSH tunnel, or a Tailscale address. Empty with `local`: this computer, port 9980 |
+| `deskfish.gateway.keepRunning` | `false` | Start Deskfish when you log in, so her schedules run and an interrupted task can be picked up after a restart. Turn it on with **Deskfish: Keep Running When VS Code Is Closed**, which writes the entry and shows it to you in a terminal; the same command removes it. Without it, Deskfish still keeps running after you close VS Code — until the computer restarts |

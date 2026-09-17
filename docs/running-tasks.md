@@ -164,6 +164,27 @@ Stop takes effect at once: a model call in flight is cancelled, a wait is cut sh
 status row says *Stopping…* until the loop has let go of the mouse and keyboard, usually
 well under a second.
 
+## If Deskfish is interrupted
+
+Deskfish runs in a background process of her own, but that process can still end in the middle of
+a task: the computer restarts, an update replaces her, something kills it. She is not left a
+zombie that carries on clicking where a screen used to be.
+
+While a task runs, she keeps a small record of it — the task, the last ledger, what you said
+while it ran, the last action that finished, and which tank it was running in. At her next start
+she reads it, writes one line in her journal (*"Interrupted after 23 steps: … — 41 minutes
+ago"*), and holds a note for the next task you give her. That note goes to her before her first
+look at the screen: what she was doing, how long the gap was, the last action that finished —
+and that whatever came after it was never recorded, so it is unknown — whether the tank restarted
+(if it did, nothing in its windows survived), and the rule she asked for herself: read the screen
+as it is now, never continue with an action queued in her head.
+
+She decides from there. The interrupted task is not restarted by itself: tell her to carry on
+with it, or give her something else. The old chat is in **Deskfish: Past Chats…** either way.
+
+To have her come back by herself after a restart, run **Deskfish: Keep Running When VS Code Is
+Closed** once.
+
 ## Limits worth knowing
 
 - There is **no step limit** by default. Like a coding agent, the agent works until the task
@@ -177,6 +198,9 @@ well under a second.
   repeating and change approach. If that happens again, it knocks on the glass with *"I seem to
   be stuck"* so you decide what to do. Scrolling a long page or working through a form is not a
   stall: the screen changes and the actions differ.
+- **A scheduled task is fenced.** A run nobody asked for behaves as `guided` and carries a cost
+  budget (`deskfish.unattendedMaxCostUsd`, two dollars by default) whatever your own settings
+  say. See [Schedules](schedules#the-fence-on-a-run-nobody-is-watching).
 - **A cost budget, if you want one.** `deskfish.maxCostUsd` works where Deskfish can see a
   cost: Claude or Kimi used directly (known list prices) or OpenRouter, which reports the
   charge. At 80% the agent is told to wrap up; once a turn reaches the budget it takes no

@@ -14,6 +14,8 @@ export interface DeskfishConfig {
   maxSteps: number;
   /** Per-task cost budget in USD (0 = none). Only effective for models with a known list price. */
   maxCostUsd: number;
+  /** Cost budget for a run nobody is watching (a schedule): in USD, 0 = none. A schedule may carry its own. */
+  unattendedMaxCostUsd: number;
   /** Reflect after this many finished tasks (0 = manual only). */
   reflectEvery: number;
   /** The person in the chat, by name, so the agent never takes them for a third party ('' = not told). */
@@ -70,6 +72,7 @@ export const DEFAULT_CONFIG: DeskfishConfig = {
   anthropicWorkspaceId: '',
   maxSteps: 0,
   maxCostUsd: 0,
+  unattendedMaxCostUsd: 2,
   reflectEvery: 5,
   scheduleGraceMinutes: 5,
   ledgerEvery: 40,

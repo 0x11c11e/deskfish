@@ -26,6 +26,7 @@ import { DesktopSupervisor, type DesktopStatus, type SupervisorOptions } from '.
 import type { DesktopFile } from '../webview/protocol';
 import { applyConfigPatch, type DeskfishConfig } from './config';
 import { MAX_TRANSFER, type ChatInfo, type EditableFile, type RunRequest, type Snapshot } from './protocol';
+import { clearState, interruptedLine, readState, resumeNote, writeState, type RunState } from './state';
 import { SecretsFile } from './storage';
 import { VERSION } from './version';
 
@@ -43,6 +44,8 @@ export interface ServiceOptions {
   log?: (line: string) => void;
   /** Tests replace the container engine. */
   createEngine?: SupervisorOptions['createEngine'];
+  /** How often the clock is checked for due schedules and the running task's state is written. Default 30 s; tests make it short. */
+  tickMs?: number;
 }
 
 /** A memory export: facts, self (+ history), journal (+ state), playbooks, charter, chats. No keys. */
@@ -105,6 +108,20 @@ export class DeskfishService extends EventEmitter {
   private readonly pendingSchedules = new Set<string>();
   private status: AgentStatus = 'idle';
   private statusMessage?: string;
+  /** What the running task is doing, mirrored to `state.json` so an interruption is not a hole. */
+  private runState?: RunState;
+  /**
+   * The run a gateway start found unfinished. The next run that is not a reflection is told about
+   * it and it is then forgotten; it survives New chat, because the interruption happened whatever
+   * the person does next.
+   */
+  private pendingResume?: RunState;
+  /**
+   * Schedules missed between the gateway coming back and the resume note being delivered — what
+   * happened while she was away. A schedule that *fires* is not in here: it becomes the run that
+   * gets the note.
+   */
+  private schedulesSinceStart: { kind: 'fired' | 'missed'; task: string }[] = [];
   private lastScreenshot?: { dataUrl: string; width: number; height: number; step: number };
   /** Usage totals of the current chat (a client that connects late shows the same counter). */
   private usage?: Extract<AgentEvent, { type: 'usage' }>;
@@ -155,7 +172,8 @@ export class DeskfishService extends EventEmitter {
     this.chats = new ChatStore(path.join(opts.dataDir, 'chats'));
     this.schedules = new ScheduleStore(path.join(opts.dataDir, 'schedules.json'));
     // The scheduler: a clock check every 30 s (microseconds of work), nothing else running between.
-    this.scheduleTimer = setInterval(() => void this.tickSchedules(), 30_000);
+    // The running task's state rides on the same tick, so `state.json` is never more than one tick old.
+    this.scheduleTimer = setInterval(() => void this.tickSchedules(), opts.tickMs ?? 30_000);
     this.firstTick = setTimeout(() => void this.tickSchedules(), 3_000);
     this.desktop.on('change', (s: DesktopStatus) => {
       // A screenshot from a previous desktop session must not linger as a placeholder.
@@ -181,6 +199,77 @@ export class DeskfishService extends EventEmitter {
       this.journal.appendNote('I hatched today: first start on this machine, with the seed of who I am and a few starter notes from the people who made me. Everything after this line is mine.');
       this.log('— first start: wrote the seed self, the starter playbooks and the first journal line —');
     }
+    this.resumeFromState();
+  }
+
+  /* ---------- state.json: the running task, so an interruption is not a hole ---------- */
+
+  /**
+   * A gateway that starts over a `state.json` was interrupted: the machine restarted, the process
+   * was killed, an update replaced it. One line goes in her journal (the fact, in her own record),
+   * and the next run that is not a reflection is handed a note about it — her requirement 3:
+   * resume, not a zombie. An interrupted reflection gets the journal line only: its pending items
+   * are still in the journal state and the next reflection covers them.
+   */
+  private resumeFromState(): void {
+    const state = readState(this.dataDir);
+    if (!state) return;
+    const now = Date.now();
+    if (!state.noted) {
+      this.journal.appendNote(interruptedLine(state, now));
+      writeState(this.dataDir, { ...state, noted: true });
+    }
+    this.log(`— ${interruptedLine(state, now)} —`);
+    // A reflection's pending items are in the journal state and the next reflection sees them, so
+    // an interrupted reflection is worth the journal line and nothing more.
+    if (!state.reflection) this.pendingResume = state;
+  }
+
+  /**
+   * The note for the next run, taken once. Written here rather than at startup because the tank's
+   * state is only true once the run has turned it on: whether it is the same container decides
+   * whether anything in its windows survived.
+   */
+  private async takeResumeNote(): Promise<string | undefined> {
+    const state = this.pendingResume;
+    if (!state) return undefined;
+    this.pendingResume = undefined;
+    const schedules = this.schedulesSinceStart;
+    this.schedulesSinceStart = [];
+    return resumeNote({ state, now: Date.now(), containerId: await this.desktop.containerId(), desktopOn: this.desktop.current.state === 'on', schedules });
+  }
+
+  /** Start recording a run: written before the first model call, so even step 1 is not lost. */
+  private async beginState(task: string, opts: RunOptions | undefined, reflection: boolean): Promise<void> {
+    const at = new Date().toISOString();
+    this.runState = {
+      task: reflection ? 'a reflection' : task,
+      reflection,
+      unattended: !!opts?.unattended,
+      reason: opts?.reason,
+      startedAt: at,
+      steps: 0,
+      lastStepAt: at,
+      said: [],
+      containerId: await this.desktop.containerId(),
+    };
+    this.flushState();
+  }
+
+  /** `state.json` now, if a run is recording. Called at every ledger and on every tick. */
+  private flushState(): void {
+    if (!this.runState) return;
+    try {
+      writeState(this.dataDir, this.runState);
+    } catch (err) {
+      this.log(`state.json could not be written: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
+  /** The run ended (or the chat was cleared): nothing is interrupted, so nothing is left behind. */
+  private endState(): void {
+    this.runState = undefined;
+    clearState(this.dataDir);
   }
 
   /* ---------- config and keys (pushed in by the client; the service reads no settings of its own) ---------- */
@@ -280,13 +369,13 @@ export class DeskfishService extends EventEmitter {
     // from passing the check above while the desktop is still turning on.
     this.starting = true;
     try {
-      await this.startRun(task, attachments);
+      await this.startRun(task, attachments, opts);
     } finally {
       this.starting = false;
     }
   }
 
-  private async startRun(task: string, attachments?: DesktopFile[]): Promise<void> {
+  private async startRun(task: string, attachments?: DesktopFile[], opts?: RunOptions): Promise<void> {
     const gen = this.generation;
     const stopSeq = this.stopSeq;
     task = withAttachments(task, attachments);
@@ -313,10 +402,20 @@ export class DeskfishService extends EventEmitter {
       return;
     }
 
-    const runner = this.ensureRunner();
+    const runner = this.ensureRunner(opts);
     if (!runner) return;
-    this.log(`▶ task: ${maskSecrets(task)}`);
-    void runner.run(task).catch((err) => {
+    this.log(`▶ task${opts?.unattended ? ` (unattended${opts.reason ? `, ${opts.reason}` : ''})` : ''}: ${maskSecrets(task)}`);
+    await this.beginState(task, opts, false);
+    // The container lookup is an await: a Stop or a New chat in that moment must still win.
+    if (gen !== this.generation || stopSeq !== this.stopSeq) {
+      this.endState();
+      if (gen === this.generation) this.emitEvent({ type: 'status', status: 'stopped', message: 'Stopped before the task started' });
+      return;
+    }
+    // The interruption note goes into the first observation of this run, and only once.
+    const note = await this.takeResumeNote();
+    if (note) this.log('  ↻ the previous run was interrupted; she is told about it before her first look');
+    void runner.run(task, note ? { note } : {}).catch((err) => {
       this.emitEvent({ type: 'status', status: 'error', message: err instanceof Error ? err.message : String(err) });
     });
   }
@@ -338,41 +437,74 @@ export class DeskfishService extends EventEmitter {
         if (!auto) this.emitEvent({ type: 'status', status: 'error', message: 'The desktop is not running' });
         return 'failed';
       }
-      return this.startReflection(auto);
+      return await this.startReflection(auto, gen, stopSeq);
     } finally {
       this.starting = false;
     }
   }
 
-  private startReflection(auto: boolean): 'started' | 'failed' {
+  private async startReflection(auto: boolean, gen: number, stopSeq: number): Promise<'started' | 'failed'> {
     const runner = this.ensureRunner();
     if (!runner) return 'failed';
     this.log(`— reflection (${auto ? 'automatic' : 'asked by the user'}) —`);
+    // A reflection is recorded too (an interrupted one gets the journal line), but it never takes
+    // the resume note: its pending items are in the journal state and the next reflection sees them.
+    // Recorded before it starts, so its end can never come before its record.
+    await this.beginState('a reflection', undefined, true);
+    if (gen !== this.generation || stopSeq !== this.stopSeq) {
+      this.endState();
+      return 'failed';
+    }
     void runner.reflect().catch((err) => {
       this.emitEvent({ type: 'status', status: 'error', message: err instanceof Error ? err.message : String(err) });
     });
     return 'started';
   }
 
+  /**
+   * The fence on a run nobody is watching (her requirement 2): it behaves like `guided` unless the
+   * schedule says otherwise, and it carries a cost ceiling that stops rather than improvises —
+   * the schedule's own budget, else `deskfish.unattendedMaxCostUsd` (default 2, 0 = none). An
+   * attended run keeps the settings the person chose.
+   */
+  private fenceFor(opts?: RunOptions): { autonomy: DeskfishConfig['autonomy']; budgetUsd: number; budgetSetting: string } {
+    const cfg = this.cfg;
+    if (!opts?.unattended) return { autonomy: cfg.autonomy, budgetUsd: cfg.maxCostUsd, budgetSetting: 'deskfish.maxCostUsd' };
+    return {
+      autonomy: opts.autonomy ?? 'guided',
+      budgetUsd: opts.maxCostUsd ?? cfg.unattendedMaxCostUsd,
+      budgetSetting: opts.maxCostUsd === undefined ? 'deskfish.unattendedMaxCostUsd' : "this schedule's budget",
+    };
+  }
+
   /** Reuse the runner (same conversation) when the last run ended cleanly and nothing changed; otherwise build a new one. */
-  private ensureRunner(): AgentRunner | undefined {
+  private ensureRunner(opts?: RunOptions): AgentRunner | undefined {
     const cfg = this.cfg;
     const apiKey = this.apiKey();
+    const fence = this.fenceFor(opts);
     // A follow-up task continues the previous conversation (the model keeps its context) as long
     // as the last run ended cleanly and the model setup is unchanged. After stop/error the
     // adapter may hold half-finished tool calls, so those start fresh.
-    const fingerprint = JSON.stringify([cfg.provider, cfg.model, cfg.baseUrl, cfg.anthropicWorkspaceId, cfg.autonomy, cfg.daemonUrl, apiKey, cfg.effort, cfg.cacheTtl]);
+    // The fence is part of the setup: an unattended run never continues an attended conversation
+    // built with other rules (and a scheduled run is its own chat anyway).
+    const fingerprint = JSON.stringify([cfg.provider, cfg.model, cfg.baseUrl, cfg.anthropicWorkspaceId, fence.autonomy, cfg.daemonUrl, apiKey, cfg.effort, cfg.cacheTtl, fence.budgetUsd]);
     let runner = this.runner;
     if (!runner || runner.currentStatus !== 'done' || fingerprint !== this.runnerFingerprint) {
       try {
         const docs = this.docsLibrary();
+        const price = priceForConfig({ provider: cfg.provider, model: cfg.model, baseUrl: cfg.baseUrl });
+        if (opts?.unattended && fence.budgetUsd > 0 && !price) {
+          // Honest about the fence: without a list price the loop can only count what the provider
+          // reports, and most OpenAI-compatible endpoints report nothing.
+          this.log(`  ⚠ the unattended budget ($${fence.budgetUsd.toFixed(2)}) cannot act on ${cfg.model} (${cfg.provider}): no list price for it, so cost is only known if the endpoint reports it`);
+        }
         const adapter = createAdapter({
           provider: cfg.provider,
           model: cfg.model,
           baseUrl: cfg.baseUrl || undefined,
           apiKey: apiKey || undefined,
           workspaceId: cfg.anthropicWorkspaceId || undefined,
-          autonomy: cfg.autonomy,
+          autonomy: fence.autonomy,
           docsIndex: docs.size ? docs.index() : undefined,
           notes: () => this.notes(),
           promptCaching: cfg.promptCaching,
@@ -409,8 +541,9 @@ export class DeskfishService extends EventEmitter {
           reflectEvery: cfg.reflectEvery,
           ledgerEvery: cfg.ledgerEvery,
           ledgerTokens: cfg.ledgerTokens,
-          budgetUsd: cfg.maxCostUsd,
-          price: priceForConfig({ provider: cfg.provider, model: cfg.model, baseUrl: cfg.baseUrl }),
+          budgetUsd: fence.budgetUsd,
+          budgetSetting: fence.budgetSetting,
+          price,
           onEvent: (e) => {
             if (gen === this.generation) this.emitEvent(e);
           },
@@ -420,7 +553,7 @@ export class DeskfishService extends EventEmitter {
         return undefined;
       }
       this.runnerFingerprint = fingerprint;
-      this.log(`  provider=${cfg.provider} model=${cfg.model} daemon=${cfg.daemonUrl}`);
+      this.log(`  provider=${cfg.provider} model=${cfg.model} daemon=${cfg.daemonUrl} autonomy=${fence.autonomy}${fence.budgetUsd > 0 ? ` budget=$${fence.budgetUsd.toFixed(2)}` : ''}`);
     }
     this.runner = runner;
     return runner;
@@ -550,6 +683,8 @@ export class DeskfishService extends EventEmitter {
       return;
     }
     this.transcript?.user(withAttachments(text, attachments));
+    // What the person said mid-task is part of the task: the note after an interruption carries it.
+    if (this.runState && this.runState.said.length < 5) this.runState.said.push(text);
     this.runner.say(withAttachments(text, attachments));
     if (this.runner.waitingForUser) this.runner.resume();
   }
@@ -618,6 +753,8 @@ export class DeskfishService extends EventEmitter {
    * settled as such, noted in the chat, the log and her journal, never run late.
    */
   async tickSchedules(): Promise<void> {
+    // The running task's state rides on this tick: `state.json` is never more than one tick old.
+    this.flushState();
     const now = Date.now();
     const grace = Math.max(0, this.cfg.scheduleGraceMinutes) * 60_000;
     for (const d of this.schedules.due(now, grace)) {
@@ -628,6 +765,7 @@ export class DeskfishService extends EventEmitter {
         const text = `⏰ Missed a scheduled task: "${d.schedule.task}" (${when}) was due ${formatLocal(d.dueAt)}, but Deskfish was not running then.`;
         this.log(text);
         this.journal.appendNote(`Missed a scheduled task: "${d.schedule.task}" was due ${formatLocal(d.dueAt)} but Deskfish was not running.`);
+        if (this.pendingResume) this.schedulesSinceStart.push({ kind: 'missed', task: d.schedule.task });
         this.fire('schedule', { kind: 'missed', text, task: d.schedule.task, dueAt: d.dueAt, auto: true });
         continue;
       }
@@ -645,16 +783,22 @@ export class DeskfishService extends EventEmitter {
       // A scheduled task is its own chat: yesterday's conversation is not its context.
       if (this.transcript) this.newConversation();
       this.fire('schedule', { kind: 'fired', text: `⏰ ${d.schedule.task}`, task: d.schedule.task, dueAt: d.dueAt, auto: true });
-      await this.run(`${d.schedule.task}
+      // A schedule starts a run nobody is watching: it carries the fence (guided unless the
+      // schedule says free, and a cost ceiling that stops rather than improvises).
+      await this.run(
+        `${d.schedule.task}
 
-(This task was scheduled to run ${when}; it is ${formatLocal(now)} now. No one is necessarily watching: if you need the user, knock on the glass and wait.)`);
+(This task was scheduled to run ${when}; it is ${formatLocal(now)} now. No one is necessarily watching: if you need the user, knock on the glass and wait.)`,
+        undefined,
+        { unattended: true, maxCostUsd: d.schedule.maxCostUsd, autonomy: d.schedule.autonomy, reason: 'schedule' },
+      );
       return; // one at a time; the next tick picks up the rest once she is free
     }
   }
 
-  addSchedule(task: string, when: When): Schedule {
-    const s = this.schedules.add(task, when);
-    this.log(`⏰ scheduled (${describeWhen(s.when)}): ${s.task}`);
+  addSchedule(task: string, when: When, fence: { autonomy?: 'free' | 'guided'; maxCostUsd?: number } = {}): Schedule {
+    const s = this.schedules.add(task, when, Date.now(), fence);
+    this.log(`⏰ scheduled (${describeWhen(s.when)}${s.autonomy ? `, ${s.autonomy}` : ''}${s.maxCostUsd !== undefined ? `, budget $${s.maxCostUsd.toFixed(2)}` : ''}): ${s.task}`);
     return s;
   }
 
@@ -664,7 +808,7 @@ export class DeskfishService extends EventEmitter {
     if (s) this.log(`⏰ removed schedule: ${s.task}`);
   }
 
-  /** "Run it now": its own chat when she is free; queued behind the current task when she is not. */
+  /** "Run it now": its own chat when she is free; queued behind the current task when she is not. A person clicked it, so it is attended — the fence is for the runs nobody asked for. */
   async runSchedule(id: string): Promise<void> {
     const s = this.schedules.get(id);
     if (!s) return;
@@ -688,6 +832,9 @@ export class DeskfishService extends EventEmitter {
     this.queue.length = 0;
     this.usage = undefined;
     this.lastScreenshot = undefined;
+    // Nothing is running any more, so nothing is interrupted. The resume note is not cleared:
+    // the interruption is a fact, and the next run still has to be told about it.
+    this.endState();
     this.log('— new chat —');
     this.emitEvent({ type: 'status', status: 'idle', message: 'New chat' });
     this.fire('reset');
@@ -882,8 +1029,41 @@ export class DeskfishService extends EventEmitter {
     }
   }
 
+  /**
+   * Keep `state.json` true for the running task. The file is written when the run starts, at every
+   * ledger (the point the conversation restarts from) and on every tick; in between the record is
+   * kept in memory, so the last action it names can be a few seconds old — which is why the note
+   * says that whatever came after it is unknown rather than guessing.
+   */
+  private trackState(e: AgentEvent): void {
+    const st = this.runState;
+    if (!st) return;
+    switch (e.type) {
+      case 'action':
+        st.steps = Math.max(st.steps, e.step);
+        st.lastStepAt = new Date().toISOString();
+        st.lastAction = { step: e.step, describe: describeAction(e.action), ok: e.result.ok };
+        break;
+      case 'screenshot':
+        st.steps = Math.max(st.steps, e.step);
+        st.lastStepAt = new Date().toISOString();
+        break;
+      case 'assistant':
+        st.lastAssistant = e.text;
+        break;
+      case 'ledger':
+        st.ledger = { step: e.step, text: e.text };
+        st.lastStepAt = new Date().toISOString();
+        this.flushState();
+        break;
+      default:
+        break;
+    }
+  }
+
   private emitEvent(e: AgentEvent): void {
     this.record(e);
+    this.trackState(e);
     if (e.type === 'status') {
       this.status = e.status;
       this.statusMessage = e.message;
@@ -927,7 +1107,10 @@ export class DeskfishService extends EventEmitter {
     }
     this.fire('event', e);
     // After the clients have seen the end: a message held during a reflection, or the next queued task, starts now.
-    if (e.type === 'status' && (e.status === 'done' || e.status === 'stopped' || e.status === 'error')) this.afterRun(e.status);
+    if (e.type === 'status' && (e.status === 'done' || e.status === 'stopped' || e.status === 'error')) {
+      this.endState();
+      this.afterRun(e.status);
+    }
   }
 
   dispose(): void {
@@ -941,8 +1124,13 @@ export class DeskfishService extends EventEmitter {
   }
 }
 
-/** Carried with a run for unattended runs (step 5 of the gateway plan); not acted on yet. */
-export type RunOptions = Pick<RunRequest, 'unattended' | 'maxCostUsd' | 'reason'>;
+/**
+ * Carried with a run. `unattended` means nobody asked for it and nobody is watching (a schedule,
+ * later a wake): it gets the fence — `guided` unless `autonomy` says otherwise, and a cost ceiling
+ * from `maxCostUsd` or `deskfish.unattendedMaxCostUsd`. `autonomy` comes from the schedule itself,
+ * not from the wire.
+ */
+export type RunOptions = Pick<RunRequest, 'unattended' | 'maxCostUsd' | 'reason'> & { autonomy?: 'free' | 'guided' };
 
 /** Tell the model where attached files landed; the paths are what it needs, not the bytes. */
 function withAttachments(text: string, files?: DesktopFile[]): string {

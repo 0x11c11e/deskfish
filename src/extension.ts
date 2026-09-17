@@ -34,6 +34,7 @@ export async function activate(ctx: vscode.ExtensionContext): Promise<void> {
     vscode.commands.registerCommand('deskfish.editMemory', () => controller.editMemory()),
     vscode.commands.registerCommand('deskfish.clearMemory', () => controller.clearMemory()),
     vscode.commands.registerCommand('deskfish.setGatewayToken', () => controller.askGatewayToken()),
+    vscode.commands.registerCommand('deskfish.keepRunning', () => controller.keepRunning()),
     vscode.commands.registerCommand('deskfish.showSelf', () => controller.showSelf()),
     vscode.commands.registerCommand('deskfish.openJournal', () => controller.openJournal()),
     vscode.commands.registerCommand('deskfish.openPlaybook', () => controller.openPlaybook()),

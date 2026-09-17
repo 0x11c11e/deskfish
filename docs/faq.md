@@ -134,6 +134,18 @@ latest 16,000 characters of that transcript as context, with no images: a fresh 
 with the old one as notes, not the old one resumed. Within a window, every new task continues
 the previous conversation.
 
+## Does she keep running when I log out?
+
+Closing VS Code does not stop her: she lives in a background process of her own, and a task or a
+schedule carries on. Logging out or restarting the computer does end that process. Run
+**Deskfish: Keep Running When VS Code Is Closed** once and she comes back when you log in — the
+command writes the entry (an autostart entry on Linux, a launch agent on macOS, a logon task on
+Windows) and shows it to you in a terminal, and running it again removes it. She still needs the
+machine to be awake: a sleeping laptop runs nothing, and a schedule whose time passed while it
+slept is reported as missed rather than run late. If she was in the middle of a task when the
+computer restarted, her next task is told about it before she touches anything — see
+[Running tasks](running-tasks#if-deskfish-is-interrupted).
+
 ## Can the agent reach other devices on my network?
 
 Its traffic leaves through your machine, so a device that answers to your computer also

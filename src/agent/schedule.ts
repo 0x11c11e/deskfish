@@ -23,6 +23,14 @@ export interface Schedule {
   task: string;
   when: When;
   createdAt: string;
+  /**
+   * The fence on a run nobody is watching (gateway plan, step 5). Both optional so a
+   * `schedules.json` written before them still loads: without them a fired schedule runs
+   * `guided` on `deskfish.unattendedMaxCostUsd`.
+   */
+  autonomy?: 'free' | 'guided';
+  /** Cost budget in USD for this schedule's runs; 0 = none. */
+  maxCostUsd?: number;
   /** Due time (ms since epoch) of the last occurrence that was fired or missed. */
   lastDueAt?: number;
   lastOutcome?: 'fired' | 'missed';
@@ -180,12 +188,14 @@ export class ScheduleStore {
     return s ? { ...s } : undefined;
   }
 
-  add(task: string, when: When, now = Date.now()): Schedule {
+  add(task: string, when: When, now = Date.now(), fence: { autonomy?: 'free' | 'guided'; maxCostUsd?: number } = {}): Schedule {
     const text = task.trim();
     if (!text) throw new Error('the task is empty');
     validateWhen(when);
     if (when.kind === 'once' && parseLocal(when.at) <= now) throw new Error('that time has already passed');
-    const s: Schedule = { id: `${now.toString(36)}${Math.random().toString(36).slice(2, 6)}`, task: text, when, createdAt: new Date(now).toISOString() };
+    if (fence.autonomy !== undefined && fence.autonomy !== 'free' && fence.autonomy !== 'guided') throw new Error('autonomy must be free or guided');
+    if (fence.maxCostUsd !== undefined && (!Number.isFinite(fence.maxCostUsd) || fence.maxCostUsd < 0)) throw new Error('the budget must be a number of dollars, 0 or more');
+    const s: Schedule = { id: `${now.toString(36)}${Math.random().toString(36).slice(2, 6)}`, task: text, when, createdAt: new Date(now).toISOString(), ...(fence.autonomy ? { autonomy: fence.autonomy } : {}), ...(fence.maxCostUsd !== undefined ? { maxCostUsd: fence.maxCostUsd } : {}) };
     this.items.push(s);
     this.save();
     return { ...s };
@@ -232,7 +242,9 @@ export class ScheduleStore {
     return this.items.map((s) => {
       const next = nextDueAfter(s, now);
       const last = s.lastOutcome ? ` · last ${s.lastOutcome}${s.lastDueAt ? ` ${formatLocal(s.lastDueAt)}` : ''}` : '';
-      return `${describeWhen(s.when)} — ${s.task}${next ? ` · next ${formatLocal(next)}` : ''}${last}`;
+      // The fence is part of what a schedule is: shown only when it differs from the default (guided, the setting's budget).
+      const fence = `${s.autonomy === 'free' ? ' · free' : ''}${s.maxCostUsd !== undefined ? ` · budget $${s.maxCostUsd.toFixed(2)}` : ''}`;
+      return `${describeWhen(s.when)} — ${s.task}${next ? ` · next ${formatLocal(next)}` : ''}${fence}${last}`;
     });
   }
 }

@@ -13,8 +13,9 @@ free to do other work in the meantime.
 ## Creating one
 
 Run **Deskfish: Schedule a Task…** from the **…** menu of the chat or the command palette.
-It asks when, then what. Write the task the way you would in the chat, and since nobody may
-be watching when it runs, be explicit about limits and what you want reported:
+It asks when, then what, then how much she should decide on her own when it runs. Write the task
+the way you would in the chat, and since nobody may be watching when it runs, be explicit about
+limits and what you want reported:
 
 > Open the analytics dashboard I use, compare last week with the week before, and report the
 > main changes with the date ranges and a link to each view. Do not change any settings; if
@@ -35,8 +36,9 @@ agent's storage, so they survive reloads, restarts and any number of shutdowns.
 - **Deskfish was not running, or the laptop was asleep.** A schedule only fires while Deskfish
   runs and the machine is awake. Deskfish runs in the background from the first time VS Code
   starts it until the computer restarts or you stop it, so closing VS Code does not stop a
-  schedule. If the laptop was off or asleep at the due time and Deskfish only sees the moment
-  later, the occurrence is
+  schedule; **Deskfish: Keep Running When VS Code Is Closed** also brings her back when you log
+  in, so a restart does not either. If the laptop was off or asleep at the due time and Deskfish
+  only sees the moment later, the occurrence is
   **missed**: a notice appears in the chat, the log and her journal, and the
   task waits for its next time. A report meant for 7:00 should not quietly run at lunchtime.
   The one exception is a short grace, five minutes by default
@@ -44,16 +46,43 @@ agent's storage, so they survive reloads, restarts and any number of shutdowns.
 
 Shutting the laptop ten times before Monday changes nothing. Only the due moment matters.
 
+## The fence on a run nobody is watching
+
+A task you type is watched: you see each step and can press Stop. A scheduled task is not, so it
+runs with two limits you do not have to think about:
+
+- **It behaves as `guided`** — it asks before anything irreversible and uses no credentials you
+  did not give it — even when `deskfish.autonomy` is `free`. Pick *Free, like a task you type
+  yourself* when the schedule is asked for to lift that for this one schedule.
+- **It has a cost budget**, `deskfish.unattendedMaxCostUsd`, two dollars by default. At 80% she
+  is told to wrap up; at the budget she takes no more actions and writes a summary. `0` turns it
+  off. The same caveat as `deskfish.maxCostUsd` applies: the budget can only act where the cost
+  is known (Claude or Kimi used directly, or an endpoint that reports the charge).
+
+Both are hers only while nobody asked for the run. **Run it now** is your click, so it runs with
+your own settings, like anything you type.
+
+## When a scheduled task is interrupted
+
+If Deskfish stops in the middle of a run — the computer restarts, an update replaces her, the
+process is killed — she notices at her next start. One line goes in her journal (*"Interrupted
+after 23 steps: … — 41 minutes ago"*), and the next task she runs is told what was going on
+before she does anything: the task, the last ledger, what you said while it ran, the last action
+that finished, whether the tank restarted, and that she must read the screen before acting. She
+decides from there whether to carry the old task on. See
+[Running tasks](running-tasks#if-deskfish-is-interrupted).
+
 ## Things to know
 
 - The agent is told in the task that it was scheduled and that nobody is necessarily
   watching. If a site asks for a code only you have, she knocks on the glass and waits; the
   task sits paused until you look. Sites that need two-factor codes are poor candidates.
-- Anything with consequences on a timer needs a fence. Put the limits and the "skip if"
-  conditions in the task text. `deskfish.maxCostUsd` applies to scheduled runs like any other,
-  where Deskfish can see the cost; it limits model spending, not what the agent buys.
+- Anything with consequences on a timer needs a fence of its own too. Put the limits and the
+  "skip if" conditions in the task text: `deskfish.unattendedMaxCostUsd` limits model spending,
+  not what the agent buys.
 - A schedule is created with the command, not by asking in the chat. Telling the agent "do
   this every Monday" does not register one. Repeats are at least five minutes apart.
 - Times are local. A one-off schedule is removed after it fires or is missed.
-- Not yet implemented: attaching files to a scheduled task, a budget per schedule, and running
-  schedules without VS Code open. An always-on Deskfish is a separate, larger step.
+- A budget for one schedule alone is stored on the schedule and wins over the setting; the
+  command does not ask for it yet (the web page's form will).
+- Not yet implemented: attaching files to a scheduled task.

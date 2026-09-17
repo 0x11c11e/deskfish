@@ -93,6 +93,8 @@ export interface AgentRunnerOptions {
   environmentNote?: () => string | undefined;
   /** Per-task cost budget in USD (0/undefined = none). Needs `price` to be effective. */
   budgetUsd?: number;
+  /** The setting the budget came from, named in the stop message ('deskfish.maxCostUsd' by default; an unattended run has its own). */
+  budgetSetting?: string;
   /** List price of the model, for the budget. */
   price?: Price;
   onEvent: (e: AgentEvent) => void;
@@ -242,7 +244,12 @@ export class AgentRunner {
     await this.run(reflectionPrompt({ entries, pending, tasks: state.tasksSinceReflection, reading, sizes }), { reflection: true });
   }
 
-  async run(task: string, runOpts: { reflection?: boolean } = {}): Promise<void> {
+  /**
+   * `note`: something the caller must tell her before the first look — today, that the previous run
+   * was interrupted and what it was doing (the gateway's resume note). It rides in the first
+   * observation exactly as the notes delta does.
+   */
+  async run(task: string, runOpts: { reflection?: boolean; note?: string } = {}): Promise<void> {
     if (this.isActive) throw new Error('agent is already running');
     this.current = { task, reflection: !!runOpts.reflection, steps: 0, spentUsd: 0, lastAssistant: '', revisions: 0, journaled: false, handovers: 0, notes: 0, followUps: 0, said: [], ledgers: 0 };
     this.stopRequested = false;
@@ -303,7 +310,7 @@ export class AgentRunner {
           limited
             ? `You have up to ${maxSteps} steps (model turns) for this task; use them economically.`
             : 'There is no fixed step limit for this task: work until it is done. Every step costs money, so be economical.'
-        }${notesDelta ? `\n\n${notesDelta}` : ''}`,
+        }${notesDelta ? `\n\n${notesDelta}` : ''}${runOpts.note ? `\n\n${runOpts.note}` : ''}`,
       );
       for (let step = 1; step <= maxSteps; step++) {
         if (this.current) this.current.steps = step;
@@ -358,7 +365,7 @@ export class AgentRunner {
         if (budget && spentUsd >= budget && !turn.done) {
           await this.wrapUp(
             `This task's cost budget ($${budget.toFixed(2)}) is used up ($${spentUsd.toFixed(2)} so far). Take no more actions: reply now with a short summary of what you found so far and what is still left to do.`,
-            `Stopped at the cost budget ($${budget.toFixed(2)}) — raise deskfish.maxCostUsd or say "continue"`,
+            `Stopped at the cost budget ($${budget.toFixed(2)}) — raise ${this.opts.budgetSetting ?? 'deskfish.maxCostUsd'} or say "continue"`,
             obs,
           );
           return;

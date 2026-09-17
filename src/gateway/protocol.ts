@@ -24,7 +24,11 @@ export const MAX_TRANSFER = 100 * 1024 * 1024;
 
 export type ClientKind = 'vscode' | 'web' | 'cli';
 
-/** A run request. `unattended`, `maxCostUsd` and `reason` are carried for unattended runs (step 5); today they only travel. */
+/**
+ * A run request. `unattended` marks a run nobody asked for and nobody is watching (a schedule,
+ * later a wake): the gateway gives it the fence — `guided` and a cost ceiling from `maxCostUsd`
+ * or `deskfish.unattendedMaxCostUsd`. `reason` says what started it.
+ */
 export interface RunRequest {
   task: string;
   attachments?: DesktopFile[];
@@ -107,7 +111,8 @@ export interface Commands {
   'key.status': [Record<string, never>, string[]];
   'model.set': [{ provider: DeskfishConfig['provider']; model: string; baseUrl: string }, DeskfishConfig];
   'schedules.list': [Record<string, never>, { schedules: Schedule[]; lines: string[] }];
-  'schedules.add': [{ task: string; when: When }, Schedule];
+  /** `autonomy` and `maxCostUsd` are the fence on the runs this schedule starts unattended; both optional (guided, `deskfish.unattendedMaxCostUsd`). */
+  'schedules.add': [{ task: string; when: When; autonomy?: 'free' | 'guided'; maxCostUsd?: number }, Schedule];
   'schedules.remove': [{ id: string }, null];
   'schedules.runNow': [{ id: string }, null];
   'memory.read': [{ file: EditableFile }, { text: string; facts: number }];
@@ -172,7 +177,7 @@ export interface EventFrame<K extends EventName = EventName> {
 
 /* ---------- validation (hand-written: unknown commands, unknown fields and wrong types are refused) ---------- */
 
-type Field = 'string' | 'string?' | 'number?' | 'boolean' | 'boolean?' | 'object' | 'files?' | 'when' | 'editable' | 'client' | 'provider';
+type Field = 'string' | 'string?' | 'number?' | 'boolean' | 'boolean?' | 'object' | 'files?' | 'when' | 'editable' | 'client' | 'provider' | 'autonomy?';
 
 const NONE: Record<string, Field> = {};
 const SPEC: { [K in CommandName]: Record<string, Field> } = {
@@ -203,7 +208,7 @@ const SPEC: { [K in CommandName]: Record<string, Field> } = {
   'key.status': NONE,
   'model.set': { provider: 'provider', model: 'string', baseUrl: 'string' },
   'schedules.list': NONE,
-  'schedules.add': { task: 'string', when: 'when' },
+  'schedules.add': { task: 'string', when: 'when', autonomy: 'autonomy?', maxCostUsd: 'number?' },
   'schedules.remove': { id: 'string' },
   'schedules.runNow': { id: 'string' },
   'memory.read': { file: 'editable' },
@@ -245,6 +250,8 @@ function fieldOk(type: Field, v: unknown): boolean {
       return v === 'vscode' || v === 'web' || v === 'cli';
     case 'provider':
       return v === 'anthropic' || v === 'openai-compatible' || v === 'mock';
+    case 'autonomy':
+      return v === 'free' || v === 'guided';
     default:
       return false;
   }

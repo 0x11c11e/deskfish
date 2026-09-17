@@ -17,6 +17,7 @@ export function readConfig(): DeskfishConfig {
     anthropicWorkspaceId: c.get<string>('anthropicWorkspaceId', D.anthropicWorkspaceId).trim(),
     maxSteps: c.get<number>('maxSteps', D.maxSteps),
     maxCostUsd: c.get<number>('maxCostUsd', D.maxCostUsd),
+    unattendedMaxCostUsd: c.get<number>('unattendedMaxCostUsd', D.unattendedMaxCostUsd),
     reflectEvery: c.get<number>('reflectEvery', D.reflectEvery),
     scheduleGraceMinutes: c.get<number>('scheduleGraceMinutes', D.scheduleGraceMinutes),
     ledgerEvery: c.get<number>('ledgerEvery', D.ledgerEvery),

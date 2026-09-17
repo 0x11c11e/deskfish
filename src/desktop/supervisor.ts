@@ -24,7 +24,7 @@ export interface DesktopStatus {
 }
 
 /** The part of `DesktopEngine` the supervisor uses; tests pass a fake. */
-export type EngineLike = Pick<DesktopEngine, 'isHealthy' | 'start' | 'stop' | 'inspectNetworkMode' | 'networkMode'>;
+export type EngineLike = Pick<DesktopEngine, 'isHealthy' | 'start' | 'stop' | 'inspectNetworkMode' | 'networkMode'> & Partial<Pick<DesktopEngine, 'containerId'>>;
 
 export interface SupervisorOptions {
   /** Directory containing the Dockerfile (docker/desktop in the extension). */
@@ -132,6 +132,18 @@ export class DesktopSupervisor extends EventEmitter implements SupervisorLike {
         }
       })
       .finally(() => (this.lookingUpNetworkMode = false));
+  }
+
+  /**
+   * The running tank's container id, for the resume note: the same id after a gap means the
+   * windows are probably as she left them, a different one (or none) means they are gone.
+   */
+  async containerId(): Promise<string | undefined> {
+    try {
+      return await this.engine().containerId?.();
+    } catch {
+      return undefined;
+    }
   }
 
   startPolling(intervalMs = 15_000): void {

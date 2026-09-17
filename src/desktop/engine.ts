@@ -140,6 +140,17 @@ export class DesktopEngine {
   /** How the last start networked the tank: its own namespace, or the host's (the rootless-without-passt fallback). */
   networkMode: 'isolated' | 'host' = 'isolated';
 
+  /** The running container's id: a different one after a gap means the tank restarted and nothing in its windows survived. */
+  async containerId(): Promise<string | undefined> {
+    try {
+      const cli = await this.resolveCli();
+      const r = await exec(cli, ['inspect', '--format', '{{.Id}}', DESKTOP_CONTAINER], { timeoutMs: 10_000 });
+      return r.stdout.trim() || undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
   /** The running container's actual network mode, for a tank started before this session. */
   async inspectNetworkMode(): Promise<'isolated' | 'host' | undefined> {
     try {

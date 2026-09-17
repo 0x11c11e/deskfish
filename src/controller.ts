@@ -13,6 +13,7 @@ import { DesktopManager } from './desktop/manager';
 import { GatewayClient } from './gateway/client';
 import { DEFAULT_PORT, type Snapshot } from './gateway/protocol';
 import { MAX_TRANSFER, type MemoryBundle } from './gateway/service';
+import { applyAutostart, autostartNeedsWrite, autostartPlan, hasDesktopSession, removeAutostart, type AutostartPlan } from './gateway/autostart';
 import { ensureLocalGateway } from './gateway/spawn';
 import { dataDir, ensureToken, migrateData } from './gateway/storage';
 import { VERSION } from './gateway/version';
@@ -28,9 +29,9 @@ export const GATEWAY_TOKEN_SECRET = 'deskfish.gateway.token';
 
 export type Placement = 'local' | 'remote';
 
-export function readGatewaySettings(): { placement: Placement; url: string } {
+export function readGatewaySettings(): { placement: Placement; url: string; keepRunning: boolean } {
   const c = vscode.workspace.getConfiguration('deskfish.gateway');
-  return { placement: c.get<Placement>('placement', 'local') === 'remote' ? 'remote' : 'local', url: c.get<string>('url', '').trim().replace(/\/+$/, '') };
+  return { placement: c.get<Placement>('placement', 'local') === 'remote' ? 'remote' : 'local', url: c.get<string>('url', '').trim().replace(/\/+$/, ''), keepRunning: c.get<boolean>('keepRunning', false) };
 }
 
 /**
@@ -205,10 +206,71 @@ export class AgentController implements vscode.Disposable {
 
   /** Connect to the gateway (starting it on this computer when needed). Waits a while for the first connection, never forever. */
   async init(): Promise<void> {
+    this.syncAutostart();
     if (this.placement === 'local') await this.ensureLocal().catch(() => {});
     else if (!(await this.ctx.secrets.get(GATEWAY_TOKEN_SECRET))) await this.askGatewayToken('Deskfish runs on another machine. Enter its gateway token (the gateway.token file in its data folder).');
     void this.client.connect();
     await this.client.whenConnected(15_000).catch(() => this.output.appendLine(`… still waiting for the gateway at ${this.client.url}`));
+  }
+
+  /* ---------- keep running when VS Code is closed (gateway plan step 5, tier 2) ---------- */
+
+  /** The login entry for this build: the same command `spawn.ts` starts the gateway with. */
+  private autostart(): AutostartPlan {
+    return autostartPlan({
+      platform: process.platform,
+      execPath: process.execPath,
+      entry: path.join(this.ctx.extensionPath, 'dist', 'gateway.js'),
+      dataDir: dataDir(),
+      port: DEFAULT_PORT,
+      home: os.homedir(),
+      desktopSession: hasDesktopSession(),
+    });
+  }
+
+  /**
+   * The entry names this build's folder, which changes with every update, so it is compared on
+   * every activation and rewritten silently when it no longer matches. Nothing to fear from the
+   * entry and VS Code starting together: `deskfish serve` locks the data dir and a second one exits.
+   */
+  private syncAutostart(): void {
+    if (!readGatewaySettings().keepRunning || this.placement !== 'local') return;
+    try {
+      const plan = this.autostart();
+      if (!autostartNeedsWrite(plan)) return;
+      applyAutostart(plan);
+      this.output.appendLine(`— the start-at-login entry was updated for this build (${plan.where}) —`);
+    } catch (err) {
+      this.output.appendLine(`start-at-login entry: ${msg(err)}`);
+    }
+  }
+
+  /** "Deskfish: Keep Running When VS Code Is Closed" — a toggle, always visible in a terminal. */
+  async keepRunning(): Promise<void> {
+    if (this.placement === 'remote') {
+      void vscode.window.showInformationMessage('Deskfish runs on another machine, so this computer starts nothing. Set it to start at boot there (see the docs: running without VS Code).');
+      return;
+    }
+    const on = readGatewaySettings().keepRunning;
+    const plan = this.autostart();
+    const terminal = vscode.window.createTerminal({ name: on ? 'Deskfish: stop starting at login' : 'Deskfish: keep running' });
+    try {
+      if (on) removeAutostart(plan);
+      else applyAutostart(plan);
+    } catch (err) {
+      terminal.dispose();
+      void vscode.window.showErrorMessage(`Deskfish: could not ${on ? 'remove' : 'write'} ${plan.where} — ${msg(err)}`);
+      return;
+    }
+    terminal.show();
+    terminal.sendText(on ? plan.remove : plan.install, true);
+    this.output.appendLine(`▶ keep running ${on ? 'off' : 'on'}: ${plan.where}`);
+    await vscode.workspace.getConfiguration('deskfish.gateway').update('keepRunning', !on, vscode.ConfigurationTarget.Global);
+    void vscode.window.showInformationMessage(
+      on
+        ? 'Deskfish will no longer start by itself. It still keeps running after you close VS Code, until the computer restarts.'
+        : 'Deskfish will start when you log in, so her schedules run and a task survives a restart. The terminal shows the entry.',
+    );
   }
 
   /** "Deskfish: Set Gateway Token" — for a gateway on another machine. */
@@ -514,10 +576,23 @@ export class AgentController implements vscode.Disposable {
     }
     const task = await vscode.window.showInputBox({ title: 'What should she do?', prompt: 'The task, as you would type it in the chat', placeHolder: 'e.g. Order my usual coffee from the Starbucks site for pickup at 7:30; under $10; tell me the total', ignoreFocusOut: true });
     if (!task) return;
+    // Nobody is watching a scheduled run, so it is fenced: guided, with a cost ceiling. One question
+    // is enough to lift that; the budget is deskfish.unattendedMaxCostUsd (the web page gets a form in step 6).
+    const how = await vscode.window.showQuickPick(
+      [
+        { label: 'Guided (default)', detail: 'She asks before anything irreversible and uses no credentials you did not give her — the safer choice for a run nobody is watching', autonomy: 'guided' as const },
+        { label: 'Free, like a task you type yourself', detail: 'The tank is the boundary: she may use any account or login in it and finishes what you asked', autonomy: 'free' as const },
+      ],
+      { title: 'How much should she decide on her own when this runs?' },
+    );
+    if (!how) return;
     try {
-      const s = await this.client.call('schedules.add', { task, when });
+      const s = await this.client.call('schedules.add', { task, when, autonomy: how.autonomy });
       const next = nextDueAfter(s, Date.now());
-      void vscode.window.showInformationMessage(`Scheduled ${describeWhen(s.when)}${next ? `, next ${formatLocal(next)}` : ''}: ${s.task}`);
+      const budget = readConfig().unattendedMaxCostUsd;
+      void vscode.window.showInformationMessage(
+        `Scheduled ${describeWhen(s.when)}${next ? `, next ${formatLocal(next)}` : ''}: ${s.task} — it runs ${s.autonomy ?? 'guided'}${budget > 0 ? `, up to $${budget.toFixed(2)}` : ''}.`,
+      );
     } catch (err) {
       void vscode.window.showErrorMessage(`Deskfish: could not schedule — ${err instanceof Error ? err.message : String(err)}`);
     }

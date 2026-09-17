@@ -399,7 +399,7 @@ export class GatewayServer {
       case 'schedules.list':
         return { schedules: s.schedules.list(), lines: s.schedules.describe() };
       case 'schedules.add':
-        return s.addSchedule(a.task, a.when);
+        return s.addSchedule(a.task, a.when, { autonomy: a.autonomy, maxCostUsd: a.maxCostUsd });
       case 'schedules.remove':
         return s.removeSchedule(a.id), null;
       case 'schedules.runNow':
