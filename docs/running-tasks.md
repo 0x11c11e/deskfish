@@ -107,8 +107,8 @@ command palette) clears the conversation and the agent's memory of it. If a task
 it is stopped first. The desktop is not touched: Firefox, its tabs, its logins and the files
 in the tank stay exactly as they were, so the new conversation starts by looking at whatever
 is on screen. The chat itself is not lost: every chat is saved as a transcript, and the clock
-icon next to **+** lists them, to reopen or to continue in a new chat. See
-[Memory](memory#past-chats).
+icon next to **+** opens the history: one click shows a past chat in place, **Continue this
+chat** picks it up again, the trash icon deletes it. See [Memory](memory#past-chats).
 
 ## What the agent remembers
 

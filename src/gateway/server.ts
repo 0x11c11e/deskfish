@@ -425,8 +425,10 @@ export class GatewayServer {
         return s.chatList();
       case 'chats.read':
         return s.chats.read(s.chatByName(a.name).file);
+      case 'chats.open':
+        return s.openPastChat(a.name);
       case 'chats.delete':
-        return s.deleteAllChats();
+        return a.name === undefined ? s.deleteAllChats() : s.deleteChat(a.name);
       case 'chats.continue': {
         const chat = s.chatByName(a.name);
         return s.openChat(chat.file, chat.startedAt), null;

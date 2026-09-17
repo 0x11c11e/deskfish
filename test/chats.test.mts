@@ -1,7 +1,8 @@
 // ChatStore: the transcript format (header, You/Deskfish sections, step lines with a failed
 // action, the memory pill, a hand-over, the status line, the end), parseTranscript, list newest
 // first named by the first task, search with chat context across chats, dump/restore without
-// duplicates, the loop's recall merging journal + chats, the no-hit error, delete all.
+// duplicates, the loop's recall merging journal + chats, the no-hit error, delete all; each listed
+// chat's outcome read from its tail (step 6B).
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -57,6 +58,7 @@ try {
   const list = store.list();
   ok(list.length === 3 && list.map((c) => c.firstTask).join(' | ') === 'Book a table for two at Luigi | Order 3 boxes of paper from Acme | Old task about printers', `newest first, first task from the first You block: ${list.map((c) => c.firstTask).join(' | ')}`);
   ok(list[2].startedAt === '2025-01-01 09:00' && list[2].name.endsWith('Old task about printers.md') && list[0].bytes > 0, 'start time and name come from the file');
+  ok(list[1].outcome === 'done' && list[0].outcome === undefined && list[2].outcome === undefined, `the outcome from each file's tail: a status line → done, none → unfinished (${list.map((c) => c.outcome ?? '-').join(', ')})`);
   const t3 = store.start('Fix "quotes" / slashes?! and a very long task name that goes on and on beyond forty-eight characters', { model: 'm', provider: 'p' });
   const slug = path.basename(t3.file).replace(/^\S+ \S+ - /, '').replace(/\.md$/, '');
   ok(!/["/?!]/.test(slug) && slug.length <= 48 && slug.startsWith('Fix quotes  slashes') && path.basename(store.start('   ', { model: 'm', provider: 'p' }).file).endsWith(' - chat.md'), `the slug is sanitised and cut at 48: "${slug}"`);

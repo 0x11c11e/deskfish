@@ -2,6 +2,7 @@ import type { ReplayItem } from '../agent/chats';
 import type { AgentEvent, AgentStatus } from '../agent/loop';
 import type { ComputerAction } from '../computer/types';
 import type { DesktopStatus } from '../desktop/supervisor';
+import type { CommandName, EditableFile } from '../gateway/protocol';
 
 /** Messages between the extension host and its two webviews. Shared so both sides stay in sync. */
 
@@ -18,6 +19,9 @@ export interface UiConfig {
   /** How the key row describes a stored key; "Stored in your keychain" when absent (VS Code). */
   keyStored?: string;
 }
+
+/** The panels inside the chat view; host chrome (VS Code's commands, the page's title bar) only opens them. */
+export type PanelName = 'history' | 'settings' | 'schedules' | 'files';
 
 /** A file on the bot's desktop (inside /home/bot). */
 export interface DesktopFile {
@@ -45,7 +49,12 @@ export type ToChat =
   /** The user started a new chat: wipe the log; the model's conversation is already gone. */
   | { type: 'newChat' }
   | { type: 'saved'; path: string; hostPath: string }
-  | { type: 'saveFailed'; path: string; error: string };
+  | { type: 'saveFailed'; path: string; error: string }
+  /** The gateway's answer to the view's `ask` (a command outside `VIEW_COMMANDS` is answered `ok: false` without reaching it). */
+  | { type: 'answer'; id: number; ok: true; result: unknown }
+  | { type: 'answer'; id: number; ok: false; error: string }
+  /** Host chrome asked for a panel. */
+  | { type: 'open'; panel: PanelName };
 
 // chat webview → extension
 export type FromChat =
@@ -75,7 +84,11 @@ export type FromChat =
   /** Show a saved file in the OS file manager. */
   | { type: 'revealFile'; hostPath: string }
   /** Put a message's text on the user's clipboard (the host clipboard is reliable; the webview one is not). */
-  | { type: 'copy'; text: string };
+  | { type: 'copy'; text: string }
+  /** A gateway command for the view's panels; the host forwards it when `VIEW_COMMANDS` names it and posts the `answer`. */
+  | { type: 'ask'; id: number; cmd: CommandName; args?: Record<string, unknown> }
+  /** VS Code only: open memory.md or charter.md in a real editor. */
+  | { type: 'openFile'; file: EditableFile };
 
 // extension → desktop webview
 export type ToDesktop =

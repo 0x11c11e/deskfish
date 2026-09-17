@@ -4,8 +4,8 @@ import type { GatewayClient } from '../gateway/client';
 /**
  * Her files as VS Code documents, read and written through the gateway (which may run on another
  * machine): `deskfish:/memory.md` and `deskfish:/charter.md` are editable (saving sends them back),
- * `deskfish:/journal.md`, `deskfish:/playbook.md` and `deskfish:/chats/<name>` are read-only. The
- * gateway stays the only process that writes her files.
+ * `deskfish:/journal.md` and `deskfish:/playbook.md` are read-only. The gateway stays the only process
+ * that writes her files. (Past chats open in the chat view's history panel, not here.)
  */
 export class HerFilesProvider implements vscode.FileSystemProvider {
   static readonly scheme = 'deskfish';
@@ -31,7 +31,6 @@ export class HerFilesProvider implements vscode.FileSystemProvider {
     if (editable) text = (await this.client.call('memory.read', { file: editable })).text;
     else if (p === '/journal.md') text = await this.client.call('journal.read');
     else if (p === '/playbook.md') text = await this.client.call('playbook.read');
-    else if (p.startsWith('/chats/')) text = await this.client.call('chats.read', { name: p.slice('/chats/'.length) });
     else throw vscode.FileSystemError.FileNotFound(uri);
     const before = this.seen.get(p);
     if (!before || before.text !== text) this.seen.set(p, { text, mtime: Date.now() });

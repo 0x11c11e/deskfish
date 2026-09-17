@@ -1,14 +1,13 @@
 import type { AgentEvent, AgentStatus } from '../src/agent/loop';
 import { PRESETS, isLocalEndpoint, keySlotFor, presetFor, type Preset } from '../src/agent/presets';
-import { WEEKDAYS, inAnHour, parseBudget, whenFromFields, type WhenFields } from '../src/agent/scheduleForm';
 import { formatSize, safeFileName } from '../src/desktop/files';
 import type { DesktopStatus } from '../src/desktop/supervisor';
 import type { DeskfishConfig } from '../src/gateway/config';
-import { patchBetween } from '../src/gateway/configSync';
-import { GROUP_TITLES, settingLabel, type SettingsEntry, type SettingsSchema } from '../src/gateway/settingsSchema';
 import { EVENT_NAMES, MAX_TRANSFER, type CommandArgs, type CommandName, type CommandResult, type DesktopView, type EventName, type Events, type Snapshot } from '../src/gateway/protocol';
+import type { MemoryBundle } from '../src/gateway/service';
 import { VERSION } from '../src/gateway/version';
-import type { DesktopFile, FromChat, FromDesktop, ToChat, ToDesktop, UiConfig } from '../src/webview/protocol';
+import { answerAsk, isViewCommand, snapshotChat } from '../src/webview/bridge';
+import type { DesktopFile, FromChat, FromDesktop, PanelName, ToChat, ToDesktop, UiConfig } from '../src/webview/protocol';
 
 /**
  * The web page's stand-in for VS Code. The chat and the Desktop view run their webview bundles
@@ -18,9 +17,9 @@ import type { DesktopFile, FromChat, FromDesktop, ToChat, ToDesktop, UiConfig } 
  * `ToDesktop`) — the work `ChatViewProvider`, `DesktopPanel` and the controller do in VS Code. What
  * only VS Code had gets a browser version: a file input and `POST /files` for attach, a download of
  * `GET /files/…` for save, `navigator.clipboard` for copy, `/docs` in a new tab, small dialogs for the
- * model and the key, the log in a dialog, a toast instead of a popup — and what VS Code has as its
- * settings editor and schedule commands: a Settings dialog over the gateway's `config.schema`, and a
- * Schedules dialog.
+ * model and the key, the log in a dialog, a toast instead of a popup. The view's `ask` (its panels'
+ * gateway commands) goes over the same socket; the title bar opens the panels and holds a `…` menu
+ * for what VS Code has as commands (reflect, export, import, delete past chats, log, docs).
  *
  * The mapping is pure (`Mirror`, `viewCommand`) so it is tested without a browser; `boot()` runs only
  * in one.
@@ -79,14 +78,7 @@ export class Mirror {
     this.statusMessage = s.statusMessage;
     this.screenFree = s.screenFree;
     this.screenshot = s.screenshot ? { dataUrl: s.screenshot.dataUrl, width: s.screenshot.width, height: s.screenshot.height } : undefined;
-    const chat: ToChat[] = [{ type: 'newChat' }];
-    if (s.chat.length) chat.push({ type: 'replay', title: '', items: s.chat, live: true });
-    if (s.usage) chat.push({ type: 'event', event: s.usage });
-    if (s.screenshot) chat.push({ type: 'event', event: { type: 'screenshot', step: s.screenshot.step, jpegBase64: '', width: s.screenshot.width, height: s.screenshot.height } });
-    // A finished run's status line is already in the transcript; only a live one is re-announced.
-    if (s.status === 'running' || s.status === 'paused') chat.push({ type: 'event', event: { type: 'status', status: s.status, message: s.statusMessage, ...(s.screenFree ? { screenFree: true } : {}) } });
-    chat.push({ type: 'desktop', status: s.desktop.status }, ...this.configMessage());
-    return { chat, desktop: this.desktopState() };
+    return { chat: [...snapshotChat(s), ...this.configMessage()], desktop: this.desktopState() };
   }
 
   /** Everything the Desktop view needs when it (re)opens. */
@@ -171,12 +163,17 @@ export class Mirror {
   }
 }
 
-/** The view messages that are plain gateway commands; the rest (dialogs, files, clipboard, docs) are the page's own work. */
+/**
+ * The view messages that are plain gateway commands; the rest (dialogs, files, clipboard, docs) are the
+ * page's own work. An `ask` maps to its command only when the view may ask it (`VIEW_COMMANDS`).
+ */
 export function viewCommand(pane: Pane, m: FromChat | FromDesktop): { cmd: CommandName; args?: Record<string, unknown>; what: string } | undefined {
   const files = (a?: DesktopFile[]) => (a?.length ? { attachments: a.map((f) => ({ name: f.name, path: f.path, size: f.size })) } : {});
   if (pane === 'chat') {
     const c = m as FromChat;
     switch (c.type) {
+      case 'ask':
+        return isViewCommand(c.cmd) ? { cmd: c.cmd, ...(c.args ? { args: c.args } : {}), what: 'ask' } : undefined;
       case 'run':
         return { cmd: 'run', args: { task: c.task, ...files(c.attachments) }, what: 'start the task' };
       case 'say':
@@ -212,83 +209,6 @@ export function viewCommand(pane: Pane, m: FromChat | FromDesktop): { cmd: Comma
   }
 }
 
-/* ---------- settings and schedules: the pure parts of the two dialogs ---------- */
-
-/** What a settings field holds in the form: its text, or a checkbox's state. */
-export type FieldInput = string | boolean;
-
-/** Settings shown as a password field. */
-export const SECRET_SETTINGS = new Set<keyof DeskfishConfig>(['daemonToken', 'vncPassword']);
-
-/** Trimmed on save, as VS Code reads them. */
-const TRIMMED_SETTINGS = new Set<keyof DeskfishConfig>(['userName', 'anthropicWorkspaceId']);
-
-/** A field's value as the form shows it. */
-export function fieldInput(e: SettingsEntry, cfg: DeskfishConfig): FieldInput {
-  const v = cfg[e.key];
-  if (e.type === 'boolean') return v === true;
-  return v === null || v === undefined ? '' : String(v);
-}
-
-/** A field's value for the config, or why it cannot be one (an empty number means null only where null is allowed). */
-export function readField(e: SettingsEntry, raw: FieldInput): { value: string | number | boolean | null } | { error: string } {
-  if (e.type === 'boolean') return { value: raw === true };
-  const text = String(raw);
-  if (e.type === 'number') {
-    if (!text.trim()) return e.nullable ? { value: null } : { error: 'Enter a number.' };
-    const n = Number(text);
-    return Number.isFinite(n) ? { value: n } : { error: 'Enter a number.' };
-  }
-  if (e.enum && !e.enum.includes(text)) return { error: `Pick one of: ${e.enum.map((x) => x || 'default').join(', ')}.` };
-  return { value: TRIMMED_SETTINGS.has(e.key) ? text.trim() : text };
-}
-
-/** The gateway refused a setting: which one (from "bad value for X" / "unknown setting: X") and its words. */
-export interface SettingsRefusal {
-  key?: keyof DeskfishConfig;
-  message: string;
-}
-
-export function refusalOf(error: string): SettingsRefusal {
-  const m = /(?:bad value for|unknown setting:) (\w+)/.exec(error);
-  return m ? { key: m[1] as keyof DeskfishConfig, message: `Not accepted: ${error}.` } : { message: error };
-}
-
-/** The schedule form, as the person filled it in. */
-export interface ScheduleForm extends WhenFields {
-  task: string;
-  autonomy: 'free' | 'guided';
-  /** Empty: the setting's budget. */
-  budget: string;
-}
-
-export interface ScheduleRow {
-  id: string;
-  /** The gateway's own line: when, the task, next, the fence, the last outcome. */
-  line: string;
-}
-
-/** The two answers of "How much should she decide on her own", with VS Code's words. */
-export const AUTONOMY_DETAILS: Record<'guided' | 'free', string> = {
-  guided: 'She asks before anything irreversible and uses no credentials you did not give her — the safer choice for a run nobody is watching.',
-  free: 'The tank is the boundary: she may use any account or login in it and finishes what you asked.',
-};
-
-export interface ScheduleActions {
-  /** A line under the budget field: what an empty budget means now. */
-  budgetHint: string;
-  add(form: ScheduleForm): Promise<{ error: string } | { done: string }>;
-  /** Resolves with the reason when it failed. */
-  remove(id: string): Promise<string | undefined>;
-  runNow(id: string): Promise<void>;
-}
-
-/** The open Schedules dialog, as the host keeps it current. */
-export interface SchedulesView {
-  rows(list: ScheduleRow[]): void;
-  note(text: string, tone?: 'error' | 'ok'): void;
-}
-
 /* ---------- the host: one WebSocket, two views ---------- */
 
 export interface SocketLike {
@@ -316,18 +236,17 @@ export interface HostUi {
   /** She knocked (true) or is working again (false): the tab's title says so while it is in the background. */
   knock(on: boolean): void;
   showDesktop(): void;
-  pickFiles(pane: Pane): Promise<File[]>;
+  /** `page`: a click on the page itself (its title bar), not inside a view. */
+  pickFiles(pane: Pane | 'page', accept?: string): Promise<File[]>;
   saveBlob(name: string, blob: Blob): void;
   copy(pane: Pane, text: string): Promise<boolean>;
   readClipboard(pane: Pane): Promise<string | undefined>;
   writeClipboard(pane: Pane, text: string): Promise<void>;
-  openDocs(pane: Pane, load: () => Promise<Blob>): void;
+  openDocs(pane: Pane | 'page', load: () => Promise<Blob>): void;
   askKey(title: string): Promise<string | undefined>;
   askModel(config: DeskfishConfig): Promise<ModelChoice | undefined>;
-  /** The settings dialog: `save` gets every field's value and answers a refusal, or nothing when it is saved (the dialog closes). */
-  editSettings(schema: SettingsSchema, config: DeskfishConfig, save: (values: DeskfishConfig) => Promise<SettingsRefusal | undefined>): Promise<void>;
-  /** The schedules dialog; `onClose` when the person closes it. */
-  showSchedules(actions: ScheduleActions, onClose: () => void): SchedulesView;
+  /** Ask once, inside the page (a browser `confirm()` would block it); true when `action` was pressed. */
+  confirm(text: string, action: string): Promise<boolean>;
   /** Shows the lines; returns a function that appends a live line while the log is open. */
   showLog(lines: string[], onClose: () => void): (line: string) => void;
   reload(): void;
@@ -360,8 +279,6 @@ export class WebHost {
   private readonly state: Record<Pane, unknown> = { chat: undefined, desktop: undefined };
   private autoStarted = false;
   private logLine?: (line: string) => void;
-  private schema?: SettingsSchema;
-  private schedules?: SchedulesView;
 
   constructor(private readonly env: HostEnv) {
     this.mirror = new Mirror(env.vncUrl);
@@ -468,7 +385,6 @@ export class WebHost {
   private onEvent(name: EventName, data: any): void {
     this.send(this.mirror.event(name, data));
     if (name === 'log') this.logLine?.(data);
-    if (name === 'schedule') void this.refreshSchedules();
     if (name === 'event' && data.type === 'needs_user') this.env.ui.knock(true);
     if (name === 'event' && data.type === 'status' && data.status !== 'paused') this.env.ui.knock(false);
   }
@@ -506,6 +422,10 @@ export class WebHost {
 
   receive(pane: Pane, m: FromChat | FromDesktop): void {
     if (!m || typeof m !== 'object' || typeof m.type !== 'string') return;
+    if (pane === 'chat' && m.type === 'ask') {
+      this.ask(m);
+      return;
+    }
     const command = viewCommand(pane, m);
     if (command) {
       void this.attempt(command.what, this.call(command.cmd, command.args as never));
@@ -513,6 +433,18 @@ export class WebHost {
     }
     if (pane === 'chat') void this.fromChat(m as FromChat);
     else this.fromDesktop(m as FromDesktop);
+  }
+
+  /** A panel's gateway command: forwarded when the view may ask it, answered either way. A snapshot is answered inside its frame, before the events after it. */
+  private ask(m: Extract<FromChat, { type: 'ask' }>): void {
+    void answerAsk(
+      m,
+      (cmd, args, respond) => {
+        if (!this.connected) return Promise.reject(new Error('Deskfish is not connected'));
+        return this.request(cmd, args as never, (result) => respond({ type: 'answer', id: m.id, ok: true, result }));
+      },
+      (a) => this.env.post('chat', a),
+    );
   }
 
   private async fromChat(m: FromChat): Promise<void> {
@@ -547,17 +479,11 @@ export class WebHost {
       case 'openSettings':
         await this.changeModel();
         break;
-      case 'showLog': {
-        const lines = await this.attempt('read the log', this.call('log.tail', { lines: 400 }));
-        this.logLine = ui.showLog(lines ?? [], () => (this.logLine = undefined));
+      case 'showLog':
+        await this.showLog();
         break;
-      }
       case 'openDocs':
-        ui.openDocs('chat', async () => {
-          const res = await this.env.fetch('/docs', { headers: { authorization: `Bearer ${this.env.token}` } });
-          if (!res.ok) throw new Error(`the documentation is not there (HTTP ${res.status})`);
-          return res.blob();
-        });
+        this.openDocs('chat');
         break;
       case 'copy':
         await ui.copy('chat', m.text);
@@ -663,83 +589,76 @@ export class WebHost {
     void this.attempt('start a new chat', this.call('newChat'));
   }
 
-  /** The page's Settings button: the dialog over the gateway's schema, filled from the config the page already has. */
-  async openSettings(): Promise<void> {
-    const cfg = this.mirror.config;
-    if (!cfg) return;
-    this.schema ??= await this.attempt('read the settings', this.call('config.schema'));
-    if (!this.schema) return;
-    await this.env.ui.editSettings(this.schema, cfg, (values) => this.saveSettings(cfg, values));
+  /** A title bar button: the panel opens inside the chat view. */
+  openPanel(panel: PanelName): void {
+    if (this.ready.chat) this.env.post('chat', { type: 'open', panel });
   }
 
-  /**
-   * Save in the settings dialog: only what the person changed since the dialog opened goes out (a value
-   * another client set meanwhile is not sent back), never the model's three keys (the model dialog's).
-   * The header re-renders from the `config` event, as for any client's change.
-   */
-  async saveSettings(opened: DeskfishConfig, values: DeskfishConfig): Promise<SettingsRefusal | undefined> {
-    const keys = (this.schema ?? []).filter((e) => e.group !== 'model').map((e) => e.key);
-    const patch = patchBetween(opened, values, keys);
-    if (!Object.keys(patch).length) return undefined;
+  async showLog(): Promise<void> {
+    const lines = await this.attempt('read the log', this.call('log.tail', { lines: 400 }));
+    this.logLine = this.env.ui.showLog(lines ?? [], () => (this.logLine = undefined));
+  }
+
+  openDocs(from: Pane | 'page'): void {
+    this.env.ui.openDocs(from, async () => {
+      const res = await this.env.fetch('/docs', { headers: { authorization: `Bearer ${this.env.token}` } });
+      if (!res.ok) throw new Error(`the documentation is not there (HTTP ${res.status})`);
+      return res.blob();
+    });
+  }
+
+  /* ---------- the title bar's … menu: what VS Code has as commands ---------- */
+
+  /** "Let her reflect now". */
+  async reflectNow(): Promise<void> {
+    const r = await this.attempt('start a reflection', this.call('reflect'));
+    if (r === 'busy') this.env.ui.toast('She is busy; let her finish first.');
+    else if (r === 'failed') this.env.ui.toast('Could not start a reflection; the log says why.');
+  }
+
+  /** One JSON file with everything that makes her, into the browser's downloads (the bytes VS Code's export writes). */
+  async exportMemory(): Promise<void> {
+    const bundle = await this.attempt('export her memory', this.call('export'));
+    if (!bundle) return;
+    const name = `deskfish-export-${new Date().toISOString().slice(0, 10)}.json`;
+    this.env.ui.saveBlob(name, new Blob([JSON.stringify(bundle, null, 1)], { type: 'application/json' }));
+    this.env.ui.toast(`Her memory is in your browser's downloads (${name}).`);
+  }
+
+  /** Replace facts, self and journal from an export, after the same question VS Code asks; then the page rebuilds. */
+  async importMemory(files: File[]): Promise<void> {
+    const file = files[0];
+    if (!file) return;
+    let bundle: MemoryBundle;
     try {
-      await this.call('config.set', { patch });
-      return undefined;
-    } catch (err) {
-      return refusalOf(msg(err));
+      bundle = JSON.parse(await file.text());
+    } catch {
+      this.env.ui.toast('That file is not a memory export.');
+      return;
     }
-  }
-
-  /** The page's Schedules button. */
-  async openSchedules(): Promise<void> {
-    if (this.schedules || !this.mirror.config) return;
-    const setting = this.mirror.config.unattendedMaxCostUsd;
-    this.schedules = this.env.ui.showSchedules(
-      {
-        budgetHint: `Empty: the Unattended Max Cost Usd setting (${setting > 0 ? `$${setting.toFixed(2)}` : 'no budget'}). 0 = no budget. A budget acts where the model has a known price or reports its cost.`,
-        add: (form) => this.addSchedule(form),
-        remove: (id) => this.call('schedules.remove', { id }).then(() => this.refreshSchedules().then(() => undefined), (err) => msg(err)),
-        runNow: (id) => this.runScheduleNow(id),
-      },
-      () => (this.schedules = undefined),
-    );
-    await this.refreshSchedules();
-  }
-
-  private async refreshSchedules(): Promise<void> {
-    const view = this.schedules;
-    if (!view) return;
-    try {
-      const r = await this.call('schedules.list');
-      view.rows(r.schedules.map((s, i) => ({ id: s.id, line: r.lines[i] ?? s.task })));
-    } catch (err) {
-      view.note(`Could not list the scheduled tasks: ${msg(err)}`, 'error');
+    if (!bundle || bundle.format !== 'deskfish-memory' || typeof bundle.self !== 'string') {
+      this.env.ui.toast('That file is not a memory export.');
+      return;
     }
+    const yes = await this.env.ui.confirm('Replace her facts, her self file and her journal with the ones in this file? The current versions are kept in her history, but the next chat starts from the imported ones.', 'Import');
+    if (!yes) return;
+    if ((await this.attempt('import her memory', this.call('import', { bundle }))) === undefined) return;
+    await this.request('snapshot', undefined, (snap) => this.send(this.mirror.absorbSnapshot(snap))).catch(() => {});
+    this.env.ui.toast('Her memory is imported. The next chat starts from it.');
   }
 
-  /** Add from the form: the same questions as VS Code's "Schedule a Task…", checked here first and by the gateway again. */
-  async addSchedule(form: ScheduleForm): Promise<{ error: string } | { done: string }> {
-    const when = whenFromFields(form);
-    if ('error' in when) return when;
-    const task = form.task.trim();
-    if (!task) return { error: 'Say what she should do.' };
-    const budget = parseBudget(form.budget);
-    if (budget === 'bad') return { error: 'The budget is a number of dollars, 0 or more — or empty for the setting.' };
-    try {
-      const s = await this.call('schedules.add', { task, when: when.when, autonomy: form.autonomy, ...(budget !== undefined ? { maxCostUsd: budget } : {}) });
-      const r = await this.call('schedules.list');
-      this.schedules?.rows(r.schedules.map((x, i) => ({ id: x.id, line: r.lines[i] ?? x.task })));
-      const line = r.lines[r.schedules.findIndex((x) => x.id === s.id)];
-      return { done: `Added: ${line ?? s.task}` };
-    } catch (err) {
-      return { error: `Could not schedule: ${msg(err)}` };
+  /** "Delete all past chats" (the history panel has the same button at its foot). */
+  async deleteAllChats(): Promise<void> {
+    const list = await this.attempt('list past chats', this.call('chats.list'));
+    if (!list) return;
+    const n = list.length;
+    if (!n) {
+      this.env.ui.toast('There are no past chats.');
+      return;
     }
-  }
-
-  /** "Run now": a person asked, so it runs attended, in its own chat — or after the current task. */
-  async runScheduleNow(id: string): Promise<void> {
-    const busy = this.mirror.status === 'running' || this.mirror.status === 'paused';
-    const done = await this.attempt('run the scheduled task', this.call('schedules.runNow', { id }));
-    if (done !== undefined && busy) this.env.ui.toast('She is busy; the task will run when she is free.');
+    if (!(await this.env.ui.confirm(`Delete all ${n} past chat${n === 1 ? '' : 's'}? Her journal, facts and self are not touched.`, 'Delete'))) return;
+    const deleted = await this.attempt('delete past chats', this.call('chats.delete'));
+    if (deleted !== undefined) this.env.ui.toast(`Deleted ${deleted} past chat${deleted === 1 ? '' : 's'}.`);
   }
 
   /** The "Set API key" / "Change" button of the key row. */
@@ -794,7 +713,7 @@ export function browserUi(doc: Document): HostUi {
   const $ = <T extends HTMLElement>(id: string) => doc.getElementById(id) as T;
   const frame = (pane: Pane) => $<HTMLIFrameElement>(pane);
   // The click happened inside a view: file pickers, the clipboard and new tabs are asked of that view's window.
-  const win = (pane: Pane): Window => frame(pane)?.contentWindow ?? window;
+  const win = (pane: Pane | 'page'): Window => (pane === 'page' ? window : (frame(pane)?.contentWindow ?? window));
   let toastTimer: ReturnType<typeof setTimeout> | undefined;
   let connTimer: ReturnType<typeof setTimeout> | undefined;
   let knocking = false;
@@ -857,11 +776,12 @@ export function browserUi(doc: Document): HostUi {
       f.scrollIntoView({ behavior: 'smooth', block: 'start' });
       f.focus();
     },
-    pickFiles(pane) {
+    pickFiles(pane, accept) {
       return new Promise((resolve) => {
         const input = win(pane).document.createElement('input');
         input.type = 'file';
-        input.multiple = true;
+        input.multiple = !accept;
+        if (accept) input.accept = accept;
         input.addEventListener('change', () => resolve(Array.from(input.files ?? [])), { once: true });
         input.addEventListener('cancel', () => resolve([]), { once: true });
         input.click();
@@ -992,275 +912,11 @@ export function browserUi(doc: Document): HostUi {
       const p = preset();
       return { preset: p, provider: p.provider, baseUrl: p.askBaseUrl ? base.value.trim().replace(/\/+$/, '') : p.baseUrl, model: p.provider === 'mock' ? (p.models[0]?.name ?? 'mock') : model.value.trim() };
     },
-    editSettings(schema, cfg, save) {
-      const dialog = $<HTMLDialogElement>('settingsDialog');
-      const body = $('settingsFields');
-      const note = $('settingsNote');
-      const buttons = Array.from(dialog.querySelectorAll<HTMLButtonElement>('.actions button'));
-      const saveButton = buttons.find((b) => b.value === 'save')!;
-      const el = <K extends keyof HTMLElementTagNameMap>(tag: K, className?: string, text?: string) => {
-        const e = doc.createElement(tag);
-        if (className) e.className = className;
-        if (text !== undefined) e.textContent = text;
-        return e;
-      };
-      type Field = { entry: SettingsEntry; get: () => FieldInput; control: HTMLElement; box: HTMLElement; error: HTMLElement };
-      const fields: Field[] = [];
-      const render = (e: SettingsEntry): HTMLElement => {
-        const box = el('div', 'field');
-        const id = `setting-${e.key}`;
-        const error = el('p', 'hint error');
-        error.hidden = true;
-        let control: HTMLInputElement | HTMLSelectElement;
-        let get: () => FieldInput;
-        if (e.type === 'boolean') {
-          const input = el('input');
-          input.type = 'checkbox';
-          input.id = id;
-          input.checked = fieldInput(e, cfg) === true;
-          const label = el('label', 'check');
-          label.append(input, doc.createTextNode(settingLabel(e.setting)));
-          box.append(label);
-          control = input;
-          get = () => input.checked;
-        } else {
-          const label = el('label', undefined, settingLabel(e.setting));
-          label.htmlFor = id;
-          label.append(el('span', 'setting-id', e.setting));
-          box.append(label);
-          if (e.enum) {
-            const select = el('select');
-            e.enum.forEach((v, i) => {
-              const o = el('option', undefined, v || 'default');
-              o.value = v;
-              if (e.enumDescriptions?.[i]) o.title = e.enumDescriptions[i];
-              select.append(o);
-            });
-            select.value = String(fieldInput(e, cfg));
-            control = select;
-            get = () => select.value;
-          } else {
-            const input = el('input');
-            input.type = e.type === 'number' ? 'number' : SECRET_SETTINGS.has(e.key) ? 'password' : 'text';
-            if (e.type === 'number') {
-              input.step = 'any';
-              if (e.minimum !== undefined) input.min = String(e.minimum);
-              if (e.maximum !== undefined) input.max = String(e.maximum);
-            }
-            if (e.nullable) input.placeholder = 'not set';
-            input.autocomplete = 'off';
-            input.spellcheck = false;
-            input.value = String(fieldInput(e, cfg));
-            control = input;
-            get = () => input.value;
-          }
-          control.id = id;
-          box.append(control);
-        }
-        box.append(error);
-        if (e.description) box.append(el('p', 'hint', e.description));
-        if (e.enumDescriptions && control instanceof HTMLSelectElement) {
-          const select = control;
-          const which = el('p', 'hint');
-          const show = () => (which.textContent = e.enumDescriptions![e.enum!.indexOf(select.value)] ?? '');
-          select.addEventListener('change', show);
-          show();
-          box.append(which);
-        }
-        fields.push({ entry: e, get, control, box, error });
-        return box;
-      };
-      const sections: HTMLElement[] = [];
-      for (const group of ['work', 'desktop', 'advanced'] as const) {
-        const entries = schema.filter((e) => e.group === group);
-        if (!entries.length) continue;
-        const section = group === 'advanced' ? el('details', 'group') : el('section');
-        section.append(group === 'advanced' ? el('summary', undefined, GROUP_TITLES[group]) : el('h3', undefined, GROUP_TITLES[group]));
-        for (const e of entries) section.append(render(e));
-        sections.push(section);
-      }
-      body.replaceChildren(...sections);
-      body.scrollTop = 0;
-      note.textContent = '';
-      note.className = 'hint note';
-      const refuse = (f: Field, text: string) => {
-        f.error.textContent = text;
-        f.error.hidden = false;
-        f.box.classList.add('refused');
-        const folded = f.box.closest('details');
-        if (folded) folded.open = true;
-        f.control.focus();
-        f.box.scrollIntoView({ block: 'nearest' });
-      };
-      let saving = false;
-      const submit = async () => {
-        if (saving) return;
-        for (const f of fields) {
-          f.error.hidden = true;
-          f.box.classList.remove('refused');
-        }
-        note.textContent = '';
-        note.className = 'hint note';
-        const values: Record<string, unknown> = { ...cfg };
-        let bad: Field | undefined;
-        for (const f of fields) {
-          const r = readField(f.entry, f.get());
-          if ('error' in r) {
-            if (!bad) bad = f;
-            f.error.textContent = r.error;
-            f.error.hidden = false;
-            f.box.classList.add('refused');
-          } else values[f.entry.key] = r.value;
-        }
-        if (bad) return refuse(bad, bad.error.textContent ?? '');
-        saving = true;
-        saveButton.disabled = true;
-        note.textContent = 'Saving…';
-        const refusal = await save(values as unknown as DeskfishConfig).catch((err): SettingsRefusal => ({ message: msg(err) }));
-        saving = false;
-        saveButton.disabled = false;
-        note.textContent = '';
-        if (!refusal) {
-          dialog.close('save');
-          return;
-        }
-        const f = refusal.key ? fields.find((x) => x.entry.key === refusal.key) : undefined;
-        if (f) refuse(f, refusal.message);
-        else {
-          note.textContent = refusal.message;
-          note.className = 'hint note error';
-        }
-      };
-      return new Promise<void>((resolve) => {
-        for (const b of buttons) b.onclick = () => (b.value === 'save' ? void submit() : dialog.close(b.value));
-        // No <form> (a password field in a form makes the browser offer to keep it as a login): Enter in a field saves.
-        dialog.onkeydown = (ev) => {
-          const t = ev.target as HTMLElement;
-          if (ev.key === 'Enter' && t.tagName === 'INPUT' && (t as HTMLInputElement).type !== 'checkbox') {
-            ev.preventDefault();
-            void submit();
-          }
-        };
-        dialog.addEventListener(
-          'close',
-          () => {
-            dialog.onkeydown = null;
-            body.replaceChildren();
-            resolve();
-          },
-          { once: true },
-        );
-        dialog.showModal();
-      });
-    },
-    showSchedules(actions, onClose) {
-      const dialog = $<HTMLDialogElement>('schedulesDialog');
-      const list = $('scheduleList');
-      const empty = $('scheduleEmpty');
-      const note = $('schedNote');
-      const kind = $<HTMLSelectElement>('schedKind');
-      const at = $<HTMLInputElement>('schedAt');
-      const day = $<HTMLSelectElement>('schedDay');
-      const time = $<HTMLInputElement>('schedTime');
-      const minutes = $<HTMLInputElement>('schedMinutes');
-      const task = $<HTMLTextAreaElement>('schedTask');
-      const autonomy = $<HTMLSelectElement>('schedAutonomy');
-      const budget = $<HTMLInputElement>('schedBudget');
-      if (!day.options.length) {
-        WEEKDAYS.forEach((name, i) => {
-          const o = doc.createElement('option');
-          o.value = String(i);
-          o.textContent = name;
-          day.append(o);
-        });
-      }
-      const setNote = (text: string, tone?: 'error' | 'ok') => {
-        note.textContent = text;
-        note.className = `hint note${tone ? ` ${tone}` : ''}`;
-      };
-      const showKind = () => {
-        const k = kind.value;
-        $('schedAtRow').hidden = k !== 'once';
-        $('schedDayRow').hidden = k !== 'weekly';
-        $('schedTimeRow').hidden = k !== 'daily' && k !== 'weekly';
-        $('schedEveryRow').hidden = k !== 'every';
-      };
-      const showAutonomy = () => ($('schedAutonomyDetail').textContent = AUTONOMY_DETAILS[autonomy.value === 'free' ? 'free' : 'guided']);
-      kind.value = 'once';
-      at.value = inAnHour();
-      day.value = '1';
-      time.value = '09:00';
-      minutes.value = '60';
-      task.value = '';
-      autonomy.value = 'guided';
-      budget.value = '';
-      $('schedBudgetHint').textContent = actions.budgetHint;
-      kind.onchange = showKind;
-      autonomy.onchange = showAutonomy;
-      showKind();
-      showAutonomy();
-      setNote('');
-      list.replaceChildren();
-      empty.hidden = true;
-      const buttons = Array.from(dialog.querySelectorAll<HTMLButtonElement>('.actions button'));
-      const addButton = buttons.find((b) => b.value === 'add')!;
-      const add = async () => {
-        addButton.disabled = true;
-        setNote('');
-        const r = await actions.add({ kind: kind.value as ScheduleForm['kind'], at: at.value, day: day.value, time: time.value, minutes: minutes.value, task: task.value, autonomy: autonomy.value === 'free' ? 'free' : 'guided', budget: budget.value });
-        addButton.disabled = false;
-        if ('error' in r) return setNote(r.error, 'error');
-        // The next schedule starts from the defaults again (guided, the setting's budget); when and how often stay.
-        task.value = '';
-        budget.value = '';
-        autonomy.value = 'guided';
-        showAutonomy();
-        setNote(r.done, 'ok');
-      };
-      for (const b of buttons) b.onclick = () => (b.value === 'add' ? void add() : dialog.close());
-      dialog.addEventListener('close', onClose, { once: true });
-      dialog.showModal();
-      return {
-        rows(rows) {
-          empty.hidden = rows.length > 0;
-          list.replaceChildren(
-            ...rows.map((row) => {
-              const li = doc.createElement('li');
-              const line = doc.createElement('span');
-              line.className = 'line';
-              line.textContent = row.line;
-              const run = doc.createElement('button');
-              run.type = 'button';
-              run.textContent = 'Run now';
-              // The chat shows the run: the dialog gets out of the way.
-              run.onclick = () => {
-                dialog.close();
-                void actions.runNow(row.id);
-              };
-              const remove = doc.createElement('button');
-              remove.type = 'button';
-              remove.textContent = 'Remove';
-              // Asked once, inside the dialog (a browser confirm() would block the page).
-              remove.onclick = async () => {
-                if (!remove.classList.contains('confirm')) {
-                  remove.classList.add('confirm');
-                  remove.textContent = 'Remove?';
-                  return;
-                }
-                remove.disabled = true;
-                const failed = await actions.remove(row.id);
-                if (failed) {
-                  remove.disabled = false;
-                  setNote(`Could not remove it: ${failed}`, 'error');
-                }
-              };
-              li.append(line, run, remove);
-              return li;
-            }),
-          );
-        },
-        note: setNote,
-      };
+    async confirm(text, action) {
+      const dialog = $<HTMLDialogElement>('confirmDialog');
+      $('confirmText').textContent = text;
+      $('confirmOk').textContent = action;
+      return (await run(dialog)) === 'ok';
     },
     showLog(lines, onClose) {
       const dialog = $<HTMLDialogElement>('logDialog');
@@ -1296,6 +952,7 @@ export function boot(): void {
     /* storage refused (a private window's policy): the token lives as long as the page */
   }
   history.replaceState(null, '', location.pathname);
+  const ui = browserUi(document);
   const ws = location.protocol === 'https:' ? 'wss:' : 'ws:';
   const q = `token=${encodeURIComponent(token)}`;
   const host = new WebHost({
@@ -1305,16 +962,45 @@ export function boot(): void {
     openSocket: (url) => new WebSocket(url) as unknown as SocketLike,
     post: (pane, message) => (document.getElementById(pane) as HTMLIFrameElement | null)?.contentWindow?.postMessage(message, '*'),
     fetch: (url, init) => fetch(url, init),
-    ui: browserUi(document),
+    ui,
   });
   (window as unknown as { deskfishHost: WebHost }).deskfishHost = host;
   document.addEventListener('visibilitychange', () => host.visibility());
-  // The page's own buttons (VS Code has New chat in the view's title bar, settings and schedules as commands); New chat's answer is `reset`.
+  // The title bar (VS Code has these in the view's title bar and as commands): the panels open inside the chat view; New chat's answer is `reset`.
+  // Looked up when used: this script runs before the page's body exists.
+  const showMenu = (open: boolean) => {
+    const menu = document.getElementById('menu');
+    if (!menu) return;
+    menu.hidden = !open;
+    document.getElementById('menuBtn')?.setAttribute('aria-expanded', String(open));
+    if (open) (menu.querySelector('button') as HTMLElement | null)?.focus();
+  };
+  const menuOpen = () => document.getElementById('menu')?.hidden === false;
+  const PANELS: Record<string, PanelName> = { history: 'history', schedules: 'schedules', settings: 'settings', files: 'files' };
   document.addEventListener('click', (ev) => {
     const target = ev.target as Element | null;
-    if (target?.closest?.('#newChat')) host.newChat();
-    else if (target?.closest?.('#settings')) void host.openSettings();
-    else if (target?.closest?.('#schedules')) void host.openSchedules();
+    const button = target?.closest?.('button');
+    if (button?.id === 'menuBtn') return showMenu(!menuOpen());
+    const item = target?.closest?.('[data-menu]') as HTMLElement | null;
+    if (menuOpen() && !item) showMenu(false);
+    if (item) {
+      showMenu(false);
+      const what = item.dataset.menu;
+      if (what === 'reflect') void host.reflectNow();
+      else if (what === 'export') void host.exportMemory();
+      else if (what === 'import') void ui.pickFiles('page', 'application/json,.json').then((files) => host.importMemory(files));
+      else if (what === 'deleteChats') void host.deleteAllChats();
+      else if (what === 'log') void host.showLog();
+      else if (what === 'docs') host.openDocs('page');
+      return;
+    }
+    if (button?.id === 'newChat') host.newChat();
+    else if (button && PANELS[button.id]) host.openPanel(PANELS[button.id]);
+  });
+  // A click inside a view does not reach this document; the page losing focus to it closes the menu.
+  window.addEventListener('blur', () => showMenu(false));
+  document.addEventListener('keydown', (ev) => {
+    if (ev.key === 'Escape' && menuOpen()) showMenu(false);
   });
   host.start();
 }

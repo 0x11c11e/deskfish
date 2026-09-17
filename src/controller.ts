@@ -2,7 +2,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import * as fs from 'node:fs';
 import * as vscode from 'vscode';
-import { describeWhen, formatLocal, nextDueAfter, type When } from './agent/schedule';
+import { formatLocal } from './agent/schedule';
 import { DRIFT_QUESTIONS } from './agent/prompts';
 import type { ReplayItem } from './agent/chats';
 import type { AgentEvent, AgentStatus } from './agent/loop';
@@ -13,12 +13,11 @@ import { DesktopManager } from './desktop/manager';
 import { GatewayClient } from './gateway/client';
 import { ConfigSync } from './gateway/configSync';
 import { DEFAULT_CONFIG } from './gateway/config';
-import { DEFAULT_PORT, type Snapshot } from './gateway/protocol';
+import { DEFAULT_PORT, type EditableFile, type Snapshot } from './gateway/protocol';
 import { MAX_TRANSFER, type MemoryBundle } from './gateway/service';
 import { applyAutostart, autostartNeedsWrite, autostartPlan, hasDesktopSession, removeAutostart, type AutostartPlan } from './gateway/autostart';
 import { ensureLocalGateway } from './gateway/spawn';
 import { dataDir, ensureToken, migrateData } from './gateway/storage';
-import { parseBudget } from './agent/scheduleForm';
 import { VERSION } from './gateway/version';
 import { HerFilesProvider } from './ui/herFiles';
 import type { DesktopFile, UiConfig } from './webview/protocol';
@@ -27,6 +26,8 @@ const msg = (err: unknown) => (err instanceof Error ? err.message : String(err))
 
 /** Secret-storage key of the per-install HMAC secret that signed the self file before the gateway (it moved to the data dir). */
 const SELF_KEY_SECRET = 'deskfish.selfKey';
+/** globalState key of the last config VS Code and the gateway agreed on (with the gateway's address). */
+const SYNCED_CONFIG = 'deskfish.syncedConfig';
 /** Secret-storage key of a remote gateway's token. */
 export const GATEWAY_TOKEN_SECRET = 'deskfish.gateway.token';
 
@@ -126,13 +127,19 @@ export class AgentController implements vscode.Disposable {
       beforeReconnect: placement === 'local' ? () => this.ensureLocal() : undefined,
     });
     this.desktop = new DesktopManager(this.client.desktop, output);
-    this.sync = new ConfigSync({
-      readSettings: () => readConfig('user'),
-      push: (patch) => this.client.call('config.set', { patch }),
-      write: (w) => this.writeSetting(w.setting, w.key, w.value),
-      pushKey: (cfg) => this.pushKey(cfg),
-      log: (line) => this.output.appendLine(line),
-    });
+    // The last config VS Code and this gateway agreed on: a settings.json edit made while VS Code was closed is pushed on the next connect.
+    const synced = ctx.globalState.get<{ url: string; config: DeskfishConfig }>(SYNCED_CONFIG);
+    this.sync = new ConfigSync(
+      {
+        readSettings: () => readConfig('user'),
+        push: (patch) => this.client.call('config.set', { patch }),
+        write: (w) => this.writeSetting(w.setting, w.key, w.value),
+        pushKey: (cfg) => this.pushKey(cfg),
+        log: (line) => this.output.appendLine(line),
+        saveBase: (config) => void ctx.globalState.update(SYNCED_CONFIG, { url, config }),
+      },
+      synced?.url === url ? { ...DEFAULT_CONFIG, ...synced.config } : undefined,
+    );
     this.onDidReset = this.relay<void>('reset');
     this.onDidReplay = this.relay('replay');
     this.onDidSchedule = this.relay('schedule');
@@ -375,6 +382,11 @@ export class AgentController implements vscode.Disposable {
     await vscode.window.showTextDocument(HerFilesProvider.uri('charter.md'));
   }
 
+  /** "Edit in VS Code" on the Her files panel: memory or charter in a real editor (saving sends it to the gateway). */
+  async openFile(file: EditableFile): Promise<void> {
+    await (file === 'charter.md' ? this.editCharter() : this.editMemory());
+  }
+
   /** Lets the controller bring up the desktop panel when the bot asks for the user. */
   setDesktopOpener(fn: (opts?: { preserveFocus?: boolean }) => void): void {
     this.openDesktop = fn;
@@ -473,34 +485,6 @@ export class AgentController implements vscode.Disposable {
     }
   }
 
-  /** Past chats: open one read-only-ish in an editor, or continue it in a new chat. */
-  async pastChats(): Promise<void> {
-    const all = await this.attempt('list past chats', this.client.call('chats.list'));
-    if (!all) return;
-    if (!all.length) {
-      void vscode.window.showInformationMessage('Deskfish: no past chats yet. Every chat is saved from now on.');
-      return;
-    }
-    const pick = await vscode.window.showQuickPick(
-      all.map((c) => ({ label: `${c.startedAt}  ${c.firstTask || '(no task)'}`.slice(0, 100), description: formatSize(c.bytes), chat: c })),
-      { title: 'Past chats', placeHolder: 'Pick a chat to open or continue' },
-    );
-    if (!pick) return;
-    const what = await vscode.window.showQuickPick(
-      [
-        { label: 'Open in the sidebar', description: 'shows the chat as it was; type below to continue it', action: 'sidebar' as const },
-        { label: 'Open the transcript file', description: 'the markdown, in an editor tab', action: 'open' as const },
-      ],
-      { title: pick.chat.firstTask.slice(0, 80) || 'Past chat' },
-    );
-    if (!what) return;
-    if (what.action === 'open') {
-      await vscode.window.showTextDocument(HerFilesProvider.uri(`chats/${pick.chat.name}`), { preview: true });
-      return;
-    }
-    await this.attempt('open the chat', this.client.call('chats.continue', { name: pick.chat.name }));
-  }
-
   async deletePastChats(): Promise<void> {
     const all = await this.attempt('list past chats', this.client.call('chats.list'));
     if (!all) return;
@@ -574,103 +558,6 @@ export class AgentController implements vscode.Disposable {
     if ((await this.attempt('import her memory', this.client.call('import', { bundle }))) === undefined) return;
     this.output.appendLine(`— memory imported from ${picked[0].fsPath} —`);
     void vscode.window.showInformationMessage('Deskfish: her memory is imported. The next chat starts from it.');
-  }
-
-  /** "Deskfish: Schedule a Task…": when, then what. */
-  async scheduleTask(): Promise<void> {
-    const kind = await vscode.window.showQuickPick(
-      [
-        { label: 'Once, at a date and time', mode: 'once' as const },
-        { label: 'Every day at a time', mode: 'daily' as const },
-        { label: 'Every week, on a day at a time', mode: 'weekly' as const },
-        { label: 'Every N minutes or hours', mode: 'every' as const },
-      ],
-      { title: 'Deskfish: schedule a task — when?', placeHolder: 'Runs while the Deskfish gateway runs, with or without VS Code; a missed time is skipped, not run late' },
-    );
-    if (!kind) return;
-    let when: When | undefined;
-    const pad = (n: number) => String(n).padStart(2, '0');
-    const d = new Date();
-    if (kind.mode === 'once') {
-      const soon = new Date(d.getTime() + 60 * 60_000);
-      const at = await vscode.window.showInputBox({ title: 'Date and time', prompt: 'Local time, YYYY-MM-DD HH:MM', value: `${soon.getFullYear()}-${pad(soon.getMonth() + 1)}-${pad(soon.getDate())} ${pad(soon.getHours())}:00` });
-      if (!at) return;
-      when = { kind: 'once', at: at.trim().replace(' ', 'T') };
-    } else if (kind.mode === 'daily') {
-      const time = await vscode.window.showInputBox({ title: 'Time of day', prompt: 'HH:MM, local time', value: '09:00' });
-      if (!time) return;
-      when = { kind: 'daily', time: time.trim() };
-    } else if (kind.mode === 'weekly') {
-      const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-      const day = await vscode.window.showQuickPick(days.map((label, i) => ({ label, i })), { title: 'Which day?' });
-      if (!day) return;
-      const time = await vscode.window.showInputBox({ title: `Time on ${day.label}`, prompt: 'HH:MM, local time', value: '07:00' });
-      if (!time) return;
-      when = { kind: 'weekly', day: day.i, time: time.trim() };
-    } else {
-      const every = await vscode.window.showInputBox({ title: 'How often?', prompt: 'Minutes between runs (at least 5), e.g. 30, 90, 240', value: '60' });
-      if (!every) return;
-      when = { kind: 'every', minutes: Number(every) };
-    }
-    const task = await vscode.window.showInputBox({ title: 'What should she do?', prompt: 'The task, as you would type it in the chat', placeHolder: 'e.g. Order my usual coffee from the Starbucks site for pickup at 7:30; under $10; tell me the total', ignoreFocusOut: true });
-    if (!task) return;
-    // Nobody is watching a scheduled run, so it is fenced: guided, with a cost ceiling. The web page's
-    // Schedules dialog asks the same questions.
-    const how = await vscode.window.showQuickPick(
-      [
-        { label: 'Guided (default)', detail: 'She asks before anything irreversible and uses no credentials you did not give her — the safer choice for a run nobody is watching', autonomy: 'guided' as const },
-        { label: 'Free, like a task you type yourself', detail: 'The tank is the boundary: she may use any account or login in it and finishes what you asked', autonomy: 'free' as const },
-      ],
-      { title: 'How much should she decide on her own when this runs?' },
-    );
-    if (!how) return;
-    const setting = this.gatewayConfig().unattendedMaxCostUsd;
-    const typed = await vscode.window.showInputBox({
-      title: 'Budget for each run, in US dollars (optional)',
-      prompt: `Enter to use deskfish.unattendedMaxCostUsd (${setting > 0 ? `$${setting.toFixed(2)}` : 'no budget'}); 0 = no budget. It acts where the model has a known price or reports its cost.`,
-      placeHolder: setting > 0 ? setting.toFixed(2) : '0',
-      ignoreFocusOut: true,
-      validateInput: (v) => (parseBudget(v) === 'bad' ? 'A number of dollars, 0 or more — or empty for the setting' : undefined),
-    });
-    if (typed === undefined) return;
-    const maxCostUsd = parseBudget(typed);
-    try {
-      const s = await this.client.call('schedules.add', { task, when, autonomy: how.autonomy, ...(typeof maxCostUsd === 'number' ? { maxCostUsd } : {}) });
-      const next = nextDueAfter(s, Date.now());
-      const budget = s.maxCostUsd ?? setting;
-      void vscode.window.showInformationMessage(
-        `Scheduled ${describeWhen(s.when)}${next ? `, next ${formatLocal(next)}` : ''}: ${s.task} — it runs ${s.autonomy ?? 'guided'}${budget > 0 ? `, up to $${budget.toFixed(2)}` : ''}.`,
-      );
-    } catch (err) {
-      void vscode.window.showErrorMessage(`Deskfish: could not schedule — ${err instanceof Error ? err.message : String(err)}`);
-    }
-  }
-
-  /** "Deskfish: Scheduled Tasks…": list, run now, or remove. */
-  async scheduledTasks(): Promise<void> {
-    const listed = await this.attempt('list scheduled tasks', this.client.call('schedules.list'));
-    if (!listed) return;
-    const items = listed.schedules;
-    if (!items.length) {
-      const c = await vscode.window.showInformationMessage('Deskfish has no scheduled tasks.', 'Schedule one…');
-      if (c) await this.scheduleTask();
-      return;
-    }
-    const lines = listed.lines;
-    const pick = await vscode.window.showQuickPick(
-      items.map((s, i) => ({ label: describeWhen(s.when), description: s.task, detail: lines[i].split(' — ')[1]?.split(' · ').slice(1).join(' · '), id: s.id })),
-      { title: 'Deskfish: scheduled tasks', placeHolder: 'Pick one to run it now or remove it' },
-    );
-    if (!pick) return;
-    const action = await vscode.window.showQuickPick(['Run it now', 'Remove it'], { title: pick.description });
-    if (action === 'Remove it') {
-      await this.attempt('remove the schedule', this.client.call('schedules.remove', { id: pick.id }));
-    } else if (action === 'Run it now') {
-      if (this.client.status === 'running' || this.client.status === 'paused') {
-        void vscode.window.showInformationMessage('Deskfish: she is busy; the task will run when she is free.');
-      }
-      await this.attempt('run the scheduled task', this.client.call('schedules.runNow', { id: pick.id }));
-    }
   }
 
   /**

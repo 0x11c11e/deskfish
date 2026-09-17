@@ -5,18 +5,17 @@
 // message that is a command becomes a request the gateway's validator accepts; the rest is the page's
 // own work (attach → POST /files, save → GET /files/…, key and model dialogs, docs, clipboard). The
 // host over a fake socket: hello, the snapshot before later events, errors as toasts, the knock,
-// reconnect, and a reload after three refused connections when the token is wrong. The Settings dialog:
-// fields read into config values, a save sends only what the person changed (never the model's keys),
-// a refusal names its field; the Schedules dialog: every call a schedules.* command the validator accepts.
+// reconnect, and a reload after three refused connections when the token is wrong. Since step 6B the
+// panels live in the chat view: its `ask` becomes the command when VIEW_COMMANDS names it (answered in
+// the frame that carried it) and is refused without reaching the gateway otherwise; the title bar posts
+// `open`; the … menu reflects, exports into the downloads, imports only after the confirm (then rebuilds
+// from a snapshot) and deletes past chats after a confirm with the count.
 import assert from 'node:assert/strict';
 import { validate } from '../src/gateway/protocol';
 import type { Snapshot } from '../src/gateway/protocol';
 import { DEFAULT_CONFIG } from '../src/gateway/config';
 import type { ToChat, ToDesktop } from '../src/webview/protocol';
-import { Mirror, WebHost, fieldInput, readField, refusalOf, viewCommand, type HostUi, type ModelChoice, type ScheduleActions, type SettingsRefusal, type SocketLike } from '../web/shim';
-import { applyConfigPatch, type DeskfishConfig } from '../src/gateway/config';
-import { settingsSchema, type SettingsSchema } from '../src/gateway/settingsSchema';
-import fs from 'node:fs';
+import { Mirror, WebHost, viewCommand, type HostUi, type ModelChoice, type SocketLike } from '../web/shim';
 import { PRESETS } from '../src/agent/presets';
 
 let n = 0;
@@ -116,7 +115,13 @@ const snapshot = (over: Partial<Snapshot> = {}): Snapshot => ({
   }
   ok(JSON.stringify(viewCommand('chat', cases[0][1])?.args) === JSON.stringify({ task: 'do it', attachments: [{ name: 'a.txt', path: '/home/bot/Uploads/a.txt', size: 3 }] }), 'attachments travel as name, path, size');
   ok(!('attachments' in (viewCommand('chat', cases[1][1])?.args ?? {})), 'no attachments key for none');
-  for (const t of ['ready', 'refresh', 'attach', 'saveFile', 'revealFile', 'openDesktop', 'setApiKey', 'openSettings', 'showLog', 'openDocs', 'copy', 'installRuntime']) ok(viewCommand('chat', { type: t } as any) === undefined, `chat ${t}: the page's own work`);
+  for (const t of ['ready', 'refresh', 'attach', 'saveFile', 'revealFile', 'openDesktop', 'setApiKey', 'openSettings', 'showLog', 'openDocs', 'copy', 'installRuntime', 'openFile']) ok(viewCommand('chat', { type: t } as any) === undefined, `chat ${t}: the page's own work`);
+  for (const [cmd, args] of [['chats.list', undefined], ['chats.open', { name: 'a.md' }], ['chats.delete', { name: 'a.md' }], ['chats.delete', undefined], ['config.set', { patch: { maxSteps: 3 } }], ['schedules.runNow', { id: 's1' }], ['memory.write', { file: 'charter.md', text: 'x' }], ['snapshot', undefined]] as const) {
+    const c = viewCommand('chat', { type: 'ask', id: 4, cmd, ...(args ? { args } : {}) } as any);
+    const v = validate({ id: 1, cmd: c?.cmd, ...(c?.args ? { args: c.args } : {}) });
+    ok(c?.cmd === cmd && v.ok, `ask ${cmd} → the command ${JSON.stringify(c?.args ?? {})} (${v.ok ? 'valid' : (v as any).error})`);
+  }
+  for (const cmd of ['key.set', 'shutdown', 'desktop.off', 'log.tail', 'nonsense']) ok(viewCommand('chat', { type: 'ask', id: 4, cmd } as any) === undefined, `ask ${cmd}: not a command the view may ask`);
   for (const t of ['ready', 'clipboardSync', 'clipboardChanged', 'log']) ok(viewCommand('desktop', { type: t } as any) === undefined, `desktop ${t}: the page's own work`);
 }
 
@@ -162,6 +167,7 @@ class FakeSocket implements SocketLike {
     readClipboard: async () => clip,
     writeClipboard: async () => {},
     openDocs: (_pane, load) => (docsLoader = load),
+    confirm: async () => false,
     askKey: async () => keyAnswer,
     askModel: async () => modelAnswer,
     showLog: () => () => {},
@@ -301,118 +307,123 @@ class FakeSocket implements SocketLike {
   (host as any).env.openSocket = () => new FakeSocket('x');
 }
 
-// 5. The Settings and Schedules dialogs
+// 5. The panels' bridge, the title bar and the … menu
 {
-  const schema = settingsSchema(JSON.parse(fs.readFileSync(new URL('../package.json', import.meta.url), 'utf8')));
-  const entry = (k: keyof DeskfishConfig) => schema.find((e) => e.key === k)!;
-  ok(JSON.stringify(readField(entry('temperature'), '')) === '{"value":null}' && JSON.stringify(readField(entry('temperature'), '0.4')) === '{"value":0.4}', 'temperature: empty = null, a number = that number');
-  ok('error' in readField(entry('maxSteps'), '') && 'error' in readField(entry('maxSteps'), 'lots') && JSON.stringify(readField(entry('maxSteps'), '25')) === '{"value":25}', 'a number field needs a number');
-  ok(JSON.stringify(readField(entry('autoStart'), false)) === '{"value":false}' && JSON.stringify(readField(entry('effort'), '')) === '{"value":""}' && 'error' in readField(entry('effort'), 'extreme'), 'a checkbox, an enum (empty = default), a value outside the enum');
-  ok(JSON.stringify(readField(entry('userName'), '  Iman ')) === '{"value":"Iman"}' && JSON.stringify(readField(entry('vncPassword'), ' pw ')) === '{"value":" pw "}', 'the name is trimmed as VS Code reads it; a password is not');
-  ok(fieldInput(entry('temperature'), DEFAULT_CONFIG) === '' && fieldInput(entry('autoStart'), DEFAULT_CONFIG) === true && fieldInput(entry('maxSteps'), DEFAULT_CONFIG) === '0', 'the form shows null as empty');
-  ok(refusalOf('bad value for effort').key === 'effort' && refusalOf('unknown setting: colour').key === ('colour' as any) && refusalOf('Deskfish is not connected').key === undefined, 'a refusal names its field when the gateway says which');
-
   const sockets: FakeSocket[] = [];
-  let edit: { schema: SettingsSchema; cfg: DeskfishConfig; save: (v: DeskfishConfig) => Promise<SettingsRefusal | undefined> } | undefined;
-  let actions: ScheduleActions | undefined;
-  let closeSchedules = () => {};
-  const rows: any[][] = [];
-  const notes: string[] = [];
+  const posts: { pane: string; m: any }[] = [];
   const toasts: string[] = [];
+  const saved: { name: string; blob: Blob }[] = [];
+  const confirms: string[] = [];
+  let confirmAnswer = false;
   const ui = {
-    visible: () => true, connection: () => {}, toast: (t: string) => toasts.push(t), knock: () => {}, showDesktop: () => {},
-    editSettings: async (sch: SettingsSchema, cfg: DeskfishConfig, save: any) => { edit = { schema: sch, cfg, save }; },
-    showSchedules: (a: ScheduleActions, onClose: () => void) => { actions = a; closeSchedules = onClose; return { rows: (r: any[]) => rows.push(r), note: (t: string) => notes.push(t) }; },
+    visible: () => true, connection: () => {}, toast: (t: string) => toasts.push(t), knock: () => {}, showDesktop: () => {}, showLog: () => () => {},
+    saveBlob: (name: string, blob: Blob) => saved.push({ name, blob }),
+    confirm: async (text: string, action: string) => { confirms.push(`${action}: ${text}`); return confirmAnswer; },
   } as unknown as HostUi;
-  const host = new WebHost({ wsUrl: 'ws://gw/ws?token=tok', vncUrl: VNC, token: 'tok', openSocket: (url) => { const x = new FakeSocket(url); sockets.push(x); return x; }, post: () => {}, fetch: async () => new Response(''), ui });
+  const host = new WebHost({ wsUrl: 'ws://gw/ws?token=tok', vncUrl: VNC, token: 'tok', openSocket: (url) => { const x = new FakeSocket(url); sockets.push(x); return x; }, post: (pane, m) => posts.push({ pane, m }), fetch: async () => new Response(''), ui });
   const tick = () => sleep(5);
+  const idle = () => snapshot({ status: 'idle', chat: [], usage: undefined, screenshot: undefined });
+  const chatPosts = (from: number) => posts.slice(from).filter((p) => p.pane === 'chat').map((p) => p.m);
+  host.api('chat').postMessage({ type: 'ready' });
   host.start();
   const s = sockets[0];
   s.open();
-  s.reply('hello', snapshot({ status: 'idle', chat: [], usage: undefined, screenshot: undefined }));
+  s.reply('hello', idle());
   const valid = (cmd: string) => { const r = s.last(cmd); return !!r && validate(r).ok; };
 
-  // Settings: the schema is asked once, the dialog opens on the config the page already has
-  const opening = host.openSettings();
-  ok(valid('config.schema') && !s.last('config.get'), 'Settings asks config.schema (and never config.get: the page has the config)');
-  s.reply('config.schema', schema);
-  await opening;
-  ok(edit?.schema.length === 28 && edit.cfg.vncPassword === 'pw', 'the dialog gets the schema and the current config');
-  const opened = edit!.cfg;
-  let saving = edit!.save({ ...opened, maxSteps: 25, autoStart: false, model: 'sneaky-model' });
+  // an allowed ask: the command over the socket, its result as the answer
+  let mark = posts.length;
+  host.api('chat').postMessage({ type: 'ask', id: 7, cmd: 'chats.list' });
+  ok(valid('chats.list'), 'ask chats.list → the command, valid');
+  s.reply('chats.list', [{ name: 'a.md', startedAt: '2026-09-16 10:00', firstTask: 'Open example.com', bytes: 50, outcome: 'done' }]);
   await tick();
-  const set = s.last('config.set');
-  ok(valid('config.set') && JSON.stringify(set.args.patch) === '{"maxSteps":25,"autoStart":false}', `Save sends only what changed, never the model's keys: ${JSON.stringify(set.args.patch)}`);
-  ok(!!applyConfigPatch(DEFAULT_CONFIG, set.args.patch), 'every value in the patch is one the gateway accepts');
-  s.reply('config.set', { ...opened, maxSteps: 25, autoStart: false });
-  ok((await saving) === undefined, 'saved: the dialog may close');
-  const sent = s.sent.length;
-  ok((await edit!.save({ ...opened })) === undefined && s.sent.length === sent, 'nothing changed: nothing sent, the dialog closes');
-  saving = edit!.save({ ...opened, effort: 'extreme' as any });
+  let answer = chatPosts(mark).find((m) => m.type === 'answer');
+  ok(answer?.id === 7 && answer.ok === true && answer.result[0].outcome === 'done', `the answer carries the result: ${JSON.stringify(answer)}`);
+  mark = posts.length;
+  host.api('chat').postMessage({ type: 'ask', id: 8, cmd: 'chats.open', args: { name: 'gone.md' } });
+  ok(valid('chats.open') && s.last('chats.open').args.name === 'gone.md', 'ask with arguments: they travel as given');
+  s.reply('chats.open', 'no such chat', false);
   await tick();
-  s.reply('config.set', 'bad value for effort', false);
-  const refused = await saving;
-  ok(refused?.key === 'effort' && /Not accepted: bad value for effort/.test(refused.message), `a refusal lands on its field: ${JSON.stringify(refused)}`);
-  // Another client changes a setting while the dialog is open: Save does not send the old value back.
-  s.frame({ event: 'config', data: { ...opened, maxCostUsd: 9 } });
-  saving = edit!.save({ ...opened, reflectEvery: 3 });
-  await tick();
-  ok(JSON.stringify(s.last('config.set').args.patch) === '{"reflectEvery":3}', 'a value changed elsewhere while the dialog was open is not sent back');
-  s.reply('config.set', { ...opened, maxCostUsd: 9, reflectEvery: 3 });
-  await saving;
-  const again = host.openSettings();
-  await again;
-  ok(s.sent.filter((x) => x.cmd === 'config.schema').length === 1 && edit!.cfg.maxCostUsd === 9, 'the schema is asked once per page; the dialog reopens on the newer config');
+  answer = chatPosts(mark).find((m) => m.type === 'answer');
+  ok(answer?.id === 8 && answer.ok === false && answer.error === 'no such chat', 'a gateway refusal is an answer too');
 
-  // Schedules
-  const listReply = { schedules: [{ id: 's1', task: 'water', when: { kind: 'daily', time: '09:00' }, createdAt: '2026-09-16T10:00:00Z' }], lines: ['every day at 09:00 — water · next 2026-09-17 09:00'] };
-  const openingS = host.openSchedules();
-  ok(/\$2\.00/.test(actions?.budgetHint ?? '') && valid('schedules.list'), `the dialog opens with the budget the setting gives (${actions?.budgetHint}) and lists`);
-  s.reply('schedules.list', listReply);
-  await openingS;
-  ok(JSON.stringify(rows.at(-1)) === JSON.stringify([{ id: 's1', line: listReply.lines[0] }]), 'each row: the gateway\'s line, the schedule\'s id for its buttons');
-  let adding = actions!.add({ kind: 'weekly', day: '1', time: '07:00', task: ' water the plants ', autonomy: 'free', budget: '1.5' });
+  // a refused ask never reaches the gateway
+  const sent = s.sent.length;
+  mark = posts.length;
+  host.api('chat').postMessage({ type: 'ask', id: 9, cmd: 'key.set', args: { slot: 'deskfish.apiKey.anthropic', key: 'sk' } });
+  host.api('chat').postMessage({ type: 'ask', id: 10, cmd: 'shutdown' });
   await tick();
-  const add = s.last('schedules.add');
-  ok(valid('schedules.add') && JSON.stringify(add.args) === JSON.stringify({ task: 'water the plants', when: { kind: 'weekly', day: 1, time: '07:00' }, autonomy: 'free', maxCostUsd: 1.5 }), `Add → schedules.add with the fence: ${JSON.stringify(add.args)}`);
-  s.reply('schedules.add', { id: 's2', task: 'water the plants', when: add.args.when, createdAt: 'x', autonomy: 'free', maxCostUsd: 1.5 });
+  const refused = chatPosts(mark).filter((m) => m.type === 'answer');
+  ok(s.sent.length === sent && refused.length === 2 && refused.every((m) => m.ok === false && /may not ask/.test(m.error)), `key.set and shutdown from the view: refused, nothing sent (${refused.map((m) => m.error).join(' | ')})`);
+
+  // a snapshot answer lands before the event after it
+  host.api('chat').postMessage({ type: 'ask', id: 11, cmd: 'snapshot' });
+  mark = posts.length;
+  s.frame({ id: s.last('snapshot').id, ok: true, result: snapshot() });
+  s.frame({ event: 'event', data: { type: 'assistant', text: 'after' } });
   await tick();
-  s.reply('schedules.list', { schedules: [...listReply.schedules, { id: 's2' }], lines: [listReply.lines[0], 'every Monday at 07:00 — water the plants · free · budget $1.50'] });
-  const added = await adding;
-  ok('done' in added && /every Monday at 07:00 — water the plants/.test(added.done) && rows.at(-1)!.length === 2, `added, the list refreshed: ${JSON.stringify(added)}`);
-  adding = actions!.add({ kind: 'once', at: '2030-01-02T07:30', task: 'call', autonomy: 'guided', budget: '' });
+  ok(types(chatPosts(mark)) === 'answer,event', `the snapshot's answer before the event that follows it: ${types(chatPosts(mark))}`);
+
+  // the title bar opens the panels in the chat view
+  for (const panel of ['history', 'schedules', 'settings', 'files'] as const) {
+    host.openPanel(panel);
+    ok(posts.at(-1)?.pane === 'chat' && posts.at(-1)?.m.type === 'open' && posts.at(-1)?.m.panel === panel, `title bar → open ${panel}`);
+  }
+
+  // … Let her reflect now
+  let p: Promise<unknown> = host.reflectNow();
+  ok(valid('reflect'), 'reflect');
+  s.reply('reflect', 'busy');
+  await p;
+  ok(toasts.at(-1) === 'She is busy; let her finish first.', 'busy → a toast');
+  const toastCount = toasts.length;
+  p = host.reflectNow();
+  s.reply('reflect', 'started');
+  await p;
+  ok(toasts.length === toastCount, 'started → nothing more (the status line shows it)');
+
+  // … Export: the bundle into the downloads, the bytes VS Code writes
+  const bundle = { format: 'deskfish-memory', version: 1, exportedAt: '2026-09-16T10:00:00Z', memory: '- tea', self: '# Me', journal: '', chats: [] };
+  p = host.exportMemory();
+  ok(valid('export'), 'export');
+  s.reply('export', bundle);
+  await p;
+  ok(/^deskfish-export-\d{4}-\d{2}-\d{2}\.json$/.test(saved.at(-1)!.name) && (await saved.at(-1)!.blob.text()) === JSON.stringify(bundle, null, 1), `export → ${saved.at(-1)!.name}, byte for byte what VS Code's export writes`);
+
+  // … Import: only through the confirm, with VS Code's words; then the page rebuilds
+  const file = new File([JSON.stringify(bundle)], 'backup.json');
+  confirmAnswer = false;
+  await host.importMemory([file]);
+  ok(confirms.at(-1) === 'Import: Replace her facts, her self file and her journal with the ones in this file? The current versions are kept in her history, but the next chat starts from the imported ones.' && !s.last('import'), 'import asks first, with VS Code\'s exact question; Cancel sends nothing');
+  confirmAnswer = true;
+  p = host.importMemory([file]);
   await tick();
-  ok(valid('schedules.add') && !('maxCostUsd' in s.last('schedules.add').args) && s.last('schedules.add').args.autonomy === 'guided', 'no budget typed: no maxCostUsd (the setting applies)');
-  s.reply('schedules.add', 'that time has already passed', false);
-  const late = await adding;
-  ok('error' in late && /already passed/.test(late.error), 'the gateway\'s refusal is shown in the dialog');
-  const before = s.sent.length;
-  const bad1 = await actions!.add({ kind: 'every', minutes: '3', task: 'x', autonomy: 'guided', budget: '' });
-  const bad2 = await actions!.add({ kind: 'daily', time: '09:00', task: 'x', autonomy: 'guided', budget: '-2' });
-  const bad3 = await actions!.add({ kind: 'daily', time: '09:00', task: '  ', autonomy: 'guided', budget: '' });
-  ok('error' in bad1 && 'error' in bad2 && 'error' in bad3 && s.sent.length === before, 'too often, a negative budget, no task: said in the dialog, nothing sent');
-  const removing = actions!.remove('s1');
+  ok(valid('import') && s.last('import').args.bundle.self === '# Me', 'confirmed → import {bundle}');
+  s.reply('import', null);
   await tick();
-  ok(valid('schedules.remove') && s.last('schedules.remove').args.id === 's1', 'Remove → schedules.remove {id}');
-  s.reply('schedules.remove', null);
+  mark = posts.length;
+  s.reply('snapshot', idle());
+  await p;
+  ok(chatPosts(mark)[0]?.type === 'newChat' && /imported/.test(toasts.at(-1)!), 'then a fresh snapshot rebuilds the chat');
+  const confirmsBefore = confirms.length;
+  await host.importMemory([new File(['{"format":"something else"}'], 'x.json')]);
+  await host.importMemory([new File(['not json'], 'y.json')]);
+  ok(confirms.length === confirmsBefore && toasts.at(-1) === 'That file is not a memory export.', 'a file that is not an export is refused before the question');
+
+  // … Delete all past chats: the count in the question, then chats.delete without a name
+  confirmAnswer = true;
+  p = host.deleteAllChats();
+  s.reply('chats.list', [{ name: 'a.md' }, { name: 'b.md' }]);
   await tick();
-  ok(s.sent.at(-1).cmd === 'schedules.list', 'the list refreshes after Remove');
-  s.reply('schedules.list', { schedules: [], lines: [] });
-  ok((await removing) === undefined && rows.at(-1)!.length === 0, 'removed');
-  const running = actions!.runNow('s2');
-  await tick();
-  ok(valid('schedules.runNow') && s.last('schedules.runNow').args.id === 's2', 'Run now → schedules.runNow {id}');
-  s.reply('schedules.runNow', null);
-  await running;
-  s.frame({ event: 'schedule', data: { kind: 'fired', text: '⏰ water', task: 'water', auto: true } });
-  await tick();
-  ok(s.sent.at(-1).cmd === 'schedules.list', 'a schedule event refreshes the open list');
-  s.reply('schedules.list', { schedules: [], lines: [] });
-  closeSchedules();
-  const quiet = s.sent.length;
-  s.frame({ event: 'schedule', data: { kind: 'missed', text: 'missed', task: 'water', auto: true } });
-  await tick();
-  ok(s.sent.length === quiet, 'closed: a schedule event asks nothing');
+  ok(confirms.at(-1) === 'Delete: Delete all 2 past chats? Her journal, facts and self are not touched.', `asks with the count: ${confirms.at(-1)}`);
+  ok(valid('chats.delete') && !s.last('chats.delete').args, 'chats.delete without a name (all)');
+  s.reply('chats.delete', 2);
+  await p;
+  ok(toasts.at(-1) === 'Deleted 2 past chats.', 'and says how many');
+  p = host.deleteAllChats();
+  s.reply('chats.list', []);
+  await p;
+  ok(toasts.at(-1) === 'There are no past chats.', 'none: nothing to ask');
   (host as any).retry && clearTimeout((host as any).retry);
 }
 

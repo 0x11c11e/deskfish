@@ -5,8 +5,9 @@ section: Reference
 order: 1
 ---
 
-In VS Code, open **Settings** and search for *Deskfish*; on the web page, press **Settings** in
-the title bar. All settings live under the `deskfish` prefix. (The **Change** button next to
+In VS Code, open **Settings** and search for *Deskfish*, or choose **Deskfish: Settings…** in the
+chat's **…** menu; on the web page, press the settings icon in the title bar. All settings live
+under the `deskfish` prefix. (The **Change** button next to
 *Model* in the chat opens the model picker, which sets the three model settings for you; the key
 has its own button too. Neither opens this list.)
 
@@ -18,10 +19,17 @@ the two always agree: a value you set on the web page shows up in VS Code's sett
 `settings.json`), and a value you change in VS Code shows up on the page. The very first time
 Deskfish starts, it takes VS Code's settings as they are.
 
-On the web page, **Settings** shows the same settings with the words VS Code shows, in three
-groups: *How she works*, *Her desktop*, and *Advanced* (folded). **Save** sends only what you
-changed; a value Deskfish does not accept is marked on its field and nothing is saved. The three
-*Where Deskfish runs* settings below belong to VS Code alone and are not on the page.
+**An edit made while VS Code was closed is kept.** VS Code remembers the settings both sides last
+agreed on. When it opens again, a setting you changed in `settings.json` in the meantime is sent
+to Deskfish; a setting changed on the web page in the meantime is written into `settings.json`.
+If the same setting was changed in both places to different values, Deskfish's value wins and
+the Deskfish log names the setting.
+
+The **Settings** panel (in the chat, in VS Code and on the web page alike) shows the same settings
+with the words VS Code shows, in three groups: *How she works*, *Her desktop*, and *Advanced*
+(folded). **Save** sends only what you changed; a value Deskfish does not accept is marked on its
+field and nothing is saved. The three *Where Deskfish runs* settings below belong to VS Code alone
+and are not in the panel.
 
 > [!TIP]
 > Keep Deskfish settings in your **User** settings. A folder's (workspace) settings are not sent

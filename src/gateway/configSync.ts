@@ -17,6 +17,12 @@ import { CONFIG_KEYS, SETTINGS_KEYS } from './settingsSchema';
  * old value back; the model picker's three writes race their three events the same way. The echo of
  * a mirror write finds the setting equal to the gateway's value and pushes nothing — no ping-pong.
  * Only user (Global) settings take part: a workspace value is outside the mirror in both directions.
+ *
+ * **Edits made while VS Code was closed** (step 6B): the host keeps a *base*, the last config both sides
+ * agreed on, and a connect merges per key — settings changed since the base and the gateway not →
+ * pushed; the gateway changed and settings not → written; both changed to different values → the
+ * gateway wins, one log line naming the setting. Without a base (a first connect) the gateway wins
+ * every differing key, as before. The base is stored after every connect, push and `config` event.
  */
 
 export type ConfigKey = keyof DeskfishConfig;
@@ -56,6 +62,33 @@ export interface ConfigSyncIo {
   /** The API key for this config's provider, when this host holds one. */
   pushKey(cfg: DeskfishConfig): Promise<void>;
   log(line: string): void;
+  /** Keep the config both sides now agree on, for the next connect's merge. */
+  saveBase?(cfg: DeskfishConfig): void;
+}
+
+/** A connect's merge, per key: what goes to the gateway, what is written into settings, and the keys both sides changed. */
+export interface Merge {
+  push: Partial<DeskfishConfig>;
+  write: ConfigKey[];
+  conflicts: ConfigKey[];
+}
+
+/**
+ * The three-way merge on connect. `base` is the last config both sides agreed on; without one the
+ * gateway wins every key that differs (the mirror before 6B).
+ */
+export function mergeOnConnect(gateway: DeskfishConfig, settings: DeskfishConfig, base: DeskfishConfig | undefined): Merge {
+  const out: Merge = { push: {}, write: [], conflicts: [] };
+  for (const k of changedKeys(settings, gateway)) {
+    const settingsMoved = !!base && settings[k] !== base[k];
+    const gatewayMoved = !base || gateway[k] !== base[k];
+    if (settingsMoved && !gatewayMoved) (out.push as Record<string, unknown>)[k] = settings[k];
+    else {
+      out.write.push(k);
+      if (settingsMoved) out.conflicts.push(k);
+    }
+  }
+  return out;
 }
 
 const refusal = /^(bad value for|unknown setting:) /;
@@ -65,20 +98,32 @@ export class ConfigSync {
   /** The gateway's config as last received (snapshot or event). */
   last?: DeskfishConfig;
 
-  constructor(private readonly io: ConfigSyncIo) {}
+  /** `base`: the config both sides last agreed on, as the host stored it (undefined the first time). */
+  constructor(
+    private readonly io: ConfigSyncIo,
+    private base?: DeskfishConfig,
+  ) {}
 
   /** Connected (again). `configSaved` absent means a gateway from before this rule: seeded as before. */
-  async connected(snap: { config: DeskfishConfig; configSaved?: boolean }): Promise<'seeded' | 'mirrored'> {
+  async connected(snap: { config: DeskfishConfig; configSaved?: boolean }): Promise<'seeded' | 'mirrored' | 'merged'> {
     this.last = snap.config;
     if (!snap.configSaved) {
       const seed = this.io.readSettings();
       await this.send(seed);
       await this.io.pushKey(seed);
+      this.agreed(seed);
       return 'seeded';
     }
-    await this.io.pushKey(snap.config);
-    await this.mirror(snap.config);
-    return 'mirrored';
+    const had = this.base;
+    const merge = mergeOnConnect(snap.config, this.io.readSettings(), had);
+    for (const k of merge.conflicts) this.io.log(`— ${SETTINGS_KEYS[k]} was changed in VS Code's settings while it was away and on the gateway too; the gateway's value is kept —`);
+    const pushed = Object.keys(merge.push).length > 0;
+    if (pushed) await this.send(merge.push);
+    // A pushed provider or base URL is followed by its key when the config event comes back.
+    if (!pushed || !('provider' in merge.push || 'baseUrl' in merge.push)) await this.io.pushKey(this.last ?? snap.config);
+    await this.mirror(this.last ?? snap.config, merge.write);
+    this.agreed({ ...(this.last ?? snap.config) });
+    return had ? 'merged' : 'mirrored';
   }
 
   /** A `config` event: the gateway changed (whoever asked). */
@@ -89,6 +134,12 @@ export class ConfigSync {
     if (keys && !keys.length) return;
     if (!prev || prev.provider !== cfg.provider || prev.baseUrl !== cfg.baseUrl) await this.io.pushKey(cfg);
     await this.mirror(cfg, keys);
+    this.agreed(cfg);
+  }
+
+  private agreed(cfg: DeskfishConfig): void {
+    this.base = cfg;
+    this.io.saveBase?.(cfg);
   }
 
   /** VS Code's settings changed; `affects(setting)` as `ConfigurationChangeEvent.affectsConfiguration`. */

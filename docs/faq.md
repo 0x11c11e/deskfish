@@ -128,8 +128,8 @@ Yes. Deskfish runs in a background process of its own, which VS Code starts and 
 running when VS Code is closed or reloaded: a task carries on, and the reopened sidebar shows the
 chat as it stands. The model's live context is lost only when that process restarts (the
 computer restarts, or Deskfish updates), and even then nothing is lost: every chat is saved as a
-transcript. After such a restart, the clock icon in the sidebar's title bar (or **Deskfish: Past Chats…**) lists
-past chats; open one to read it, or continue it in a new chat. The agent then gets up to the
+transcript. After such a restart, the clock icon in the sidebar's title bar (or **Deskfish: Past Chats…**) opens
+the history; click a chat to read it in place, and **Continue this chat** to pick it up. The agent then gets up to the
 latest 16,000 characters of that transcript as context, with no images: a fresh conversation
 with the old one as notes, not the old one resumed. Within a window, every new task continues
 the previous conversation.

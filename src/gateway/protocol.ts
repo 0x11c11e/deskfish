@@ -1,4 +1,4 @@
-import type { ReplayItem } from '../agent/chats';
+import type { ChatOutcome, ReplayItem } from '../agent/chats';
 import type { AgentEvent, AgentStatus } from '../agent/loop';
 import type { Schedule, When } from '../agent/schedule';
 import type { NewDownload } from '../desktop/files';
@@ -44,6 +44,8 @@ export interface ChatInfo {
   startedAt: string;
   firstTask: string;
   bytes: number;
+  /** How it ended (its last status line, or a knock after it); absent when it never finished. */
+  outcome?: ChatOutcome;
 }
 
 /** Files a client may read (and, the first two, write) through `memory.read` / `memory.write` and the read commands. */
@@ -130,8 +132,10 @@ export interface Commands {
   'playbook.read': [Record<string, never>, string];
   'chats.list': [Record<string, never>, ChatInfo[]];
   'chats.read': [{ name: string }, string];
-  /** Delete every past chat; returns how many there were. */
-  'chats.delete': [Record<string, never>, number];
+  /** A past chat to show in place: its row and its transcript as the chat renders it. */
+  'chats.open': [{ name: string }, { info: ChatInfo; items: ReplayItem[] }];
+  /** Delete one past chat by name, or every past chat without one; returns how many were deleted. */
+  'chats.delete': [{ name?: string }, number];
   /** Reopen a past chat in the sidebar; the next task continues it. */
   'chats.continue': [{ name: string }, null];
   export: [Record<string, never>, MemoryBundle];
@@ -225,7 +229,8 @@ const SPEC: { [K in CommandName]: Record<string, Field> } = {
   'playbook.read': NONE,
   'chats.list': NONE,
   'chats.read': { name: 'string' },
-  'chats.delete': NONE,
+  'chats.open': { name: 'string' },
+  'chats.delete': { name: 'string?' },
   'chats.continue': { name: 'string' },
   export: NONE,
   import: { bundle: 'object' },

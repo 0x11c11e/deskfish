@@ -19,6 +19,28 @@ export interface ChatSummary {
   bytes: number;
   /** Last write, for ordering chats that started in the same minute. */
   mtime: number;
+  /** How it ended, from the file's tail; undefined when it never reached an end (unfinished). */
+  outcome?: ChatOutcome;
+}
+
+/** How a past chat ended: its last status line, or a knock with no status after it. */
+export type ChatOutcome = 'done' | 'stopped' | 'error' | 'needs_user';
+
+/** The bytes of a transcript's end that `outcomeOf` reads (the status line is written after her last reply). */
+export const OUTCOME_TAIL = 2048;
+
+/**
+ * How a transcript ends, from its last few kilobytes: the last `_done — …_` / `_stopped — …_` /
+ * `_error — …_` line, or `needs_user` when a `> **Deskfish needs you:**` comes after it (or there is
+ * no status at all). Nothing of either: undefined, a chat that never finished.
+ */
+export function outcomeOf(tail: string): ChatOutcome | undefined {
+  let status: { kind: ChatOutcome; at: number } | undefined;
+  // The pattern parseTranscript uses (a status could run into a step line in the first format).
+  for (const m of tail.matchAll(/_(done|stopped|error)\b[^_\n]*_/g)) status = { kind: m[1] as ChatOutcome, at: m.index };
+  const knock = tail.lastIndexOf('> **Deskfish needs you:**');
+  if (knock >= 0 && (!status || knock > status.at)) return 'needs_user';
+  return status?.kind;
 }
 
 type Outcome = { ok: true; message: string } | { ok: false; error: string };
@@ -50,7 +72,8 @@ export class ChatStore {
         const head = readHead(file, 2000);
         const m = head.match(/^# Chat — (\d{4}-\d{2}-\d{2} \d{2}:\d{2})/);
         const task = head.match(/^## You[^\n]*\n+([^\n]+)/m);
-        return { file, name, startedAt: m?.[1] ?? '', firstTask: task?.[1]?.trim() ?? '', bytes: safeSize(file), mtime: safeMtime(file) };
+        const bytes = safeSize(file);
+        return { file, name, startedAt: m?.[1] ?? '', firstTask: task?.[1]?.trim() ?? '', bytes, mtime: safeMtime(file), outcome: outcomeOf(readTail(file, OUTCOME_TAIL, bytes)) };
       })
       .sort((a, b) => b.startedAt.localeCompare(a.startedAt) || b.mtime - a.mtime);
   }
@@ -92,6 +115,11 @@ export class ChatStore {
       out += piece;
     }
     return { ok: true, message: out.trimEnd() };
+  }
+
+  /** Delete one transcript by its file (the caller checked the name). */
+  delete(file: string): void {
+    fs.unlinkSync(file);
   }
 
   deleteAll(): number {
@@ -260,6 +288,20 @@ function readHead(file: string, bytes: number): string {
     const fd = fs.openSync(file, 'r');
     const buf = Buffer.alloc(bytes);
     const n = fs.readSync(fd, buf, 0, bytes, 0);
+    fs.closeSync(fd);
+    return buf.subarray(0, n).toString('utf8');
+  } catch {
+    return '';
+  }
+}
+
+/** The last `bytes` of a file (`size` when already known), without reading the rest. */
+function readTail(file: string, bytes: number, size: number): string {
+  try {
+    const fd = fs.openSync(file, 'r');
+    const from = Math.max(0, size - bytes);
+    const buf = Buffer.alloc(size - from);
+    const n = fs.readSync(fd, buf, 0, buf.length, from);
     fs.closeSync(fd);
     return buf.subarray(0, n).toString('utf8');
   } catch {

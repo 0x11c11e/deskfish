@@ -12,11 +12,13 @@ export async function activate(ctx: vscode.ExtensionContext): Promise<void> {
   const openDesktop = (opts?: { preserveFocus?: boolean }) => DesktopPanel.show(ctx, controller, output, opts);
   controller.setDesktopOpener(openDesktop);
 
+  const chat = new ChatViewProvider(ctx, controller, openDesktop);
+
   ctx.subscriptions.push(
     output,
     desktop,
     controller,
-    vscode.window.registerWebviewViewProvider(ChatViewProvider.viewType, new ChatViewProvider(ctx, controller, openDesktop), {
+    vscode.window.registerWebviewViewProvider(ChatViewProvider.viewType, chat, {
       webviewOptions: { retainContextWhenHidden: true },
     }),
     vscode.commands.registerCommand('deskfish.openDesktop', openDesktop),
@@ -39,11 +41,14 @@ export async function activate(ctx: vscode.ExtensionContext): Promise<void> {
     vscode.commands.registerCommand('deskfish.openJournal', () => controller.openJournal()),
     vscode.commands.registerCommand('deskfish.openPlaybook', () => controller.openPlaybook()),
     vscode.commands.registerCommand('deskfish.editCharter', () => controller.editCharter()),
-    vscode.commands.registerCommand('deskfish.pastChats', () => controller.pastChats()),
+    // Panels live in the chat view (gateway plan step 6B): these commands only open them.
+    vscode.commands.registerCommand('deskfish.pastChats', () => chat.openPanel('history')),
+    vscode.commands.registerCommand('deskfish.settings', () => chat.openPanel('settings')),
+    vscode.commands.registerCommand('deskfish.herFiles', () => chat.openPanel('files')),
     vscode.commands.registerCommand('deskfish.deletePastChats', () => controller.deletePastChats()),
     vscode.commands.registerCommand('deskfish.reflect', () => controller.reflect()),
-    vscode.commands.registerCommand('deskfish.scheduleTask', () => controller.scheduleTask()),
-    vscode.commands.registerCommand('deskfish.scheduledTasks', () => controller.scheduledTasks()),
+    vscode.commands.registerCommand('deskfish.scheduleTask', () => chat.openPanel('schedules')),
+    vscode.commands.registerCommand('deskfish.scheduledTasks', () => chat.openPanel('schedules')),
     vscode.commands.registerCommand('deskfish.exportMemory', () => controller.exportMemory()),
     vscode.commands.registerCommand('deskfish.importMemory', () => controller.importMemory()),
     vscode.commands.registerCommand('deskfish.showLog', () => output.show()),

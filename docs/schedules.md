@@ -12,10 +12,11 @@ free to do other work in the meantime.
 
 ## Creating one
 
-Run **Deskfish: Schedule a Task…** from the **…** menu of the chat or the command palette, or
-press **Schedules** in the title bar of the web page. Both ask the same things: when, what, how
-much she should decide on her own when it runs, and a budget for its runs (leave it empty for the
-setting). Write the task
+Open **Scheduled tasks**: **Deskfish: Scheduled Tasks…** in the chat's **…** menu or the command
+palette, or the calendar icon in the web page's title bar. It is the same panel inside the chat
+in both. Its form asks when, what, how much she should decide on her own when it runs, and a
+budget for its runs (leave it empty for the setting); **Add** saves it. Times are the local time
+of the computer Deskfish runs on. Write the task
 the way you would in the chat, and since nobody may be watching when it runs, be explicit about
 limits and what you want reported:
 
@@ -23,10 +24,9 @@ limits and what you want reported:
 > main changes with the date ranges and a link to each view. Do not change any settings; if
 > the dashboard asks you to log in again, knock and wait.
 
-**Deskfish: Scheduled Tasks…**, and the list at the top of the web page's **Schedules** dialog,
-show what is scheduled, with the next time, the fence when it is not the default and the last
-outcome, and let you run one now or remove it (on the page, **Remove** asks once more on the
-same button). Schedules are kept in a small file in the
+The list at the top of the panel shows what is scheduled, with the next time, the fence when it
+is not the default and the last outcome. **Run now** starts one (the panel closes so you watch it
+in the chat); **Remove** asks once more on the same button. Schedules are kept in a small file in the
 agent's storage, so they survive reloads, restarts and any number of shutdowns.
 
 ## What happens at the due time

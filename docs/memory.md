@@ -24,6 +24,15 @@ and, if you wrote one, your charter.
 Nothing is uploaded anywhere except, like the rest of the agent's instructions, to the model
 provider during a task.
 
+**Her files, in one place.** **Deskfish: Her Files…** in the chat's **…** menu (on the web page,
+the page icon in the title bar) opens a panel inside the chat with a tab for each: *Memory*,
+*Charter*, *Who she is* (with the line that says whether her signature still holds), *Journal*
+and *Playbooks*. Links in them are clickable. On the web page *Memory* and *Charter* can be
+edited right there and saved; in VS Code the tab shows the text and **Edit in VS Code** opens a
+real editor tab, as the commands below do. The last save wins, whichever window it came from.
+**Forget all facts** at the bottom of *Memory* asks once, with the count, before it empties the
+list. The commands below still open each file on its own.
+
 ## Facts
 
 The agent decides what to keep, following a short rule: a sentence or two per fact, only things
@@ -41,7 +50,8 @@ told to save it again shorter rather than drop it.
 **Editing and deleting.** **…** menu → **Edit Memories (facts)**. The file opens in a normal
 editor tab, one fact per line starting with `- `; change, delete or add lines and save. The next
 chat starts with the edited list. **Forget All Memories (facts)** empties the file after a
-confirmation. Neither touches the journal, the playbooks or the self file.
+confirmation (on the web page: *Her files* → *Memory* → **Forget all facts**). Neither touches
+the journal, the playbooks or the self file.
 
 ## Past chats
 
@@ -50,18 +60,29 @@ folder: your messages, the agent's replies, the small memory lines, one line of 
 step, hand-overs, and how it ended. Images are never stored. **New chat** no longer throws the
 work away; it closes the transcript and starts a new one.
 
-The **clock icon** in the sidebar's title bar (or **Deskfish: Past Chats…**) lists them, newest
-first, each named by its first task. Pick one and it comes back into the sidebar the way it
-looked: your messages, the agent's replies, the action groups, the memory lines, the
-hand-over cards. Type below it and the agent continues that chat: the transcript is handed to
-it along with your message, images left out. It is a fresh conversation with the old one as
-context, not the same conversation resumed; that is the honest version, since screenshots are
-dropped as a task runs anyway. The same list can also open the raw transcript in an editor tab.
+The **clock icon** in the sidebar's title bar (or **Deskfish: Past Chats…**; on the web page, the
+clock icon in its title bar) opens the history inside the chat: newest first, grouped under
+*Today*, *Yesterday* and the date, each row with the chat's first task, the time it started and
+how it ended (*Done*, *Stopped*, *Error*, *Needed you*, or *Unfinished*). Type in the box at the
+top to narrow the list by title. The chat you are in is not listed until you start a new one.
+
+**One click opens a chat in place**, the way it looked: your messages, the agent's replies, the
+action groups, the memory lines, the hand-over cards, with a slim bar above it. **Back** returns
+to the current chat, including a task that kept running while you read. **Continue this chat**
+brings it back as the current one: the transcript is handed to the agent with your next message,
+images left out. It is a fresh conversation with the old one as context, not the same
+conversation resumed; that is the honest version, since screenshots are dropped as a task runs
+anyway. While a task runs you can open and read past chats, but Continue waits until it ends
+(continuing starts a new chat, which would stop it).
+
+The trash icon on a row deletes that chat after asking once on the row; **Delete all past
+chats** at the bottom of the list removes every one. The transcript files themselves stay
+plain markdown in the `chats` folder of the data folder, for anyone who wants them.
 
 The agent's **recall** searches past chats as well as its journal, so "what did I find last
 time about the ad traffic" comes back with the actual lines. Transcripts contain whatever the
 agent read on screen, so they live only in that folder, go into the export, and can be removed
-in one go with **Delete Past Chats** in the **…** menu.
+in one go with **Delete Past Chats** in the **…** menu or at the bottom of the history.
 
 ## Playbooks
 

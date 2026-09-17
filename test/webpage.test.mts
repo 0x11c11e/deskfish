@@ -83,7 +83,11 @@ try {
   ok(res.status === 200 && res.headers.get('content-type')?.startsWith('text/html') && res.headers.get('cache-control') === 'no-store', 'a link with the token: 200, HTML, not cached');
   ok(!page.includes(TOKEN) && !page.includes(dataDir), 'the token and the data folder are not in the page');
   ok(page.includes('.deskfishHost = host') && page.includes('id="newChat"') && page.includes('id="modelDialog"') && page.includes('id="keyDialog"'), 'the shim is inlined, with the page\'s title bar and dialogs');
-  ok(page.includes('id="settings"') && page.includes('id="schedules"') && page.includes('id="settingsDialog"') && page.includes('id="schedulesDialog"') && page.includes('openSettings') && page.includes('openSchedules'), 'the Settings and Schedules buttons and dialogs are in the page, wired by the inlined shim');
+  const bar = page.slice(page.indexOf('<header id="bar">'), page.indexOf('</header>', page.indexOf('<header id="bar">')));
+  ok(['history', 'schedules', 'settings', 'files', 'newChat'].every((id) => bar.includes(`<button id="${id}"`)) && (bar.match(/<button id="/g) ?? []).length === 6 && bar.includes('id="menuBtn"'), 'the title bar: History, Schedules, Settings, Her files, New chat and the … menu');
+  ok(['reflect', 'export', 'import', 'deleteChats', 'log', 'docs'].every((m) => bar.includes(`data-menu="${m}"`)) && page.includes('id="confirmDialog"') && page.includes('openPanel') && page.includes('importMemory'), 'the … menu\'s six items and the page\'s confirm, wired by the inlined shim');
+  const outside = page.replace(/srcdoc="[^"]*"/g, '');
+  ok(!/settingsDialog|schedulesDialog|dialog\.sheet|id="scheduleList"/.test(outside) && (outside.match(/<dialog id="/g) ?? []).length === 4, 'the page has no settings or schedules dialog of its own any more (model, key, confirm, log)');
   ok(!/<form[^>]*>(?:(?!<\/form>)[\s\S])*type="password"/.test(page.replace(/srcdoc="[^"]*"/g, '')) && !/<script\b[^>]*\bsrc=/.test(page), 'no password field inside a form (the browser would offer to keep it as a login), no script source');
   const frames = [...page.matchAll(/<iframe id="(chat|desktop)" title="[^"]*" srcdoc="([^"]*)"><\/iframe>/g)];
   ok(frames.length === 2 && frames[0][1] === 'chat' && frames[1][1] === 'desktop', `two views as srcdoc frames, the attribute intact (${frames.map((f) => f[1]).join(', ')})`);
@@ -95,6 +99,7 @@ try {
   ok(deskDoc.includes(deskJs.replace(/<\/(script)/gi, '<\\/$1')) && deskDoc.length > 300_000, `the Desktop bundle with noVNC, whole (${deskJs.length} chars)`);
   ok(!chatDoc.includes('sourceMappingURL') && !deskDoc.includes('sourceMappingURL'), 'no source map comments (they would ask for a URL without the token)');
   ok(chatDoc.includes(chatBody('web')) && chatDoc.includes(fs.readFileSync(path.join(ROOT, WEB_FILES.chatCss), 'utf8')), 'the chat body and stylesheet, the same source as VS Code');
+  ok(['panel-history', 'panel-settings', 'panel-schedules', 'panel-files', 'pastBar', 'settingsFields', 'schedKind'].every((id) => chatDoc.includes(`id="${id}"`)) && chatBody('vscode').includes('id="panel-settings"'), 'the four panels and the past-chat bar live in the chat body, for both hosts');
   ok(deskDoc.includes(desktopBody('web')) && desktopBody('web').indexOf('id="stage"') < desktopBody('web').indexOf('id="toolbar"') && desktopBody('vscode').indexOf('id="toolbar"') < desktopBody('vscode').indexOf('id="stage"'), 'the Desktop body: status line and Take over under the screen on the web, above it in VS Code');
   ok(chatDoc.includes('parent.deskfishHost.api("chat")') && deskDoc.includes('parent.deskfishHost.api("desktop")'), 'each view gets acquireVsCodeApi from the page');
   const scripts = [page.replace(/srcdoc="[^"]*"/g, ''), chatDoc, deskDoc].flatMap((d) => [...d.matchAll(/<script\b([^>]*)>/g)].map((m) => m[1]));

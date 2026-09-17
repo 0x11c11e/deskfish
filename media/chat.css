@@ -1053,6 +1053,504 @@ textarea:focus {
   cursor: default;
 }
 
+/* ---------- links in her replies and her files ---------- */
+
+.msg a,
+.doc a {
+  color: var(--vscode-textLink-foreground);
+  text-decoration: none;
+  overflow-wrap: anywhere;
+}
+
+.msg a:hover,
+.doc a:hover {
+  text-decoration: underline;
+}
+
+/* ---------- a past chat shown in place: the slim bar over it ---------- */
+
+#pastBar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+  padding: 6px 12px;
+  font-size: 12px;
+  border-bottom: 1px solid var(--border);
+  background: color-mix(in srgb, var(--vscode-focusBorder) 9%, transparent);
+}
+
+#pastLine {
+  flex: 1 1 140px;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-weight: 600;
+}
+
+.pastactions {
+  display: flex;
+  gap: 4px;
+}
+
+textarea:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+/* ---------- panels: over the log and the composer, inside the view ---------- */
+
+body.panel-open #log,
+body.panel-open #composer,
+body.panel-open #pastBar {
+  display: none;
+}
+
+.panel {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.panel-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 6px 7px 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.panel-head h2 {
+  flex: 1;
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.panel-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 6px;
+  color: var(--vscode-descriptionForeground);
+}
+
+.panel-close:hover {
+  color: var(--vscode-foreground);
+  background: var(--hover);
+}
+
+.panel-tools {
+  padding: 8px 12px 2px;
+}
+
+.panel-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 4px 12px 14px;
+}
+
+.panel-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px 8px;
+  padding: 8px 12px 10px;
+  border-top: 1px solid var(--border);
+}
+
+.panel-foot .note {
+  flex: 1 1 140px;
+  min-width: 0;
+  margin: 0;
+}
+
+.note {
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: var(--vscode-descriptionForeground);
+}
+
+.note:empty {
+  display: none;
+}
+
+.note.error,
+.hint.error {
+  color: var(--danger);
+}
+
+.note.ok {
+  color: var(--ok);
+}
+
+.panel .hint {
+  margin: 4px 0 0;
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: var(--vscode-descriptionForeground);
+}
+
+.panel label {
+  display: block;
+  margin: 12px 0 4px;
+  font-size: 12px;
+  color: var(--vscode-descriptionForeground);
+}
+
+.panel input:not([type='checkbox']),
+.panel select {
+  width: 100%;
+  padding: 5px 7px;
+  font: inherit;
+  font-size: 12.5px;
+  color: var(--vscode-input-foreground);
+  background: var(--vscode-input-background);
+  border: 1px solid var(--vscode-input-border, var(--border));
+  border-radius: 6px;
+}
+
+.panel input:focus,
+.panel select:focus {
+  outline: 1px solid var(--vscode-focusBorder);
+  border-color: var(--vscode-focusBorder);
+}
+
+.panel h3 {
+  margin: 18px 0 0;
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+.btn {
+  padding: 4px 12px;
+  font-size: 12px;
+  line-height: 1.4;
+  white-space: nowrap;
+  border-radius: 6px;
+  color: var(--vscode-button-secondaryForeground);
+  background: var(--vscode-button-secondaryBackground);
+}
+
+.btn:hover {
+  background: var(--vscode-button-secondaryHoverBackground);
+}
+
+.btn.primary {
+  font-weight: 600;
+  color: var(--vscode-button-foreground);
+  background: var(--vscode-button-background);
+}
+
+.btn.primary:hover {
+  background: var(--vscode-button-hoverBackground);
+}
+
+.btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.btn.confirm,
+.chat-delete.confirm {
+  color: #fff;
+  background: var(--danger);
+}
+
+.textbtn {
+  padding: 2px 0;
+  font-size: 12px;
+  color: var(--vscode-descriptionForeground);
+}
+
+.textbtn.danger:hover,
+.textbtn.confirm {
+  color: var(--danger);
+}
+
+.textbtn.confirm {
+  font-weight: 600;
+}
+
+/* Past chats */
+
+.panel .day {
+  margin: 14px 0 4px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  color: var(--vscode-descriptionForeground);
+}
+
+.chat-row {
+  display: flex;
+  align-items: stretch;
+  border-radius: 6px;
+}
+
+.chat-row:hover {
+  background: var(--hover);
+}
+
+.chat-open {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px 8px;
+  text-align: left;
+  border-radius: 6px;
+}
+
+.chat-title {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: 12.5px;
+}
+
+.chat-meta {
+  display: flex;
+  gap: 8px;
+  font-size: 11px;
+  color: var(--vscode-descriptionForeground);
+}
+
+.outcome::before {
+  content: '';
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin: 0 5px 1px 0;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0.8;
+}
+
+.outcome.done {
+  color: var(--ok);
+}
+
+.outcome.error {
+  color: var(--danger);
+}
+
+.outcome.needs_user {
+  color: var(--warn);
+}
+
+.chat-delete {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 30px;
+  margin: 3px 3px 3px 0;
+  padding: 0 6px;
+  border-radius: 6px;
+  font-size: 11px;
+  color: var(--vscode-descriptionForeground);
+  opacity: 0;
+}
+
+.chat-row:hover .chat-delete,
+.chat-delete:focus-visible,
+.chat-delete.confirm {
+  opacity: 1;
+}
+
+.chat-delete:hover:not(.confirm) {
+  color: var(--danger);
+  background: var(--hover);
+}
+
+@media (hover: none) {
+  .chat-delete {
+    opacity: 0.75;
+  }
+}
+
+.empty-line {
+  margin: 20px 4px;
+  font-size: 12px;
+  text-align: center;
+  color: var(--vscode-descriptionForeground);
+}
+
+/* Settings */
+
+.field {
+  margin-top: 14px;
+}
+
+.panel .field > label {
+  margin: 0 0 4px;
+  font-weight: 600;
+  color: var(--vscode-foreground);
+}
+
+.field .setting-id {
+  display: block;
+  font-weight: 400;
+  font-family: var(--vscode-editor-font-family, ui-monospace, monospace);
+  font-size: 10.5px;
+  color: var(--vscode-descriptionForeground);
+  overflow-wrap: anywhere;
+}
+
+.panel .field .check {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 0;
+  font-weight: 600;
+  color: var(--vscode-foreground);
+}
+
+.field .check input {
+  margin: 2px 0 0;
+}
+
+.field.refused input,
+.field.refused select {
+  border-color: var(--danger);
+}
+
+details.group {
+  margin-top: 18px;
+}
+
+details.group > summary {
+  cursor: pointer;
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+/* Scheduled tasks */
+
+#scheduleList {
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+#scheduleList li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+#scheduleList .line {
+  flex: 1 1 100%;
+  font-size: 12px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+@media (min-width: 520px) {
+  #scheduleList li {
+    flex-wrap: nowrap;
+  }
+
+  #scheduleList .line {
+    flex: 1 1 auto;
+  }
+}
+
+.row2 {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 10px;
+}
+
+.row2 > div {
+  flex: 1 1 140px;
+  min-width: 0;
+}
+
+/* Her files */
+
+.tabs {
+  display: flex;
+  gap: 2px;
+  padding: 4px 8px 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+  border-bottom: 1px solid var(--border);
+}
+
+.tabs button {
+  padding: 6px 8px 5px;
+  font-size: 12px;
+  white-space: nowrap;
+  color: var(--vscode-descriptionForeground);
+  border-bottom: 2px solid transparent;
+}
+
+.tabs button:hover {
+  color: var(--vscode-foreground);
+}
+
+.tabs button[aria-selected='true'] {
+  color: var(--vscode-foreground);
+  border-bottom-color: var(--vscode-focusBorder);
+}
+
+.doc {
+  margin-top: 10px;
+  font-size: 12.5px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.doc strong {
+  font-weight: 600;
+}
+
+.doc code {
+  font-family: var(--vscode-editor-font-family, ui-monospace, monospace);
+  font-size: 0.92em;
+  background: rgba(128, 128, 128, 0.16);
+  padding: 0 3px;
+  border-radius: 3px;
+}
+
+.signature {
+  margin: 10px 0 0;
+  padding: 6px 9px;
+  font-size: 11.5px;
+  line-height: 1.45;
+  border-left: 2px solid var(--ok);
+  border-radius: 0 6px 6px 0;
+  background: color-mix(in srgb, var(--ok) 8%, transparent);
+}
+
+.signature.tampered {
+  color: var(--danger);
+  border-left-color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 8%, transparent);
+}
+
+textarea.editor {
+  display: block;
+  margin-top: 10px;
+  min-height: 55vh;
+  font-family: var(--vscode-editor-font-family, ui-monospace, monospace);
+  font-size: 12px;
+}
+
 [hidden] {
   display: none !important;
 }

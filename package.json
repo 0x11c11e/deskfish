@@ -171,6 +171,14 @@
         "icon": "$(history)"
       },
       {
+        "command": "deskfish.settings",
+        "title": "Deskfish: Settings…"
+      },
+      {
+        "command": "deskfish.herFiles",
+        "title": "Deskfish: Her Files…"
+      },
+      {
         "command": "deskfish.deletePastChats",
         "title": "Deskfish: Delete Past Chats"
       },
@@ -227,14 +235,19 @@
           "group": "1_memory@5"
         },
         {
-          "command": "deskfish.scheduleTask",
+          "command": "deskfish.scheduledTasks",
           "when": "view == deskfish.chat",
           "group": "1a_schedule@1"
         },
         {
-          "command": "deskfish.scheduledTasks",
+          "command": "deskfish.herFiles",
           "when": "view == deskfish.chat",
-          "group": "1a_schedule@2"
+          "group": "1_memory@0"
+        },
+        {
+          "command": "deskfish.settings",
+          "when": "view == deskfish.chat",
+          "group": "0_model@3"
         },
         {
           "command": "deskfish.exportMemory",

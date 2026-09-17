@@ -1,7 +1,8 @@
 import * as vscode from 'vscode';
 import type { AgentController } from '../controller';
 import type { Snapshot } from '../gateway/protocol';
-import type { FromChat, ToChat } from '../webview/protocol';
+import { answerAsk, snapshotChat } from '../webview/bridge';
+import type { FromChat, PanelName, ToChat } from '../webview/protocol';
 import { chatBody } from './bodies';
 import { nonce } from './html';
 
@@ -10,6 +11,10 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
   static readonly viewType = 'deskfish.chat';
   private view?: vscode.WebviewView;
   private autoStarted = false;
+  /** The view's script has said `ready` (messages posted before that are lost). */
+  private viewReady = false;
+  /** A panel a command asked for before the view was ready. */
+  private pendingPanel?: PanelName;
 
   constructor(
     private readonly ctx: vscode.ExtensionContext,
@@ -62,17 +67,48 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       desktop.stopPolling();
       subs.forEach((s) => s.dispose());
       this.view = undefined;
+      this.viewReady = false;
     });
+  }
+
+  /** A command asked for a panel: show the sidebar, then the panel inside the chat view. */
+  async openPanel(panel: PanelName): Promise<void> {
+    this.pendingPanel = panel;
+    await vscode.commands.executeCommand(`${ChatViewProvider.viewType}.focus`);
+    this.flushPanel();
+  }
+
+  private flushPanel(): void {
+    if (!this.view || !this.viewReady || !this.pendingPanel) return;
+    this.send({ type: 'open', panel: this.pendingPanel });
+    this.pendingPanel = undefined;
   }
 
   private async onMessage(m: FromChat): Promise<void> {
     const desktop = this.controller.desktop;
     switch (m.type) {
       case 'ready':
+        this.viewReady = true;
         await this.sendConfig();
         // A window opened mid-task shows the task as a window that watched it from the start.
         await this.controller.client.refreshSnapshot((snap) => this.render(snap)).catch(() => undefined);
+        this.flushPanel();
         await this.autoStart();
+        break;
+      case 'ask':
+        // The panels' gateway commands; only those `VIEW_COMMANDS` names reach it. A snapshot is answered
+        // inside the frame that carried it, so it lands before the events after it.
+        await answerAsk(
+          m,
+          (cmd, args, respond) =>
+            cmd === 'snapshot'
+              ? this.controller.client.refreshSnapshot((snap) => respond({ type: 'answer', id: m.id, ok: true, result: snap }))
+              : this.controller.client.call(cmd, args as never),
+          (a) => this.send(a),
+        );
+        break;
+      case 'openFile':
+        await this.controller.openFile(m.file === 'charter.md' ? 'charter.md' : 'memory.md');
         break;
       case 'refresh':
         await desktop.refresh();
@@ -156,13 +192,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
 
   /** The current chat, its usage and step, and the running status, from a gateway snapshot. */
   private render(s: Snapshot): void {
-    this.send({ type: 'newChat' });
-    if (s.chat.length) this.send({ type: 'replay', title: '', items: s.chat, live: true });
-    if (s.usage) this.send({ type: 'event', event: s.usage });
-    if (s.screenshot) this.send({ type: 'event', event: { type: 'screenshot', step: s.screenshot.step, jpegBase64: '', width: s.screenshot.width, height: s.screenshot.height } });
-    // A finished run's status line is already in the transcript; only a live one is re-announced.
-    if (s.status === 'running' || s.status === 'paused') this.send({ type: 'event', event: { type: 'status', status: s.status, message: s.statusMessage, ...(s.screenFree ? { screenFree: true } : {}) } });
-    this.send({ type: 'desktop', status: s.desktop.status });
+    for (const m of snapshotChat(s)) this.send(m);
   }
 
   private async sendConfig(): Promise<void> {

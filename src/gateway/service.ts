@@ -644,11 +644,18 @@ export class DeskfishService extends EventEmitter {
     this.emitEvent({ type: 'status', status: 'idle', message: `Past chat from ${startedAt} — type below to continue it` });
   }
 
-  /** Delete every past chat; returns how many there were. */
+  /** Delete every past chat (not the current one, which is not a past chat yet); returns how many were deleted. */
   deleteAllChats(): number {
-    const n = this.chats.list().length;
-    this.transcript = undefined;
-    this.chats.deleteAll();
+    let n = 0;
+    for (const c of this.chats.list()) {
+      if (c.file === this.transcript?.file) continue;
+      try {
+        this.chats.delete(c.file);
+        n++;
+      } catch {
+        /* already gone */
+      }
+    }
     this.log(`— ${n} past chats deleted by the user —`);
     return n;
   }
@@ -1041,8 +1048,12 @@ export class DeskfishService extends EventEmitter {
     this.log(`— ${file} edited by the user —`);
   }
 
+  /** Past chats, newest first. The current chat is not one of them until New chat files it. */
   chatList(): ChatInfo[] {
-    return this.chats.list().map((c) => ({ name: c.name, startedAt: c.startedAt, firstTask: c.firstTask, bytes: c.bytes }));
+    return this.chats
+      .list()
+      .filter((c) => c.file !== this.transcript?.file)
+      .map((c) => ({ name: c.name, startedAt: c.startedAt, firstTask: c.firstTask, bytes: c.bytes, ...(c.outcome ? { outcome: c.outcome } : {}) }));
   }
 
   /** A past chat by its file name (never a path). */
@@ -1051,6 +1062,21 @@ export class DeskfishService extends EventEmitter {
     const chat = this.chats.list().find((c) => c.name === name);
     if (!chat) throw new Error('no such chat');
     return chat;
+  }
+
+  /** A past chat to show in place (read-only): its row and its transcript as chat items. */
+  openPastChat(name: string): { info: ChatInfo; items: ReplayItem[] } {
+    const c = this.chatByName(name);
+    return { info: { name: c.name, startedAt: c.startedAt, firstTask: c.firstTask, bytes: c.bytes, ...(c.outcome ? { outcome: c.outcome } : {}) }, items: parseTranscript(this.chats.read(c.file)) };
+  }
+
+  /** Delete one past chat (not the one still being written); returns 1. */
+  deleteChat(name: string): number {
+    const c = this.chatByName(name);
+    if (c.file === this.transcript?.file) throw new Error('that chat is still open; start a new chat first');
+    this.chats.delete(c.file);
+    this.log(`— a past chat deleted by the user (${c.startedAt}) —`);
+    return 1;
   }
 
   /** Emit to every listener; one listener that throws does not keep the others from hearing it. */

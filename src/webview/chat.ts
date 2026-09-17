@@ -3,6 +3,12 @@ import { describeAction } from '../computer/types';
 import { costUsd, priceForConfig } from '../agent/pricing';
 import { formatSize } from '../desktop/files';
 import type { DesktopStatus } from '../desktop/supervisor';
+import type { ReplayItem } from '../agent/chats';
+import type { ChatInfo, CommandArgs, CommandResult, Snapshot } from '../gateway/protocol';
+import { snapshotChat, type ViewCommand } from './bridge';
+import { pastChatLine } from './forms';
+import { mdLite } from './markdown';
+import { createPanels } from './panels';
 import type { DesktopFile, FromChat, ToChat, UiConfig } from './protocol';
 
 /**
@@ -38,6 +44,24 @@ const keyText = $<HTMLSpanElement>('keyText');
 const keyBtn = $<HTMLButtonElement>('keyBtn');
 const attachBtn = $<HTMLButtonElement>('attach');
 const attachmentsEl = $<HTMLDivElement>('attachments');
+const pastBar = $<HTMLDivElement>('pastBar');
+const pastLine = $<HTMLSpanElement>('pastLine');
+const pastContinue = $<HTMLButtonElement>('pastContinue');
+const pastBack = $<HTMLButtonElement>('pastBack');
+const host: 'vscode' | 'web' = document.body.classList.contains('web') ? 'web' : 'vscode';
+
+/* ---------- the bridge: gateway commands for the panels, answered by the host ---------- */
+
+let nextAsk = 1;
+const asks = new Map<number, { resolve: (v: any) => void; reject: (e: Error) => void }>();
+
+function ask<K extends ViewCommand>(cmd: K, args?: CommandArgs<K>): Promise<CommandResult<K>> {
+  const id = nextAsk++;
+  return new Promise((resolve, reject) => {
+    asks.set(id, { resolve, reject });
+    post({ type: 'ask', id, cmd, ...(args ? { args: args as Record<string, unknown> } : {}) });
+  });
+}
 
 let status: AgentStatus = 'idle';
 let statusMessage = '';
@@ -362,22 +386,6 @@ function copyButton(text: string): HTMLButtonElement {
   return btn;
 }
 
-/**
- * Minimal markdown for assistant bubbles: **bold**, `code`, and # headings.
- * Escapes HTML first, then injects only <strong>/<code> around already-escaped text,
- * so model output can never smuggle markup into the webview. Newlines survive via
- * the bubble's white-space: pre-wrap.
- */
-function mdLite(text: string): string {
-  return text
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/`([^`\n]+)`/g, '<code>$1</code>')
-    .replace(/\*\*([^\n]+?)\*\*/g, '<strong>$1</strong>')
-    .replace(/^#{1,4} (.+)$/gm, '<strong>$1</strong>');
-}
-
 /* ---------- header: desktop / model / API key rows ---------- */
 
 const hostOf = (url: string): string => {
@@ -592,6 +600,7 @@ function setStatus(s: AgentStatus, message?: string): void {
   pauseBtn.hidden = s !== 'running';
   resumeBtn.hidden = s !== 'paused';
   renderStatusLine();
+  renderComposer();
 }
 
 function needsUserCard(reason: string, jpegBase64: string): HTMLDivElement {
@@ -891,8 +900,8 @@ stopBtn.addEventListener('click', () => post({ type: 'stop' }));
 pauseBtn.addEventListener('click', () => post({ type: 'pause' }));
 resumeBtn.addEventListener('click', () => post({ type: 'resume' }));
 
-/** New chat: clear the log and counters and show the empty state. The extension already dropped the model's conversation. */
-function resetChat(): void {
+/** Empty the log (the empty state and the "Newer messages" pill stay). */
+function clearLog(): void {
   while (log.children.length > 1) log.removeChild(log.children[1]);
   log.appendChild(jump);
   pinned = true;
@@ -901,6 +910,13 @@ function resetChat(): void {
   reflection = undefined;
   if (standby) clearInterval(standby.timer);
   standby = undefined;
+  downloadCards.clear();
+}
+
+/** New chat: clear the log and counters and show the empty state. The extension already dropped the model's conversation. */
+function resetChat(): void {
+  exitPast();
+  clearLog();
   usage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cacheWrite1h: 0, reportedUsd: 0 };
   renderUsage();
   pending.length = 0;
@@ -910,8 +926,181 @@ function resetChat(): void {
   taskEl.focus();
 }
 
-window.addEventListener('message', (ev: MessageEvent<ToChat>) => {
-  const m = ev.data;
+/**
+ * A transcript rendered as it looked. Bubbles reset the action group like live events do. A
+ * reflection is only recognisable at its end ("Reflection finished"), so what follows a status line
+ * with no user message in between is kept aside and folded when that end comes. `title`: a chat
+ * continued from the past (its line says so); empty for the live chat after a (re)connect and for a
+ * past chat shown in place.
+ */
+function renderReplay(items: ReplayItem[], title: string): void {
+  pinned = true;
+  // A past chat, rendered as it was. Bubbles reset the action group like live events do.
+  // A reflection is only recognisable at its end ("Reflection finished"), so what follows a
+  // status line with no user message in between is kept aside and folded when that end comes.
+  let since: { els: HTMLElement[]; card: ReflectionCard } | undefined;
+  const keep = (el: HTMLElement) => {
+    append(el);
+    since?.els.push(el);
+  };
+  for (const it of items) {
+    switch (it.kind) {
+      case 'user':
+        since = undefined;
+        append(bubble('user', it.text, it.text));
+        break;
+      case 'assistant':
+        keep(bubble('assistant', it.text));
+        if (since) since.card.lastText = it.text;
+        break;
+      case 'note': {
+        if (/^📒/.test(it.text)) {
+          const el = document.createElement('details');
+          el.className = 'ledger';
+          const summary = document.createElement('summary');
+          const [head, ...rest] = it.text.split(': ');
+          summary.textContent = head;
+          const body = document.createElement('div');
+          body.textContent = rest.join(': ').split(' / ').join('\n');
+          el.append(summary, body);
+          keep(el);
+        } else if (/^⏳/.test(it.text)) {
+          const el = bubble('standby ended', it.text);
+          keep(el);
+        } else if (/^(Her answer changed|She disagrees)/i.test(it.text)) {
+          keep(bubble('memory self', it.text));
+        } else {
+          const t = it.text;
+          const failed = /not done:|^Not (remembered|forgotten)|^Could not|^Playbook not saved/i.test(t);
+          const kind: MemoryKind = /^Remembered/i.test(t) ? 'fact' : /^Forg/i.test(t) ? 'forgotten' : /playbook/i.test(t) ? 'playbook' : /^Noted\. You only rewrite/i.test(t) ? 'proposal' : /^(Revised|Restored|Removed|Moved)/i.test(t) ? 'self' : 'note';
+          appendMemory(t, kind, failed, kind === 'self' || kind === 'proposal' || kind === 'note');
+          if (since && memoryGroup && !since.els.includes(memoryGroup.el)) since.els.push(memoryGroup.el);
+        }
+        if (since) {
+          const c = since.card.counts;
+          if (/^(Remembered|Forgot)/i.test(it.text)) c.facts++;
+          else if (/playbook/i.test(it.text) && !/not done/i.test(it.text)) c.playbook++;
+          else if (/^(Revised|Restored|Removed ".*" from who you are)/i.test(it.text)) c.self++;
+          else if (/^Noted/i.test(it.text)) c.notes++;
+          else if (/^Her answer changed/i.test(it.text)) since.card.changed = true;
+        }
+        break;
+      }
+      case 'needs_user':
+        keep(needsUserCard(it.text, ''));
+        break;
+      case 'status':
+        if (since && /Reflection finished/i.test(it.text)) {
+          const card = since.card;
+          append(card.el);
+          for (const el of since.els) card.body.appendChild(el);
+          card.summary.textContent = reflectionSummary(card, 'done');
+          card.el.classList.toggle('changed', card.changed);
+          since = undefined;
+          break;
+        }
+        append(bubble(`status ${it.text.split(/\s|—/)[0]}`, it.text));
+        since = { els: [], card: reflectionCard() };
+        actionGroup = undefined;
+        break;
+      case 'actions':
+        for (const a of it.actions) {
+          const el = document.createElement('div');
+          el.className = `action${a.failed ? ' failed' : ''}`;
+          el.textContent = a.text;
+          el.title = `step ${it.step}: ${a.text}`;
+          appendAction(el, a.failed);
+          if (since && actionGroup && !since.els.includes(actionGroup.el)) since.els.push(actionGroup.el);
+        }
+        break;
+    }
+  }
+  if (title) append(bubble('memory', `${title}. She has it as context for your next message.`));
+  if (title || items.length) empty.hidden = true;
+}
+
+/* ---------- a past chat, shown in place of the live one ---------- */
+
+/** The past chat on screen, or undefined for the live chat. While one is shown, the live chat's lines are not drawn; Back rebuilds it. */
+let past: ChatInfo | undefined;
+
+function showPast(info: ChatInfo, items: ReplayItem[]): void {
+  past = info;
+  clearLog();
+  renderReplay(items, '');
+  // A knock in a past chat is history: its Resume and Open desktop would act on the live task.
+  for (const el of Array.from(log.querySelectorAll('.needs-user .actions, .needs-user .hint'))) el.remove();
+  if (!items.length) empty.hidden = false;
+  log.scrollTop = 0;
+  pinned = false;
+  jump.hidden = true;
+  pastLine.textContent = pastChatLine(info, new Date());
+  pastLine.title = info.firstTask;
+  pastBar.hidden = false;
+  renderComposer();
+}
+
+function exitPast(): void {
+  if (!past) return;
+  past = undefined;
+  pastBar.hidden = true;
+  renderComposer();
+}
+
+/** Back: the live chat again, rebuilt from a fresh snapshot as a reconnect does. */
+async function backToLive(): Promise<void> {
+  exitPast();
+  try {
+    const snap: Snapshot = await ask('snapshot');
+    for (const m of snapshotChat(snap)) receive(m);
+  } catch (err) {
+    append(bubble('memory', `Could not reach Deskfish to show the current chat: ${err instanceof Error ? err.message : String(err)}`), true);
+  }
+}
+
+pastBack.addEventListener('click', () => void backToLive());
+pastContinue.addEventListener('click', async () => {
+  const info = past;
+  if (!info || status === 'running' || status === 'paused') return;
+  // The gateway answers with reset and the transcript as a continued chat; they must be drawn, not skipped.
+  exitPast();
+  try {
+    await ask('chats.continue', { name: info.name });
+    taskEl.focus();
+  } catch (err) {
+    await backToLive();
+    append(bubble('memory', `Could not continue that chat: ${err instanceof Error ? err.message : String(err)}`), true);
+  }
+});
+
+/** The composer while a past chat is shown: nothing to send until it is continued. */
+function renderComposer(): void {
+  const busy = status === 'running' || status === 'paused';
+  taskEl.disabled = !!past;
+  attachBtn.disabled = !!past;
+  runBtn.disabled = !!past;
+  taskEl.placeholder = past ? 'This is a past chat. Continue it to reply, or go Back.' : 'Tell the bot what to do…  (Enter to send, Shift+Enter for a new line)';
+  pastContinue.disabled = busy;
+  pastContinue.title = busy ? 'She is working on the current chat; wait for it to end or stop it first' : 'Pick this chat up again: it becomes her context for your next message';
+}
+
+const panels = createPanels({
+  host,
+  ask,
+  post,
+  showPast,
+  toggled(open) {
+    document.body.classList.toggle('panel-open', open);
+    if (!open && !past) taskEl.focus();
+  },
+});
+
+/** One message from the host. While a past chat is shown, the live chat's new lines are not drawn (Back rebuilds it). */
+function receive(m: ToChat): void {
+  if (past && (m.type === 'user' || m.type === 'notice' || m.type === 'download')) {
+    if (m.type !== 'download') panels.schedulesMayHaveChanged();
+    return;
+  }
   switch (m.type) {
     case 'config':
       renderConfig(m.config);
@@ -919,94 +1108,15 @@ window.addEventListener('message', (ev: MessageEvent<ToChat>) => {
     case 'desktop':
       renderDesktop(m.status);
       break;
-    case 'replay': {
-      pinned = true;
-      // A past chat, rendered as it was. Bubbles reset the action group like live events do.
-      // A reflection is only recognisable at its end ("Reflection finished"), so what follows a
-      // status line with no user message in between is kept aside and folded when that end comes.
-      let since: { els: HTMLElement[]; card: ReflectionCard } | undefined;
-      const keep = (el: HTMLElement) => {
-        append(el);
-        since?.els.push(el);
-      };
-      for (const it of m.items) {
-        switch (it.kind) {
-          case 'user':
-            since = undefined;
-            append(bubble('user', it.text, it.text));
-            break;
-          case 'assistant':
-            keep(bubble('assistant', it.text));
-            if (since) since.card.lastText = it.text;
-            break;
-          case 'note': {
-            if (/^📒/.test(it.text)) {
-              const el = document.createElement('details');
-              el.className = 'ledger';
-              const summary = document.createElement('summary');
-              const [head, ...rest] = it.text.split(': ');
-              summary.textContent = head;
-              const body = document.createElement('div');
-              body.textContent = rest.join(': ').split(' / ').join('\n');
-              el.append(summary, body);
-              keep(el);
-            } else if (/^⏳/.test(it.text)) {
-              const el = bubble('standby ended', it.text);
-              keep(el);
-            } else if (/^(Her answer changed|She disagrees)/i.test(it.text)) {
-              keep(bubble('memory self', it.text));
-            } else {
-              const t = it.text;
-              const failed = /not done:|^Not (remembered|forgotten)|^Could not|^Playbook not saved/i.test(t);
-              const kind: MemoryKind = /^Remembered/i.test(t) ? 'fact' : /^Forg/i.test(t) ? 'forgotten' : /playbook/i.test(t) ? 'playbook' : /^Noted\. You only rewrite/i.test(t) ? 'proposal' : /^(Revised|Restored|Removed|Moved)/i.test(t) ? 'self' : 'note';
-              appendMemory(t, kind, failed, kind === 'self' || kind === 'proposal' || kind === 'note');
-              if (since && memoryGroup && !since.els.includes(memoryGroup.el)) since.els.push(memoryGroup.el);
-            }
-            if (since) {
-              const c = since.card.counts;
-              if (/^(Remembered|Forgot)/i.test(it.text)) c.facts++;
-              else if (/playbook/i.test(it.text) && !/not done/i.test(it.text)) c.playbook++;
-              else if (/^(Revised|Restored|Removed ".*" from who you are)/i.test(it.text)) c.self++;
-              else if (/^Noted/i.test(it.text)) c.notes++;
-              else if (/^Her answer changed/i.test(it.text)) since.card.changed = true;
-            }
-            break;
-          }
-          case 'needs_user':
-            keep(needsUserCard(it.text, ''));
-            break;
-          case 'status':
-            if (since && /Reflection finished/i.test(it.text)) {
-              const card = since.card;
-              append(card.el);
-              for (const el of since.els) card.body.appendChild(el);
-              card.summary.textContent = reflectionSummary(card, 'done');
-              card.el.classList.toggle('changed', card.changed);
-              since = undefined;
-              break;
-            }
-            append(bubble(`status ${it.text.split(/\s|—/)[0]}`, it.text));
-            since = { els: [], card: reflectionCard() };
-            actionGroup = undefined;
-            break;
-          case 'actions':
-            for (const a of it.actions) {
-              const el = document.createElement('div');
-              el.className = `action${a.failed ? ' failed' : ''}`;
-              el.textContent = a.text;
-              el.title = `step ${it.step}: ${a.text}`;
-              appendAction(el, a.failed);
-              if (since && actionGroup && !since.els.includes(actionGroup.el)) since.els.push(actionGroup.el);
-            }
-            break;
-        }
-      }
-      if (!m.live) append(bubble('memory', `${m.title}. Type below to continue it, or press + for a new chat.`));
-      if (!m.live || m.items.length) empty.hidden = true;
+    case 'replay':
+      renderReplay(m.items, m.live ? '' : m.title);
       break;
-    }
     case 'event':
-      onEvent(m.event);
+      if (m.event.type === 'status' && (m.event.status === 'done' || m.event.status === 'stopped' || m.event.status === 'error')) panels.schedulesMayHaveChanged();
+      if (!past) onEvent(m.event);
+      // Behind a past chat only the status line and the counters follow the live one.
+      else if (m.event.type === 'status') setStatus(m.event.status, m.event.message);
+      else if (m.event.type === 'usage' || m.event.type === 'screenshot') onEvent(m.event);
       break;
     case 'newChat':
       resetChat();
@@ -1014,9 +1124,11 @@ window.addEventListener('message', (ev: MessageEvent<ToChat>) => {
     case 'user':
       pinned = true;
       append(bubble('user', m.text), true);
+      panels.schedulesMayHaveChanged();
       break;
     case 'notice':
       append(bubble('memory', m.text), true);
+      panels.schedulesMayHaveChanged();
       break;
     case 'attached':
       pending = [...pending, ...m.files];
@@ -1032,8 +1144,21 @@ window.addEventListener('message', (ev: MessageEvent<ToChat>) => {
     case 'saveFailed':
       onSaveFailed(m.path, m.error);
       break;
+    case 'answer': {
+      const pending = asks.get(m.id);
+      if (!pending) break;
+      asks.delete(m.id);
+      if (m.ok) pending.resolve(m.result);
+      else pending.reject(new Error(m.error));
+      break;
+    }
+    case 'open':
+      panels.open(m.panel);
+      break;
   }
-});
+}
+
+window.addEventListener('message', (ev: MessageEvent<ToChat>) => receive(ev.data));
 
 setStatus('idle');
 renderDesktop({ state: 'unknown' });
