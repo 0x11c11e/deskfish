@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
-import { DEFAULT_CONFIG as D, type ContainerCli, type DeskfishConfig, type ProviderName } from './gateway/config';
+import { DEFAULT_CONFIG as D, type DeskfishConfig } from './gateway/config';
+import { CONFIG_KEYS, SETTINGS_KEYS } from './gateway/settingsSchema';
 
 export type { ContainerCli, DeskfishConfig, ProviderName } from './gateway/config';
 export { vncUrlWithToken } from './gateway/config';
@@ -7,36 +8,22 @@ export { vncUrlWithToken } from './gateway/config';
 /** Key under which the LLM API key is kept in VS Code's SecretStorage (OS keychain). */
 export const API_KEY_SECRET = 'deskfish.apiKey';
 
-export function readConfig(): DeskfishConfig {
+/** Trimmed on read: a pasted name or workspace ID often carries a space. */
+const TRIMMED = new Set<keyof DeskfishConfig>(['anthropicWorkspaceId', 'userName']);
+
+/**
+ * VS Code's Deskfish settings as a config (the table in `settingsSchema.ts` names each setting).
+ * `effective`: what VS Code resolves (workspace over user); `user`: the user (Global) settings only,
+ * which is what the gateway's config is mirrored into (`configSync.ts`).
+ */
+export function readConfig(scope: 'effective' | 'user' = 'effective'): DeskfishConfig {
   const c = vscode.workspace.getConfiguration('deskfish');
-  return {
-    provider: c.get<ProviderName>('provider', D.provider),
-    autonomy: c.get<'free' | 'guided'>('autonomy', D.autonomy),
-    baseUrl: c.get<string>('baseUrl', D.baseUrl),
-    model: c.get<string>('model', D.model),
-    anthropicWorkspaceId: c.get<string>('anthropicWorkspaceId', D.anthropicWorkspaceId).trim(),
-    maxSteps: c.get<number>('maxSteps', D.maxSteps),
-    maxCostUsd: c.get<number>('maxCostUsd', D.maxCostUsd),
-    unattendedMaxCostUsd: c.get<number>('unattendedMaxCostUsd', D.unattendedMaxCostUsd),
-    reflectEvery: c.get<number>('reflectEvery', D.reflectEvery),
-    scheduleGraceMinutes: c.get<number>('scheduleGraceMinutes', D.scheduleGraceMinutes),
-    ledgerEvery: c.get<number>('ledgerEvery', D.ledgerEvery),
-    ledgerTokens: c.get<number>('ledgerTokens', D.ledgerTokens),
-    cacheTtl: c.get<'5m' | '1h'>('cacheTtl', D.cacheTtl),
-    effort: c.get<'' | 'low' | 'medium' | 'high' | 'xhigh' | 'max'>('effort', D.effort),
-    userName: c.get<string>('userName', D.userName).trim(),
-    promptCaching: c.get<'auto' | 'on' | 'off'>('promptCaching', D.promptCaching),
-    temperature: c.get<number | null>('temperature', D.temperature),
-    screenshotWidth: c.get<number>('screenshotWidth', D.screenshotWidth),
-    settleMs: c.get<number>('settleMs', D.settleMs),
-    daemonUrl: c.get<string>('desktop.daemonUrl', D.daemonUrl),
-    daemonToken: c.get<string>('desktop.token', D.daemonToken),
-    vncUrl: c.get<string>('desktop.vncUrl', D.vncUrl),
-    vncPassword: c.get<string>('desktop.vncPassword', D.vncPassword),
-    composeFile: c.get<string>('desktop.composeFile', D.composeFile),
-    containerCli: c.get<ContainerCli>('desktop.containerCli', D.containerCli),
-    screen: c.get<string>('desktop.screen', D.screen),
-    autoStart: c.get<boolean>('desktop.autoStart', D.autoStart),
-    openDesktopOnRun: c.get<boolean>('desktop.openOnRun', D.openDesktopOnRun),
-  };
+  const out: Record<string, unknown> = {};
+  for (const key of CONFIG_KEYS) {
+    const name = SETTINGS_KEYS[key].slice('deskfish.'.length);
+    let v: unknown = scope === 'user' ? (c.inspect(name)?.globalValue ?? D[key]) : c.get(name, D[key]);
+    if (TRIMMED.has(key) && typeof v === 'string') v = v.trim();
+    out[key] = v;
+  }
+  return out as unknown as DeskfishConfig;
 }

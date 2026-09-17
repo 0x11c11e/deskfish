@@ -3,11 +3,11 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { GatewayClient } from './client';
 import { DEFAULT_PORT } from './protocol';
-import { ensureToken } from './storage';
+import { ensureToken, gatewayLogFile, rotateLog } from './storage';
 
 /**
- * Find a running gateway, or start one on this computer: detached (its own session, stdio to
- * `logs/gateway.log`), so closing VS Code does not end it. A gateway left running by an older build
+ * Find a running gateway, or start one on this computer: detached (its own session; it writes
+ * `logs/gateway.log` itself, and its stderr goes there too), so closing VS Code does not end it. A gateway left running by an older build
  * is replaced when it is idle, and kept (until the next start) while it works on a task.
  * No `vscode` import.
  */
@@ -97,20 +97,20 @@ export async function ensureLocalGateway(o: LocalGatewayOptions): Promise<{ url:
   return { url, token, started: true };
 }
 
-function startDetached(o: LocalGatewayOptions, port: number): { logFile: string; child: ReturnType<typeof spawn> } {
-  const logs = path.join(o.dataDir, 'logs');
-  fs.mkdirSync(logs, { recursive: true, mode: 0o700 });
-  const logFile = path.join(logs, 'gateway.log');
+/**
+ * Start `deskfish serve` detached. `serve` appends its own lines to `logs/gateway.log`, so stdout is
+ * not pointed there (every line would land twice); stderr is, so a crash before its logger is up still
+ * leaves a trace. `spawnFn` is for the tests.
+ */
+export function startDetached(o: LocalGatewayOptions, port: number, spawnFn: typeof spawn = spawn): { logFile: string; child: ReturnType<typeof spawn> } {
+  const logFile = gatewayLogFile(o.dataDir);
+  fs.mkdirSync(path.dirname(logFile), { recursive: true, mode: 0o700 });
+  rotateLog(logFile);
+  const err = fs.openSync(logFile, 'a', 0o600);
   try {
-    if (fs.statSync(logFile).size > 5 * 1024 * 1024) fs.renameSync(logFile, `${logFile}.1`);
-  } catch {
-    /* no log yet */
-  }
-  const out = fs.openSync(logFile, 'a', 0o600);
-  try {
-    const child = spawn(o.execPath ?? process.execPath, [o.entry, 'serve', '--port', String(port), '--data-dir', o.dataDir], {
+    const child = spawnFn(o.execPath ?? process.execPath, [o.entry, 'serve', '--port', String(port), '--data-dir', o.dataDir], {
       detached: true,
-      stdio: ['ignore', out, out],
+      stdio: ['ignore', 'ignore', err],
       // Inside VS Code, process.execPath is its Electron: this makes it a plain Node (no Node install needed).
       env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
       cwd: o.dataDir,
@@ -119,7 +119,7 @@ function startDetached(o: LocalGatewayOptions, port: number): { logFile: string;
     child.unref();
     return { logFile, child };
   } finally {
-    fs.closeSync(out);
+    fs.closeSync(err);
   }
 }
 

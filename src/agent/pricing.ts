@@ -6,7 +6,7 @@
  *
  * A row is priced only where its list price applies: Claude rows for the `anthropic` provider
  * (directly or through a gateway that bills at Anthropic's rates), Moonshot rows only when the
- * base URL is Moonshot's own API — a `kimi-k3` served by a local vLLM or Ollama costs nothing,
+ * base URL is Moonshot's own API, xAI rows only on `api.x.ai` — a `kimi-k3` served by a local vLLM or Ollama costs nothing,
  * and OpenRouter reports its own charge (`usage.cost`), which the loop prefers over any estimate.
  */
 export interface Price {
@@ -24,6 +24,7 @@ export interface PriceRow {
 }
 
 const MOONSHOT = /(^|\.)api\.moonshot\.(ai|cn)$/i;
+const XAI = /(^|\.)api\.x\.ai$/i;
 
 export const PRICES: PriceRow[] = [
   { model: /claude-fable/, price: { input: 10, output: 50, cacheRead: 1, cacheWrite: 12.5 } },
@@ -37,6 +38,16 @@ export const PRICES: PriceRow[] = [
   { model: /kimi-k2\.7-code-highspeed/, price: { input: 1.9, output: 8, cacheRead: 0.38, cacheWrite: 1.9 }, host: MOONSHOT },
   { model: /kimi-k2\.7-code/, price: { input: 0.95, output: 4, cacheRead: 0.19, cacheWrite: 0.95 }, host: MOONSHOT },
   { model: /kimi-k2\.6/, price: { input: 0.95, output: 4, cacheRead: 0.16, cacheWrite: 0.95 }, host: MOONSHOT },
+  // xAI (https://docs.x.ai/docs/models, read 2026-09-16): input / output / cached input. Every rate
+  // doubles once a request reaches 200k tokens; these are the rates below that, which is where a task
+  // stays (the ledger restarts the conversation at deskfish.ledgerTokens, 100k by default). No cache
+  // write surcharge is listed, so cacheWrite = input. Each name is anchored at both ends of its version
+  // so grok-4.2 and grok-4.20 never price as each other.
+  { model: /^grok-4\.6(?![.\d])/, price: { input: 2, output: 6, cacheRead: 0.5, cacheWrite: 2 }, host: XAI },
+  { model: /^grok-4\.5(?![.\d])/, price: { input: 2, output: 6, cacheRead: 0.3, cacheWrite: 2 }, host: XAI },
+  { model: /^grok-4\.3(?![.\d])/, price: { input: 1.25, output: 2.5, cacheRead: 0.2, cacheWrite: 1.25 }, host: XAI },
+  { model: /^grok-4\.20(?![.\d])/, price: { input: 1.25, output: 2.5, cacheRead: 0.2, cacheWrite: 1.25 }, host: XAI },
+  { model: /^grok-build-0\.1(?![.\d])/, price: { input: 1, output: 2, cacheRead: 0.2, cacheWrite: 1 }, host: XAI },
 ];
 
 /** The list price of a model by name alone (Claude rows only; host-scoped rows need `priceForConfig`). */

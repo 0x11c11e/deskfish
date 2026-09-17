@@ -337,12 +337,12 @@
         "deskfish.maxCostUsd": {
           "type": "number",
           "default": 0,
-          "description": "Cost budget per task in US dollars: at list prices for Claude or Kimi used directly, or the cost OpenRouter reports. 0 = none. At 80% the agent is told to wrap up; at the budget it summarizes and stops, and \"continue\" resumes."
+          "description": "Cost budget per task in US dollars: at list prices for Claude, Kimi or Grok used directly, or the cost OpenRouter reports. 0 = none. At 80% the agent is told to wrap up; at the budget it summarizes and stops, and \"continue\" resumes."
         },
         "deskfish.unattendedMaxCostUsd": {
           "type": "number",
           "default": 2,
-          "description": "Cost budget in US dollars for a run nobody asked for and nobody is watching — a scheduled task. It also runs as \"guided\" unless the schedule says otherwise. 0 = no budget. A schedule can carry its own budget, which wins. Like deskfish.maxCostUsd, it can only act where the cost is known (list prices for Claude or Kimi used directly, or a cost the endpoint reports)."
+          "description": "Cost budget in US dollars for a run nobody asked for and nobody is watching — a scheduled task. It also runs as \"guided\" unless the schedule says otherwise. 0 = no budget. A schedule can carry its own budget, which wins. Like deskfish.maxCostUsd, it can only act where the cost is known (list prices for Claude, Kimi or Grok used directly, or a cost the endpoint reports)."
         },
         "deskfish.screenshotWidth": {
           "type": "number",

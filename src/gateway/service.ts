@@ -27,10 +27,21 @@ import type { DesktopFile } from '../webview/protocol';
 import { applyConfigPatch, type DeskfishConfig } from './config';
 import { MAX_TRANSFER, type ChatInfo, type EditableFile, type RunRequest, type Snapshot } from './protocol';
 import { clearState, interruptedLine, readState, resumeNote, writeState, type RunState } from './state';
+import { settingsSchema, type SettingsSchema } from './settingsSchema';
 import { SecretsFile } from './storage';
 import { VERSION } from './version';
 
 export { MAX_TRANSFER };
+
+/** The settings schema from `<resourceDir>/package.json`; empty (and one log line) when it cannot be read. */
+function readSettingsSchema(resourceDir: string, log: (line: string) => void): SettingsSchema {
+  try {
+    return settingsSchema(JSON.parse(fs.readFileSync(path.join(resourceDir, 'package.json'), 'utf8')));
+  } catch (err) {
+    log(`the settings schema could not be read from ${resourceDir}: ${err instanceof Error ? err.message : String(err)}`);
+    return [];
+  }
+}
 
 export interface ServiceOptions {
   /** Where her files live: memory.md, self.md, journal.md, playbook.md, charter.md, chats/, schedules.json. */
@@ -38,6 +49,8 @@ export interface ServiceOptions {
   /** What ships with Deskfish: docs/, library/, docker/desktop. The extension's folder today. */
   resourceDir: string;
   config: DeskfishConfig;
+  /** The config came from a saved `config.json` (the CLI knows); a client seeds a gateway that has none. */
+  configSaved?: boolean;
   /** API keys by slot and the self key; `<dataDir>/secrets.json` when not given. */
   secrets?: SecretsFile;
   /** One line per call; the output channel in VS Code, a log file under the gateway. */
@@ -82,6 +95,10 @@ export interface MemoryBundle {
  */
 export class DeskfishService extends EventEmitter {
   private cfg: DeskfishConfig;
+  /** A `config.json` exists (found at start, or written since the first `setConfig`). */
+  private configSaved: boolean;
+  /** The settings dialog's fields, from the `package.json` Deskfish shipped with (read once at start). */
+  readonly settingsSchema: SettingsSchema;
   /** API keys by slot and the self key, in `secrets.json` (0600). */
   readonly secrets: SecretsFile;
   private readonly log: (line: string) => void;
@@ -155,7 +172,9 @@ export class DeskfishService extends EventEmitter {
   constructor(opts: ServiceOptions) {
     super();
     this.cfg = opts.config;
+    this.configSaved = !!opts.configSaved;
     this.log = opts.log ?? (() => {});
+    this.settingsSchema = readSettingsSchema(opts.resourceDir, this.log);
     this.resourceDir = opts.resourceDir;
     this.dataDir = opts.dataDir;
     this.secrets = opts.secrets ?? new SecretsFile(path.join(opts.dataDir, 'secrets.json'));
@@ -288,6 +307,8 @@ export class DeskfishService extends EventEmitter {
   /** New settings. A running task keeps its runner; the next run rebuilds it when the model setup changed. */
   setConfig(cfg: DeskfishConfig): void {
     this.cfg = cfg;
+    // Every `config` event is written to config.json by the process that owns the file.
+    this.configSaved = true;
     this.fire('config', cfg);
   }
 
@@ -995,6 +1016,7 @@ export class DeskfishService extends EventEmitter {
       screenshot: this.lastScreenshot,
       desktop: { status: this.desktop.current, networkMode: this.desktop.networkMode },
       config: this.cfg,
+      configSaved: this.configSaved,
       keys: this.secrets.slots(),
     };
   }

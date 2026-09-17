@@ -83,6 +83,8 @@ try {
   ok(res.status === 200 && res.headers.get('content-type')?.startsWith('text/html') && res.headers.get('cache-control') === 'no-store', 'a link with the token: 200, HTML, not cached');
   ok(!page.includes(TOKEN) && !page.includes(dataDir), 'the token and the data folder are not in the page');
   ok(page.includes('.deskfishHost = host') && page.includes('id="newChat"') && page.includes('id="modelDialog"') && page.includes('id="keyDialog"'), 'the shim is inlined, with the page\'s title bar and dialogs');
+  ok(page.includes('id="settings"') && page.includes('id="schedules"') && page.includes('id="settingsDialog"') && page.includes('id="schedulesDialog"') && page.includes('openSettings') && page.includes('openSchedules'), 'the Settings and Schedules buttons and dialogs are in the page, wired by the inlined shim');
+  ok(!/<form[^>]*>(?:(?!<\/form>)[\s\S])*type="password"/.test(page.replace(/srcdoc="[^"]*"/g, '')) && !/<script\b[^>]*\bsrc=/.test(page), 'no password field inside a form (the browser would offer to keep it as a login), no script source');
   const frames = [...page.matchAll(/<iframe id="(chat|desktop)" title="[^"]*" srcdoc="([^"]*)"><\/iframe>/g)];
   ok(frames.length === 2 && frames[0][1] === 'chat' && frames[1][1] === 'desktop', `two views as srcdoc frames, the attribute intact (${frames.map((f) => f[1]).join(', ')})`);
   const chatDoc = unattr(frames[0][2]);

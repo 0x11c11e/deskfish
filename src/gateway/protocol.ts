@@ -7,6 +7,7 @@ import type { DesktopStatus } from '../desktop/supervisor';
 import type { DesktopFile } from '../webview/protocol';
 import type { DeskfishConfig } from './config';
 import type { MemoryBundle } from './service';
+import type { SettingsSchema } from './settingsSchema';
 
 /**
  * The wire between the gateway and its clients (VS Code, the web page, the CLI): JSON over a
@@ -72,6 +73,8 @@ export interface Snapshot {
   screenshot?: { dataUrl: string; width: number; height: number; step: number };
   desktop: DesktopView;
   config: DeskfishConfig;
+  /** The gateway has a `config.json` (found at start or written since): false only before the first client seeded it. */
+  configSaved: boolean;
   /** Slots that hold an API key (names only). */
   keys: string[];
 }
@@ -106,6 +109,8 @@ export interface Commands {
   releaseInput: [Record<string, never>, null];
   'config.get': [Record<string, never>, DeskfishConfig];
   'config.set': [{ patch: Partial<DeskfishConfig> }, DeskfishConfig];
+  /** The settings dialog's fields, from the gateway's own package.json (never `deskfish.gateway.*`). */
+  'config.schema': [Record<string, never>, SettingsSchema];
   /** An empty key clears the slot. Returns the slots that hold a key. */
   'key.set': [{ slot: string; key: string }, string[]];
   'key.status': [Record<string, never>, string[]];
@@ -204,6 +209,7 @@ const SPEC: { [K in CommandName]: Record<string, Field> } = {
   releaseInput: NONE,
   'config.get': NONE,
   'config.set': { patch: 'object' },
+  'config.schema': NONE,
   'key.set': { slot: 'string', key: 'string' },
   'key.status': NONE,
   'model.set': { provider: 'provider', model: 'string', baseUrl: 'string' },

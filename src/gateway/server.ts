@@ -388,6 +388,8 @@ export class GatewayServer {
         return s.config;
       case 'config.set':
         return s.patchConfig(a.patch);
+      case 'config.schema':
+        return s.settingsSchema;
       case 'model.set':
         return s.patchConfig({ provider: a.provider, model: a.model, baseUrl: a.baseUrl });
       case 'key.set':

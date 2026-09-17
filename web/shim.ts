@@ -1,8 +1,11 @@
 import type { AgentEvent, AgentStatus } from '../src/agent/loop';
 import { PRESETS, isLocalEndpoint, keySlotFor, presetFor, type Preset } from '../src/agent/presets';
+import { WEEKDAYS, inAnHour, parseBudget, whenFromFields, type WhenFields } from '../src/agent/scheduleForm';
 import { formatSize, safeFileName } from '../src/desktop/files';
 import type { DesktopStatus } from '../src/desktop/supervisor';
 import type { DeskfishConfig } from '../src/gateway/config';
+import { patchBetween } from '../src/gateway/configSync';
+import { GROUP_TITLES, settingLabel, type SettingsEntry, type SettingsSchema } from '../src/gateway/settingsSchema';
 import { EVENT_NAMES, MAX_TRANSFER, type CommandArgs, type CommandName, type CommandResult, type DesktopView, type EventName, type Events, type Snapshot } from '../src/gateway/protocol';
 import { VERSION } from '../src/gateway/version';
 import type { DesktopFile, FromChat, FromDesktop, ToChat, ToDesktop, UiConfig } from '../src/webview/protocol';
@@ -15,7 +18,9 @@ import type { DesktopFile, FromChat, FromDesktop, ToChat, ToDesktop, UiConfig } 
  * `ToDesktop`) — the work `ChatViewProvider`, `DesktopPanel` and the controller do in VS Code. What
  * only VS Code had gets a browser version: a file input and `POST /files` for attach, a download of
  * `GET /files/…` for save, `navigator.clipboard` for copy, `/docs` in a new tab, small dialogs for the
- * model and the key, the log in a dialog, a toast instead of a popup.
+ * model and the key, the log in a dialog, a toast instead of a popup — and what VS Code has as its
+ * settings editor and schedule commands: a Settings dialog over the gateway's `config.schema`, and a
+ * Schedules dialog.
  *
  * The mapping is pure (`Mirror`, `viewCommand`) so it is tested without a browser; `boot()` runs only
  * in one.
@@ -207,6 +212,83 @@ export function viewCommand(pane: Pane, m: FromChat | FromDesktop): { cmd: Comma
   }
 }
 
+/* ---------- settings and schedules: the pure parts of the two dialogs ---------- */
+
+/** What a settings field holds in the form: its text, or a checkbox's state. */
+export type FieldInput = string | boolean;
+
+/** Settings shown as a password field. */
+export const SECRET_SETTINGS = new Set<keyof DeskfishConfig>(['daemonToken', 'vncPassword']);
+
+/** Trimmed on save, as VS Code reads them. */
+const TRIMMED_SETTINGS = new Set<keyof DeskfishConfig>(['userName', 'anthropicWorkspaceId']);
+
+/** A field's value as the form shows it. */
+export function fieldInput(e: SettingsEntry, cfg: DeskfishConfig): FieldInput {
+  const v = cfg[e.key];
+  if (e.type === 'boolean') return v === true;
+  return v === null || v === undefined ? '' : String(v);
+}
+
+/** A field's value for the config, or why it cannot be one (an empty number means null only where null is allowed). */
+export function readField(e: SettingsEntry, raw: FieldInput): { value: string | number | boolean | null } | { error: string } {
+  if (e.type === 'boolean') return { value: raw === true };
+  const text = String(raw);
+  if (e.type === 'number') {
+    if (!text.trim()) return e.nullable ? { value: null } : { error: 'Enter a number.' };
+    const n = Number(text);
+    return Number.isFinite(n) ? { value: n } : { error: 'Enter a number.' };
+  }
+  if (e.enum && !e.enum.includes(text)) return { error: `Pick one of: ${e.enum.map((x) => x || 'default').join(', ')}.` };
+  return { value: TRIMMED_SETTINGS.has(e.key) ? text.trim() : text };
+}
+
+/** The gateway refused a setting: which one (from "bad value for X" / "unknown setting: X") and its words. */
+export interface SettingsRefusal {
+  key?: keyof DeskfishConfig;
+  message: string;
+}
+
+export function refusalOf(error: string): SettingsRefusal {
+  const m = /(?:bad value for|unknown setting:) (\w+)/.exec(error);
+  return m ? { key: m[1] as keyof DeskfishConfig, message: `Not accepted: ${error}.` } : { message: error };
+}
+
+/** The schedule form, as the person filled it in. */
+export interface ScheduleForm extends WhenFields {
+  task: string;
+  autonomy: 'free' | 'guided';
+  /** Empty: the setting's budget. */
+  budget: string;
+}
+
+export interface ScheduleRow {
+  id: string;
+  /** The gateway's own line: when, the task, next, the fence, the last outcome. */
+  line: string;
+}
+
+/** The two answers of "How much should she decide on her own", with VS Code's words. */
+export const AUTONOMY_DETAILS: Record<'guided' | 'free', string> = {
+  guided: 'She asks before anything irreversible and uses no credentials you did not give her — the safer choice for a run nobody is watching.',
+  free: 'The tank is the boundary: she may use any account or login in it and finishes what you asked.',
+};
+
+export interface ScheduleActions {
+  /** A line under the budget field: what an empty budget means now. */
+  budgetHint: string;
+  add(form: ScheduleForm): Promise<{ error: string } | { done: string }>;
+  /** Resolves with the reason when it failed. */
+  remove(id: string): Promise<string | undefined>;
+  runNow(id: string): Promise<void>;
+}
+
+/** The open Schedules dialog, as the host keeps it current. */
+export interface SchedulesView {
+  rows(list: ScheduleRow[]): void;
+  note(text: string, tone?: 'error' | 'ok'): void;
+}
+
 /* ---------- the host: one WebSocket, two views ---------- */
 
 export interface SocketLike {
@@ -242,6 +324,10 @@ export interface HostUi {
   openDocs(pane: Pane, load: () => Promise<Blob>): void;
   askKey(title: string): Promise<string | undefined>;
   askModel(config: DeskfishConfig): Promise<ModelChoice | undefined>;
+  /** The settings dialog: `save` gets every field's value and answers a refusal, or nothing when it is saved (the dialog closes). */
+  editSettings(schema: SettingsSchema, config: DeskfishConfig, save: (values: DeskfishConfig) => Promise<SettingsRefusal | undefined>): Promise<void>;
+  /** The schedules dialog; `onClose` when the person closes it. */
+  showSchedules(actions: ScheduleActions, onClose: () => void): SchedulesView;
   /** Shows the lines; returns a function that appends a live line while the log is open. */
   showLog(lines: string[], onClose: () => void): (line: string) => void;
   reload(): void;
@@ -274,6 +360,8 @@ export class WebHost {
   private readonly state: Record<Pane, unknown> = { chat: undefined, desktop: undefined };
   private autoStarted = false;
   private logLine?: (line: string) => void;
+  private schema?: SettingsSchema;
+  private schedules?: SchedulesView;
 
   constructor(private readonly env: HostEnv) {
     this.mirror = new Mirror(env.vncUrl);
@@ -380,6 +468,7 @@ export class WebHost {
   private onEvent(name: EventName, data: any): void {
     this.send(this.mirror.event(name, data));
     if (name === 'log') this.logLine?.(data);
+    if (name === 'schedule') void this.refreshSchedules();
     if (name === 'event' && data.type === 'needs_user') this.env.ui.knock(true);
     if (name === 'event' && data.type === 'status' && data.status !== 'paused') this.env.ui.knock(false);
   }
@@ -572,6 +661,85 @@ export class WebHost {
   /** New chat (the page's title bar). */
   newChat(): void {
     void this.attempt('start a new chat', this.call('newChat'));
+  }
+
+  /** The page's Settings button: the dialog over the gateway's schema, filled from the config the page already has. */
+  async openSettings(): Promise<void> {
+    const cfg = this.mirror.config;
+    if (!cfg) return;
+    this.schema ??= await this.attempt('read the settings', this.call('config.schema'));
+    if (!this.schema) return;
+    await this.env.ui.editSettings(this.schema, cfg, (values) => this.saveSettings(cfg, values));
+  }
+
+  /**
+   * Save in the settings dialog: only what the person changed since the dialog opened goes out (a value
+   * another client set meanwhile is not sent back), never the model's three keys (the model dialog's).
+   * The header re-renders from the `config` event, as for any client's change.
+   */
+  async saveSettings(opened: DeskfishConfig, values: DeskfishConfig): Promise<SettingsRefusal | undefined> {
+    const keys = (this.schema ?? []).filter((e) => e.group !== 'model').map((e) => e.key);
+    const patch = patchBetween(opened, values, keys);
+    if (!Object.keys(patch).length) return undefined;
+    try {
+      await this.call('config.set', { patch });
+      return undefined;
+    } catch (err) {
+      return refusalOf(msg(err));
+    }
+  }
+
+  /** The page's Schedules button. */
+  async openSchedules(): Promise<void> {
+    if (this.schedules || !this.mirror.config) return;
+    const setting = this.mirror.config.unattendedMaxCostUsd;
+    this.schedules = this.env.ui.showSchedules(
+      {
+        budgetHint: `Empty: the Unattended Max Cost Usd setting (${setting > 0 ? `$${setting.toFixed(2)}` : 'no budget'}). 0 = no budget. A budget acts where the model has a known price or reports its cost.`,
+        add: (form) => this.addSchedule(form),
+        remove: (id) => this.call('schedules.remove', { id }).then(() => this.refreshSchedules().then(() => undefined), (err) => msg(err)),
+        runNow: (id) => this.runScheduleNow(id),
+      },
+      () => (this.schedules = undefined),
+    );
+    await this.refreshSchedules();
+  }
+
+  private async refreshSchedules(): Promise<void> {
+    const view = this.schedules;
+    if (!view) return;
+    try {
+      const r = await this.call('schedules.list');
+      view.rows(r.schedules.map((s, i) => ({ id: s.id, line: r.lines[i] ?? s.task })));
+    } catch (err) {
+      view.note(`Could not list the scheduled tasks: ${msg(err)}`, 'error');
+    }
+  }
+
+  /** Add from the form: the same questions as VS Code's "Schedule a Task…", checked here first and by the gateway again. */
+  async addSchedule(form: ScheduleForm): Promise<{ error: string } | { done: string }> {
+    const when = whenFromFields(form);
+    if ('error' in when) return when;
+    const task = form.task.trim();
+    if (!task) return { error: 'Say what she should do.' };
+    const budget = parseBudget(form.budget);
+    if (budget === 'bad') return { error: 'The budget is a number of dollars, 0 or more — or empty for the setting.' };
+    try {
+      const s = await this.call('schedules.add', { task, when: when.when, autonomy: form.autonomy, ...(budget !== undefined ? { maxCostUsd: budget } : {}) });
+      const r = await this.call('schedules.list');
+      this.schedules?.rows(r.schedules.map((x, i) => ({ id: x.id, line: r.lines[i] ?? x.task })));
+      const line = r.lines[r.schedules.findIndex((x) => x.id === s.id)];
+      return { done: `Added: ${line ?? s.task}` };
+    } catch (err) {
+      return { error: `Could not schedule: ${msg(err)}` };
+    }
+  }
+
+  /** "Run now": a person asked, so it runs attended, in its own chat — or after the current task. */
+  async runScheduleNow(id: string): Promise<void> {
+    const busy = this.mirror.status === 'running' || this.mirror.status === 'paused';
+    const done = await this.attempt('run the scheduled task', this.call('schedules.runNow', { id }));
+    if (done !== undefined && busy) this.env.ui.toast('She is busy; the task will run when she is free.');
   }
 
   /** The "Set API key" / "Change" button of the key row. */
@@ -824,6 +992,276 @@ export function browserUi(doc: Document): HostUi {
       const p = preset();
       return { preset: p, provider: p.provider, baseUrl: p.askBaseUrl ? base.value.trim().replace(/\/+$/, '') : p.baseUrl, model: p.provider === 'mock' ? (p.models[0]?.name ?? 'mock') : model.value.trim() };
     },
+    editSettings(schema, cfg, save) {
+      const dialog = $<HTMLDialogElement>('settingsDialog');
+      const body = $('settingsFields');
+      const note = $('settingsNote');
+      const buttons = Array.from(dialog.querySelectorAll<HTMLButtonElement>('.actions button'));
+      const saveButton = buttons.find((b) => b.value === 'save')!;
+      const el = <K extends keyof HTMLElementTagNameMap>(tag: K, className?: string, text?: string) => {
+        const e = doc.createElement(tag);
+        if (className) e.className = className;
+        if (text !== undefined) e.textContent = text;
+        return e;
+      };
+      type Field = { entry: SettingsEntry; get: () => FieldInput; control: HTMLElement; box: HTMLElement; error: HTMLElement };
+      const fields: Field[] = [];
+      const render = (e: SettingsEntry): HTMLElement => {
+        const box = el('div', 'field');
+        const id = `setting-${e.key}`;
+        const error = el('p', 'hint error');
+        error.hidden = true;
+        let control: HTMLInputElement | HTMLSelectElement;
+        let get: () => FieldInput;
+        if (e.type === 'boolean') {
+          const input = el('input');
+          input.type = 'checkbox';
+          input.id = id;
+          input.checked = fieldInput(e, cfg) === true;
+          const label = el('label', 'check');
+          label.append(input, doc.createTextNode(settingLabel(e.setting)));
+          box.append(label);
+          control = input;
+          get = () => input.checked;
+        } else {
+          const label = el('label', undefined, settingLabel(e.setting));
+          label.htmlFor = id;
+          label.append(el('span', 'setting-id', e.setting));
+          box.append(label);
+          if (e.enum) {
+            const select = el('select');
+            e.enum.forEach((v, i) => {
+              const o = el('option', undefined, v || 'default');
+              o.value = v;
+              if (e.enumDescriptions?.[i]) o.title = e.enumDescriptions[i];
+              select.append(o);
+            });
+            select.value = String(fieldInput(e, cfg));
+            control = select;
+            get = () => select.value;
+          } else {
+            const input = el('input');
+            input.type = e.type === 'number' ? 'number' : SECRET_SETTINGS.has(e.key) ? 'password' : 'text';
+            if (e.type === 'number') {
+              input.step = 'any';
+              if (e.minimum !== undefined) input.min = String(e.minimum);
+              if (e.maximum !== undefined) input.max = String(e.maximum);
+            }
+            if (e.nullable) input.placeholder = 'not set';
+            input.autocomplete = 'off';
+            input.spellcheck = false;
+            input.value = String(fieldInput(e, cfg));
+            control = input;
+            get = () => input.value;
+          }
+          control.id = id;
+          box.append(control);
+        }
+        box.append(error);
+        if (e.description) box.append(el('p', 'hint', e.description));
+        if (e.enumDescriptions && control instanceof HTMLSelectElement) {
+          const select = control;
+          const which = el('p', 'hint');
+          const show = () => (which.textContent = e.enumDescriptions![e.enum!.indexOf(select.value)] ?? '');
+          select.addEventListener('change', show);
+          show();
+          box.append(which);
+        }
+        fields.push({ entry: e, get, control, box, error });
+        return box;
+      };
+      const sections: HTMLElement[] = [];
+      for (const group of ['work', 'desktop', 'advanced'] as const) {
+        const entries = schema.filter((e) => e.group === group);
+        if (!entries.length) continue;
+        const section = group === 'advanced' ? el('details', 'group') : el('section');
+        section.append(group === 'advanced' ? el('summary', undefined, GROUP_TITLES[group]) : el('h3', undefined, GROUP_TITLES[group]));
+        for (const e of entries) section.append(render(e));
+        sections.push(section);
+      }
+      body.replaceChildren(...sections);
+      body.scrollTop = 0;
+      note.textContent = '';
+      note.className = 'hint note';
+      const refuse = (f: Field, text: string) => {
+        f.error.textContent = text;
+        f.error.hidden = false;
+        f.box.classList.add('refused');
+        const folded = f.box.closest('details');
+        if (folded) folded.open = true;
+        f.control.focus();
+        f.box.scrollIntoView({ block: 'nearest' });
+      };
+      let saving = false;
+      const submit = async () => {
+        if (saving) return;
+        for (const f of fields) {
+          f.error.hidden = true;
+          f.box.classList.remove('refused');
+        }
+        note.textContent = '';
+        note.className = 'hint note';
+        const values: Record<string, unknown> = { ...cfg };
+        let bad: Field | undefined;
+        for (const f of fields) {
+          const r = readField(f.entry, f.get());
+          if ('error' in r) {
+            if (!bad) bad = f;
+            f.error.textContent = r.error;
+            f.error.hidden = false;
+            f.box.classList.add('refused');
+          } else values[f.entry.key] = r.value;
+        }
+        if (bad) return refuse(bad, bad.error.textContent ?? '');
+        saving = true;
+        saveButton.disabled = true;
+        note.textContent = 'Saving…';
+        const refusal = await save(values as unknown as DeskfishConfig).catch((err): SettingsRefusal => ({ message: msg(err) }));
+        saving = false;
+        saveButton.disabled = false;
+        note.textContent = '';
+        if (!refusal) {
+          dialog.close('save');
+          return;
+        }
+        const f = refusal.key ? fields.find((x) => x.entry.key === refusal.key) : undefined;
+        if (f) refuse(f, refusal.message);
+        else {
+          note.textContent = refusal.message;
+          note.className = 'hint note error';
+        }
+      };
+      return new Promise<void>((resolve) => {
+        for (const b of buttons) b.onclick = () => (b.value === 'save' ? void submit() : dialog.close(b.value));
+        // No <form> (a password field in a form makes the browser offer to keep it as a login): Enter in a field saves.
+        dialog.onkeydown = (ev) => {
+          const t = ev.target as HTMLElement;
+          if (ev.key === 'Enter' && t.tagName === 'INPUT' && (t as HTMLInputElement).type !== 'checkbox') {
+            ev.preventDefault();
+            void submit();
+          }
+        };
+        dialog.addEventListener(
+          'close',
+          () => {
+            dialog.onkeydown = null;
+            body.replaceChildren();
+            resolve();
+          },
+          { once: true },
+        );
+        dialog.showModal();
+      });
+    },
+    showSchedules(actions, onClose) {
+      const dialog = $<HTMLDialogElement>('schedulesDialog');
+      const list = $('scheduleList');
+      const empty = $('scheduleEmpty');
+      const note = $('schedNote');
+      const kind = $<HTMLSelectElement>('schedKind');
+      const at = $<HTMLInputElement>('schedAt');
+      const day = $<HTMLSelectElement>('schedDay');
+      const time = $<HTMLInputElement>('schedTime');
+      const minutes = $<HTMLInputElement>('schedMinutes');
+      const task = $<HTMLTextAreaElement>('schedTask');
+      const autonomy = $<HTMLSelectElement>('schedAutonomy');
+      const budget = $<HTMLInputElement>('schedBudget');
+      if (!day.options.length) {
+        WEEKDAYS.forEach((name, i) => {
+          const o = doc.createElement('option');
+          o.value = String(i);
+          o.textContent = name;
+          day.append(o);
+        });
+      }
+      const setNote = (text: string, tone?: 'error' | 'ok') => {
+        note.textContent = text;
+        note.className = `hint note${tone ? ` ${tone}` : ''}`;
+      };
+      const showKind = () => {
+        const k = kind.value;
+        $('schedAtRow').hidden = k !== 'once';
+        $('schedDayRow').hidden = k !== 'weekly';
+        $('schedTimeRow').hidden = k !== 'daily' && k !== 'weekly';
+        $('schedEveryRow').hidden = k !== 'every';
+      };
+      const showAutonomy = () => ($('schedAutonomyDetail').textContent = AUTONOMY_DETAILS[autonomy.value === 'free' ? 'free' : 'guided']);
+      kind.value = 'once';
+      at.value = inAnHour();
+      day.value = '1';
+      time.value = '09:00';
+      minutes.value = '60';
+      task.value = '';
+      autonomy.value = 'guided';
+      budget.value = '';
+      $('schedBudgetHint').textContent = actions.budgetHint;
+      kind.onchange = showKind;
+      autonomy.onchange = showAutonomy;
+      showKind();
+      showAutonomy();
+      setNote('');
+      list.replaceChildren();
+      empty.hidden = true;
+      const buttons = Array.from(dialog.querySelectorAll<HTMLButtonElement>('.actions button'));
+      const addButton = buttons.find((b) => b.value === 'add')!;
+      const add = async () => {
+        addButton.disabled = true;
+        setNote('');
+        const r = await actions.add({ kind: kind.value as ScheduleForm['kind'], at: at.value, day: day.value, time: time.value, minutes: minutes.value, task: task.value, autonomy: autonomy.value === 'free' ? 'free' : 'guided', budget: budget.value });
+        addButton.disabled = false;
+        if ('error' in r) return setNote(r.error, 'error');
+        // The next schedule starts from the defaults again (guided, the setting's budget); when and how often stay.
+        task.value = '';
+        budget.value = '';
+        autonomy.value = 'guided';
+        showAutonomy();
+        setNote(r.done, 'ok');
+      };
+      for (const b of buttons) b.onclick = () => (b.value === 'add' ? void add() : dialog.close());
+      dialog.addEventListener('close', onClose, { once: true });
+      dialog.showModal();
+      return {
+        rows(rows) {
+          empty.hidden = rows.length > 0;
+          list.replaceChildren(
+            ...rows.map((row) => {
+              const li = doc.createElement('li');
+              const line = doc.createElement('span');
+              line.className = 'line';
+              line.textContent = row.line;
+              const run = doc.createElement('button');
+              run.type = 'button';
+              run.textContent = 'Run now';
+              // The chat shows the run: the dialog gets out of the way.
+              run.onclick = () => {
+                dialog.close();
+                void actions.runNow(row.id);
+              };
+              const remove = doc.createElement('button');
+              remove.type = 'button';
+              remove.textContent = 'Remove';
+              // Asked once, inside the dialog (a browser confirm() would block the page).
+              remove.onclick = async () => {
+                if (!remove.classList.contains('confirm')) {
+                  remove.classList.add('confirm');
+                  remove.textContent = 'Remove?';
+                  return;
+                }
+                remove.disabled = true;
+                const failed = await actions.remove(row.id);
+                if (failed) {
+                  remove.disabled = false;
+                  setNote(`Could not remove it: ${failed}`, 'error');
+                }
+              };
+              li.append(line, run, remove);
+              return li;
+            }),
+          );
+        },
+        note: setNote,
+      };
+    },
     showLog(lines, onClose) {
       const dialog = $<HTMLDialogElement>('logDialog');
       const pre = $('logText');
@@ -871,9 +1309,12 @@ export function boot(): void {
   });
   (window as unknown as { deskfishHost: WebHost }).deskfishHost = host;
   document.addEventListener('visibilitychange', () => host.visibility());
-  // The page's own button (VS Code has it in the view's title bar); the gateway answers with `reset`.
+  // The page's own buttons (VS Code has New chat in the view's title bar, settings and schedules as commands); New chat's answer is `reset`.
   document.addEventListener('click', (ev) => {
-    if ((ev.target as Element | null)?.closest?.('#newChat')) host.newChat();
+    const target = ev.target as Element | null;
+    if (target?.closest?.('#newChat')) host.newChat();
+    else if (target?.closest?.('#settings')) void host.openSettings();
+    else if (target?.closest?.('#schedules')) void host.openSchedules();
   });
   host.start();
 }

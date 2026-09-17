@@ -30,7 +30,7 @@ so you can scroll back through the day's work.
 
 **The counter and the status row.** Two lines under the conversation. The first is a running
 count for the conversation: tokens in, tokens out, how much came from the prompt cache, and
-a cost where Deskfish can tell (Claude or Kimi used directly, at list prices, or the charge
+a cost where Deskfish can tell (Claude, Kimi or Grok used directly, at list prices, or the charge
 OpenRouter reports).
 "In" counts everything the model processed; because each step re-sends the conversation so
 far, that number grows quickly on long tasks, and the cached share is what keeps it cheap.
@@ -202,7 +202,7 @@ Closed** once.
   budget (`deskfish.unattendedMaxCostUsd`, two dollars by default) whatever your own settings
   say. See [Schedules](schedules#the-fence-on-a-run-nobody-is-watching).
 - **A cost budget, if you want one.** `deskfish.maxCostUsd` works where Deskfish can see a
-  cost: Claude or Kimi used directly (known list prices) or OpenRouter, which reports the
+  cost: Claude, Kimi or Grok used directly (known list prices) or OpenRouter, which reports the
   charge. At 80% the agent is told to wrap up; once a turn reaches the budget it takes no
   more actions, writes a summary and stops, and **continue** resumes. It is a brake, not a
   hard ceiling: the turn that crosses the line and the wrap-up itself can go a little over.

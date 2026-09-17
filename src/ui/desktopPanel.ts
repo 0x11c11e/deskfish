@@ -1,5 +1,4 @@
 import * as vscode from 'vscode';
-import { readConfig } from '../config';
 import type { AgentController } from '../controller';
 import type { DesktopState } from '../desktop/manager';
 import type { FromDesktop, ToDesktop } from '../webview/protocol';
@@ -29,6 +28,8 @@ export class DesktopPanel {
   private readonly panel: vscode.WebviewPanel;
   private readonly subs: vscode.Disposable[] = [];
   private lastDesktopState: DesktopState = 'unknown';
+  /** The live view's address, token and password as last seen, so only a real change reconnects. */
+  private lastVnc?: string;
 
   private constructor(
     private readonly ctx: vscode.ExtensionContext,
@@ -60,9 +61,11 @@ export class DesktopPanel {
         if (status.state === 'on' && this.lastDesktopState !== 'on') this.sendConnect();
         this.lastDesktopState = status.state;
       }),
-      vscode.workspace.onDidChangeConfiguration((e) => {
-        // The gateway reads the tank's address when the view connects; give the settings push a moment.
-        if (e.affectsConfiguration('deskfish.desktop')) setTimeout(() => this.sendConnect(), 500);
+      this.controller.onDidConfig((cfg) => {
+        // The gateway reads the tank's address when the view connects: a new address, token or password is a reconnect.
+        const vnc = `${cfg.vncUrl}\n${cfg.daemonToken}\n${cfg.vncPassword}`;
+        if (this.lastVnc !== undefined && vnc !== this.lastVnc) this.sendConnect();
+        this.lastVnc = vnc;
       }),
       // A gateway that restarted (or a dropped link): reconnect the live view and re-announce the state.
       this.controller.onDidConnect((snap) => {
@@ -120,7 +123,7 @@ export class DesktopPanel {
 
   /** The live view goes through the gateway's `/vnc` (one port, one token), which pipes it to the tank's websockify. */
   private sendConnect(): void {
-    this.send({ type: 'connect', url: this.controller.vncUrl(), password: readConfig().vncPassword || undefined });
+    this.send({ type: 'connect', url: this.controller.vncUrl(), password: this.controller.gatewayConfig().vncPassword || undefined });
   }
 
   private send(m: ToDesktop): void {

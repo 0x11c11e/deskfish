@@ -2,7 +2,8 @@
 // (direct or through a gateway); Moonshot rows price Kimi only on Moonshot's own API host, so a
 // self-hosted "kimi-k3" (vLLM, Ollama) gets no estimate and OpenRouter — which reports its own
 // charge — is never estimated; the demo model and unknown models get nothing; costUsd sums the
-// four rates and tolerates missing cache counts.
+// four rates and tolerates missing cache counts. xAI rows (Grok) price only api.x.ai and its subdomains,
+// and grok-4.2 / grok-4.20 never cross.
 import assert from 'node:assert/strict';
 import { PRICES, costUsd, priceFor, priceForConfig } from '../src/agent/pricing';
 
@@ -37,10 +38,22 @@ ok(priceForConfig({ provider: 'openai-compatible', model: 'claude-sonnet-5', bas
 ok(priceForConfig({ provider: 'mock', model: 'mock', baseUrl: '' }) === undefined, 'the demo model is free');
 ok(PRICES.every((r) => r.price.input > 0 && r.price.output > 0 && r.price.cacheRead <= r.price.input), 'every row has positive rates and a cache read no dearer than input');
 
+// ---------- xAI, only on api.x.ai ----------
+const x = (model: string, baseUrl = 'https://api.x.ai/v1') => priceForConfig({ provider: 'openai-compatible', model, baseUrl });
+const g46 = x('grok-4.6');
+ok(g46?.input === 2 && g46.output === 6 && g46.cacheRead === 0.5 && g46.cacheWrite === 2, `grok-4.6 on api.x.ai → $2 / $6 / $0.50 cached, no write surcharge (${JSON.stringify(g46)})`);
+ok(x('grok-4.5')?.cacheRead === 0.3 && x('grok-4.3')?.input === 1.25 && x('grok-build-0.1')?.output === 2, 'grok-4.5, grok-4.3, grok-build-0.1');
+ok(x('grok-4.20-0309-reasoning')?.input === 1.25 && x('grok-4.20-0309-non-reasoning')?.output === 2.5 && x('grok-4.20-multi-agent-0309')?.cacheRead === 0.2, 'the grok-4.20 family');
+ok(x('grok-4.2') === undefined && x('grok-4.60') === undefined && x('grok-4.3.1') === undefined, 'grok-4.2 does not take the grok-4.20 row, nor grok-4.60 the grok-4.6 row');
+ok(x('grok-4.6', 'https://foo.api.x.ai/v1')?.input === 2, 'a subdomain of api.x.ai counts');
+ok(x('grok-4.6', 'https://api.x.ai.evil.com/v1') === undefined && x('grok-4.6', 'https://x.ai/v1') === undefined && x('grok-4.6', 'https://notapi.x.ai/v1') === undefined, 'api.x.ai.evil.com, x.ai and a look-alike do not');
+ok(x('grok-5.5') === undefined && priceFor('grok-4.6') === undefined && x('x-ai/grok-4.6', 'https://openrouter.ai/api/v1') === undefined, 'an unlisted Grok, the name alone, and OpenRouter: no price');
+
 // ---------- costUsd ----------
 const today = { input: 150_000, output: 12_000, cacheRead: 590_000 };
 ok(close(costUsd(today, k3!), 0.45 + 0.177 + 0.18), `a 40-step Kimi task at 80% cache ≈ $0.81 (${costUsd(today, k3!).toFixed(3)})`);
 ok(close(costUsd(today, sonnet!), 0.3 + 0.118 + 0.12), `the same tokens on Sonnet 5 ≈ $0.54 (${costUsd(today, sonnet!).toFixed(3)})`);
+ok(close(costUsd(today, g46!), 0.3 + 0.072 + 0.295), `the same tokens on grok-4.6 ≈ $0.67 (${costUsd(today, g46!).toFixed(3)})`);
 ok(close(costUsd({ input: 1_000_000, output: 0 }, k3!), 3), 'missing cache counts are treated as zero');
 ok(close(costUsd({ input: 0, output: 0, cacheRead: 0, cacheWrite: 1_000_000 }, sonnet!), 2.5), 'cache writes use the write rate');
 ok(close(costUsd({ input: 0, output: 0, cacheRead: 0, cacheWrite: 1_000_000, cacheWrite1h: 1_000_000 }, sonnet!), 4), '1-hour cache writes are billed at twice the input rate');

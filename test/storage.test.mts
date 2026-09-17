@@ -8,7 +8,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { HER_FILES, SecretsFile, dataDir, ensureToken, migrateData, readToken } from '../src/gateway/storage';
+import { HER_FILES, LogFile, SecretsFile, dataDir, ensureToken, gatewayLogFile, migrateData, readToken, rotateLog } from '../src/gateway/storage';
+import { startDetached } from '../src/gateway/spawn';
 import { DeskfishService } from '../src/gateway/service';
 import { SelfStore, newSelfKey } from '../src/agent/self';
 import { DEFAULT_SELF } from '../src/agent/seed';
@@ -124,5 +125,44 @@ try {
 } finally {
   fs.rmSync(tmp, { recursive: true, force: true });
 }
+// ---------- the gateway's own log file (serve writes it; the spawn keeps only stderr on it) ----------
+{
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'deskfish-log-'));
+  try {
+    const file = gatewayLogFile(dir);
+    ok(file === path.join(dir, 'logs', 'gateway.log'), 'the log lives in <dataDir>/logs/gateway.log');
+    const log = new LogFile(file, 200);
+    log.append('2026-09-16T10:00:00Z ● started');
+    log.append('a line without its newline\n');
+    ok(fs.readFileSync(file, 'utf8') === '2026-09-16T10:00:00Z ● started\na line without its newline\n', 'appended, one line per call');
+    ok((fs.statSync(file).mode & 0o777) === 0o600 && (fs.statSync(path.dirname(file)).mode & 0o777) === 0o700, 'the file 0600, its folder 0700');
+    for (let i = 0; i < 6; i++) log.append(`line ${i} ${'x'.repeat(30)}`);
+    ok(fs.existsSync(`${file}.1`) && fs.statSync(`${file}.1`).size >= 200 && fs.statSync(file).size < 200, `rotated once it reached the threshold (.1 = ${fs.statSync(`${file}.1`).size} B, new = ${fs.statSync(file).size} B)`);
+    ok((fs.statSync(file).mode & 0o777) === 0o600 && fs.readFileSync(file, 'utf8').startsWith('line '), 'the new file is 0600 too and starts where the old one ended');
+    log.close();
+    const loose = path.join(dir, 'loose.log');
+    fs.writeFileSync(loose, 'old\n', { mode: 0o644 });
+    new LogFile(loose).append('new');
+    ok((fs.statSync(loose).mode & 0o777) === 0o600 && fs.readFileSync(loose, 'utf8') === 'old\nnew\n', 'an existing log is tightened to 0600 and appended to');
+    const big = path.join(dir, 'big.log');
+    fs.writeFileSync(big, 'x'.repeat(50));
+    rotateLog(big, 50);
+    ok(!fs.existsSync(big) && fs.existsSync(`${big}.1`), 'rotateLog moves a full log aside');
+    rotateLog(path.join(dir, 'none.log'));
+    // The spawn: stdout no longer goes to the file (serve writes every line itself), stderr still does.
+    const seen: { cmd: string; args: string[]; opts: any }[] = [];
+    const fakeSpawn = ((cmd: string, args: string[], opts: any) => {
+      seen.push({ cmd, args, opts });
+      return { unref() {}, once() {} };
+    }) as any;
+    const r = startDetached({ dataDir: dir, entry: '/ext/dist/gateway.js', execPath: '/usr/bin/electron', version: 't', log: () => {} }, 9985, fakeSpawn);
+    const o = seen[0]?.opts;
+    ok(r.logFile === file && seen[0]?.args.join(' ') === `/ext/dist/gateway.js serve --port 9985 --data-dir ${dir}`, `the spawn runs serve (${seen[0]?.args.join(' ')})`);
+    ok(o?.stdio?.[0] === 'ignore' && o.stdio[1] === 'ignore' && typeof o.stdio[2] === 'number' && o.detached === true && o.env.ELECTRON_RUN_AS_NODE === '1', `stdout not sent to the log (every line would land twice), stderr still is: ${JSON.stringify(o?.stdio)}`);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+}
+
 console.log(`storage: ${n} checks passed`);
 process.exit(0);

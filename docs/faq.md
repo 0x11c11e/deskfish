@@ -65,7 +65,7 @@ cache now lasts an hour, so a pause between your messages no longer re-bills the
 conversation; and standby waits without model calls. On Anthropic, `deskfish.effort` at
 `medium` cuts the thinking tokens on routine work. A cheaper
 model for routine work, chosen with the **Change** button, helps too. `deskfish.maxCostUsd`
-sets a budget for a task where Deskfish can see the cost (Claude or Kimi used directly, or
+sets a budget for a task where Deskfish can see the cost (Claude, Kimi or Grok used directly, or
 OpenRouter);
 the wrap-up turn can go a little over. See
 [What a task costs](models-and-providers#what-a-task-costs).

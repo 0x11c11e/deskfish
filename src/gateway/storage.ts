@@ -32,6 +32,69 @@ export function writePrivate(file: string, data: string): void {
   fs.renameSync(tmp, file);
 }
 
+/** The gateway's log rotates past this size: the file becomes `<file>.1` (one older copy is kept). */
+export const LOG_MAX_BYTES = 5 * 1024 * 1024;
+
+/** `<dataDir>/logs/gateway.log`. */
+export function gatewayLogFile(dir: string): string {
+  return path.join(dir, 'logs', 'gateway.log');
+}
+
+/** Move a log past `maxBytes` aside to `<file>.1`, before it is opened for appending. */
+export function rotateLog(file: string, maxBytes = LOG_MAX_BYTES): void {
+  try {
+    if (fs.statSync(file).size >= maxBytes) fs.renameSync(file, `${file}.1`);
+  } catch {
+    /* no log yet */
+  }
+}
+
+/**
+ * A log file its process appends to itself, one line per call: created 0600 in a 0700 folder, and
+ * rotated once it reaches `maxBytes`. `deskfish serve` writes its own log this way, so a gateway
+ * started at login logs exactly like one VS Code started. A write that fails is dropped: the log must
+ * never stop the gateway.
+ */
+export class LogFile {
+  private fd?: number;
+  private size = 0;
+
+  constructor(
+    readonly file: string,
+    private readonly maxBytes = LOG_MAX_BYTES,
+  ) {}
+
+  append(line: string): void {
+    try {
+      if (this.fd !== undefined && this.size >= this.maxBytes) this.close();
+      if (this.fd === undefined) this.open();
+      const data = Buffer.from(line.endsWith('\n') ? line : `${line}\n`);
+      fs.writeSync(this.fd!, data);
+      this.size += data.length;
+    } catch {
+      /* a full disk or a removed folder: the line is lost, the gateway goes on */
+    }
+  }
+
+  close(): void {
+    if (this.fd === undefined) return;
+    try {
+      fs.closeSync(this.fd);
+    } catch {
+      /* already closed */
+    }
+    this.fd = undefined;
+  }
+
+  private open(): void {
+    fs.mkdirSync(path.dirname(this.file), { recursive: true, mode: 0o700 });
+    rotateLog(this.file, this.maxBytes);
+    this.fd = fs.openSync(this.file, 'a', 0o600);
+    fs.fchmodSync(this.fd, 0o600);
+    this.size = fs.fstatSync(this.fd).size;
+  }
+}
+
 interface SecretsData {
   /** API keys by slot: `deskfish.apiKey.anthropic`, `deskfish.apiKey.<endpoint host>`. */
   keys: Record<string, string>;

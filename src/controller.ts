@@ -6,16 +6,19 @@ import { describeWhen, formatLocal, nextDueAfter, type When } from './agent/sche
 import { DRIFT_QUESTIONS } from './agent/prompts';
 import type { ReplayItem } from './agent/chats';
 import type { AgentEvent, AgentStatus } from './agent/loop';
-import { API_KEY_SECRET, readConfig } from './config';
+import { API_KEY_SECRET, readConfig, type DeskfishConfig } from './config';
 import { PRESETS, isLocalEndpoint, keySlotFor, presetFor, type Preset } from './agent/presets';
 import { formatSize, safeFileName, type NewDownload } from './desktop/files';
 import { DesktopManager } from './desktop/manager';
 import { GatewayClient } from './gateway/client';
+import { ConfigSync } from './gateway/configSync';
+import { DEFAULT_CONFIG } from './gateway/config';
 import { DEFAULT_PORT, type Snapshot } from './gateway/protocol';
 import { MAX_TRANSFER, type MemoryBundle } from './gateway/service';
 import { applyAutostart, autostartNeedsWrite, autostartPlan, hasDesktopSession, removeAutostart, type AutostartPlan } from './gateway/autostart';
 import { ensureLocalGateway } from './gateway/spawn';
 import { dataDir, ensureToken, migrateData } from './gateway/storage';
+import { parseBudget } from './agent/scheduleForm';
 import { VERSION } from './gateway/version';
 import { HerFilesProvider } from './ui/herFiles';
 import type { DesktopFile, UiConfig } from './webview/protocol';
@@ -39,8 +42,10 @@ export function readGatewaySettings(): { placement: Placement; url: string; keep
  * dialogs, the clipboard, the model picker and SecretStorage. Everything else — the stores, the
  * runner and its queue, transcripts, schedules, the Downloads watcher, the desktop — belongs to the
  * gateway, a process of its own (started in the background on this computer, or on another
- * machine), reached through a `GatewayClient`. Settings and keys are pushed into it on every
- * connect and change; its events come back out to the chat sidebar and the Desktop tab.
+ * machine), reached through a `GatewayClient`. Its `config.json` is the one truth for settings:
+ * VS Code seeds it once, pushes what the person changes in VS Code, and mirrors every change made
+ * anywhere into the user settings (`ConfigSync`). Keys are pushed on connect and change; its events
+ * come back out to the chat sidebar and the Desktop tab.
  */
 export class AgentController implements vscode.Disposable {
   readonly client: GatewayClient;
@@ -51,6 +56,11 @@ export class AgentController implements vscode.Disposable {
   private startError?: string;
   private tailShown = false;
   private askedToken = false;
+  /** The gateway's config, mirrored into the user settings. */
+  private readonly sync: ConfigSync;
+  private readonly configEmitter = new vscode.EventEmitter<DeskfishConfig>();
+  /** The gateway's config (or its key slots) changed: the header re-renders from `gatewayConfig()`. */
+  readonly onDidConfig = this.configEmitter.event;
 
   /** Fires when the user starts a new chat (the UI clears its log). */
   readonly onDidReset: vscode.Event<void>;
@@ -116,6 +126,13 @@ export class AgentController implements vscode.Disposable {
       beforeReconnect: placement === 'local' ? () => this.ensureLocal() : undefined,
     });
     this.desktop = new DesktopManager(this.client.desktop, output);
+    this.sync = new ConfigSync({
+      readSettings: () => readConfig('user'),
+      push: (patch) => this.client.call('config.set', { patch }),
+      write: (w) => this.writeSetting(w.setting, w.key, w.value),
+      pushKey: (cfg) => this.pushKey(cfg),
+      log: (line) => this.output.appendLine(line),
+    });
     this.onDidReset = this.relay<void>('reset');
     this.onDidReplay = this.relay('replay');
     this.onDidSchedule = this.relay('schedule');
@@ -130,15 +147,21 @@ export class AgentController implements vscode.Disposable {
           void vscode.window.showInformationMessage('Deskfish: the gateway setting changed. Reload the window to connect to it.', 'Reload').then((c) => {
             if (c) void vscode.commands.executeCommand('workbench.action.reloadWindow');
           });
-        } else if (e.affectsConfiguration('deskfish')) void this.syncSettings();
+        } else if (e.affectsConfiguration('deskfish') && this.client.connected) {
+          // Only what this change names goes out, and only where it differs from the gateway's config.
+          void this.sync.settingsChanged((setting) => e.affectsConfiguration(setting));
+        }
       }),
       this.ctx.secrets.onDidChange((e) => {
-        if (e.key.startsWith('deskfish.apiKey')) void this.syncSettings();
+        if (e.key.startsWith('deskfish.apiKey')) void this.pushKey(this.gatewayConfig());
       }),
       this.relay<Snapshot>('connected')((snap) => {
         this.startError = undefined;
         this.output.appendLine(`— connected to the Deskfish gateway ${snap.version} at ${this.client.url} (her data: ${snap.dataDir}) —`);
-        void this.syncSettings();
+        void this.sync.connected(snap).then((how) => {
+          if (how === 'seeded') this.output.appendLine('— the gateway had no settings yet: seeded from VS Code\'s. From now on its config.json is the truth, mirrored into your user settings —');
+          this.configEmitter.fire(this.gatewayConfig());
+        });
         if (!this.tailShown) {
           // What the gateway did before this window: the last lines of its log, once.
           this.tailShown = true;
@@ -148,6 +171,12 @@ export class AgentController implements vscode.Disposable {
         }
       }),
       this.relay<string>('log')((line) => this.output.appendLine(line)),
+      this.relay<DeskfishConfig>('config')((cfg) => {
+        // `last` is set before the first await, so the header below already reads the new config.
+        void this.sync.config(cfg);
+        this.configEmitter.fire(cfg);
+      }),
+      this.relay<string[]>('keys')(() => this.configEmitter.fire(this.gatewayConfig())),
       this.relay<void>('unauthorized')(() => {
         if (this.placement !== 'remote' || this.askedToken) return;
         this.askedToken = true;
@@ -156,7 +185,7 @@ export class AgentController implements vscode.Disposable {
       this.relay<{ text: string }>('task')(() => {
         // The Desktop tab is the screen: show it as soon as a task is submitted (even while the tank
         // is still turning on — the tab shows the progress), but leave the keyboard in the chat.
-        if (readConfig().openDesktopOnRun) this.openDesktop?.({ preserveFocus: true });
+        if (this.gatewayConfig().openDesktopOnRun) this.openDesktop?.({ preserveFocus: true });
       }),
       this.relay<{ kind: 'fired' | 'missed'; task: string; dueAt?: number; auto: boolean }>('schedule')((s) => {
         if (!s.auto) return;
@@ -283,19 +312,30 @@ export class AgentController implements vscode.Disposable {
     if (choice) void vscode.commands.executeCommand('workbench.action.reloadWindow');
   }
 
-  /** Push the current settings and the current provider's key into the gateway. */
-  private async syncSettings(): Promise<void> {
-    if (!this.client.connected) return;
-    const cfg = readConfig();
+  /** The config she runs on: the gateway's (last event or snapshot); VS Code's settings only before the first connect. */
+  gatewayConfig(): DeskfishConfig {
+    return this.sync.last ?? this.client.snapshot?.config ?? readConfig();
+  }
+
+  /** The key for a config's provider, when VS Code holds one. A slot empty here may hold a key set elsewhere; clearing is setApiKey's. */
+  private async pushKey(cfg: DeskfishConfig): Promise<void> {
     const slot = keySlotFor(cfg.provider, cfg.baseUrl);
-    const key = await this.apiKey();
-    try {
-      await this.client.call('config.set', { patch: cfg });
-      // Only a key VS Code holds is pushed: a slot empty here may hold a key set elsewhere. Clearing is setApiKey's.
-      if (slot && key) await this.client.call('key.set', { slot, key });
-    } catch (err) {
-      this.output.appendLine(`settings → gateway failed: ${msg(err)}`);
-    }
+    if (!slot || !this.client.connected) return;
+    const key = await this.apiKey(cfg);
+    if (!key) return;
+    await this.client.call('key.set', { slot, key }).catch((err) => this.output.appendLine(`key → gateway failed: ${msg(err)}`));
+  }
+
+  /** One user setting from the gateway's config (`undefined` removes it: the gateway runs on the default). */
+  private async writeSetting(setting: string, key: keyof DeskfishConfig, value: unknown): Promise<void> {
+    const name = setting.slice('deskfish.'.length);
+    const conf = vscode.workspace.getConfiguration('deskfish');
+    if (conf.inspect(name)?.globalValue === value) return;
+    await conf.update(name, value, vscode.ConfigurationTarget.Global);
+    this.output.appendLine(`— ${setting} follows the gateway —`);
+    // A workspace value still wins inside VS Code; she runs on the gateway's either way.
+    const effective = vscode.workspace.getConfiguration('deskfish').get(name);
+    if (effective !== (value ?? DEFAULT_CONFIG[key])) this.output.appendLine(`— a workspace setting keeps ${setting} different in this window; the gateway's value is the one she runs on —`);
   }
 
   /** Run a gateway call from a button or command: an error becomes a popup instead of an unhandled rejection. */
@@ -363,7 +403,7 @@ export class AgentController implements vscode.Disposable {
   }
 
   async uiConfig(): Promise<UiConfig> {
-    const cfg = readConfig();
+    const cfg = this.gatewayConfig();
     const slot = keySlotFor(cfg.provider, cfg.baseUrl);
     return {
       provider: cfg.provider,
@@ -371,7 +411,7 @@ export class AgentController implements vscode.Disposable {
       baseUrl: cfg.baseUrl,
       daemonUrl: cfg.daemonUrl,
       vncUrl: cfg.vncUrl,
-      hasApiKey: !!(await this.apiKey()) || (!!slot && this.client.keys.includes(slot)),
+      hasApiKey: (!!slot && this.client.keys.includes(slot)) || !!(await this.apiKey(cfg)),
       maxSteps: cfg.maxSteps,
       desktop: this.desktop.current,
     };
@@ -379,13 +419,11 @@ export class AgentController implements vscode.Disposable {
 
   /** Start a task (queued behind a running one, held during a reflection). */
   async run(task: string, attachments?: DesktopFile[]): Promise<void> {
-    await this.syncSettings();
     await this.attempt('start the task', this.client.run(task, attachments));
   }
 
   /** Let her reflect now (the command). */
   async reflect(): Promise<void> {
-    await this.syncSettings();
     const r = await this.attempt('start a reflection', this.client.reflect());
     if (r === 'busy') void vscode.window.showInformationMessage('Deskfish: she is busy; let her finish first.');
   }
@@ -576,8 +614,8 @@ export class AgentController implements vscode.Disposable {
     }
     const task = await vscode.window.showInputBox({ title: 'What should she do?', prompt: 'The task, as you would type it in the chat', placeHolder: 'e.g. Order my usual coffee from the Starbucks site for pickup at 7:30; under $10; tell me the total', ignoreFocusOut: true });
     if (!task) return;
-    // Nobody is watching a scheduled run, so it is fenced: guided, with a cost ceiling. One question
-    // is enough to lift that; the budget is deskfish.unattendedMaxCostUsd (the web page gets a form in step 6).
+    // Nobody is watching a scheduled run, so it is fenced: guided, with a cost ceiling. The web page's
+    // Schedules dialog asks the same questions.
     const how = await vscode.window.showQuickPick(
       [
         { label: 'Guided (default)', detail: 'She asks before anything irreversible and uses no credentials you did not give her — the safer choice for a run nobody is watching', autonomy: 'guided' as const },
@@ -586,10 +624,20 @@ export class AgentController implements vscode.Disposable {
       { title: 'How much should she decide on her own when this runs?' },
     );
     if (!how) return;
+    const setting = this.gatewayConfig().unattendedMaxCostUsd;
+    const typed = await vscode.window.showInputBox({
+      title: 'Budget for each run, in US dollars (optional)',
+      prompt: `Enter to use deskfish.unattendedMaxCostUsd (${setting > 0 ? `$${setting.toFixed(2)}` : 'no budget'}); 0 = no budget. It acts where the model has a known price or reports its cost.`,
+      placeHolder: setting > 0 ? setting.toFixed(2) : '0',
+      ignoreFocusOut: true,
+      validateInput: (v) => (parseBudget(v) === 'bad' ? 'A number of dollars, 0 or more — or empty for the setting' : undefined),
+    });
+    if (typed === undefined) return;
+    const maxCostUsd = parseBudget(typed);
     try {
-      const s = await this.client.call('schedules.add', { task, when, autonomy: how.autonomy });
+      const s = await this.client.call('schedules.add', { task, when, autonomy: how.autonomy, ...(typeof maxCostUsd === 'number' ? { maxCostUsd } : {}) });
       const next = nextDueAfter(s, Date.now());
-      const budget = readConfig().unattendedMaxCostUsd;
+      const budget = s.maxCostUsd ?? setting;
       void vscode.window.showInformationMessage(
         `Scheduled ${describeWhen(s.when)}${next ? `, next ${formatLocal(next)}` : ''}: ${s.task} — it runs ${s.autonomy ?? 'guided'}${budget > 0 ? `, up to $${budget.toFixed(2)}` : ''}.`,
       );
@@ -621,7 +669,6 @@ export class AgentController implements vscode.Disposable {
       if (this.client.status === 'running' || this.client.status === 'paused') {
         void vscode.window.showInformationMessage('Deskfish: she is busy; the task will run when she is free.');
       }
-      await this.syncSettings();
       await this.attempt('run the scheduled task', this.client.call('schedules.runNow', { id: pick.id }));
     }
   }
@@ -631,8 +678,7 @@ export class AgentController implements vscode.Disposable {
    * between OpenRouter and Anthropic keeps both keys. A key saved before slots existed is
    * migrated into the slot of whatever provider is active the first time it is read.
    */
-  async apiKey(): Promise<string | undefined> {
-    const cfg = readConfig();
+  async apiKey(cfg: DeskfishConfig = this.gatewayConfig()): Promise<string | undefined> {
     const slot = keySlotFor(cfg.provider, cfg.baseUrl);
     if (!slot) return undefined;
     const own = await this.ctx.secrets.get(slot);
@@ -647,7 +693,7 @@ export class AgentController implements vscode.Disposable {
   }
 
   async setApiKey(): Promise<void> {
-    const cfg = readConfig();
+    const cfg = this.gatewayConfig();
     const slot = keySlotFor(cfg.provider, cfg.baseUrl);
     if (!slot) {
       void vscode.window.showInformationMessage('Deskfish: the demo model needs no key.');
@@ -674,7 +720,7 @@ export class AgentController implements vscode.Disposable {
 
   /** The "Change" button: pick where the model comes from, then the model, then the key if one is missing. */
   async changeModel(): Promise<void> {
-    const cfg = readConfig();
+    const cfg = this.gatewayConfig();
     const current = presetFor(cfg.provider, cfg.baseUrl);
     const pick = await vscode.window.showQuickPick(
       PRESETS.map((p) => ({ label: p.label, description: p.id === current?.id ? `current · ${cfg.model}` : undefined, detail: p.detail, preset: p })),
@@ -708,21 +754,12 @@ export class AgentController implements vscode.Disposable {
         model = typed.trim();
       } else model = m.label;
     }
-    const conf = vscode.workspace.getConfiguration('deskfish');
-    // User settings are the home of these three; but a workspace override would silently win over
-    // what was just chosen, so when one exists it is updated too.
-    const set = async (key: 'provider' | 'baseUrl' | 'model', value: string) => {
-      await conf.update(key, value, vscode.ConfigurationTarget.Global);
-      const ins = conf.inspect<string>(key);
-      if (ins?.workspaceValue !== undefined) await conf.update(key, value, vscode.ConfigurationTarget.Workspace);
-      if (ins?.workspaceFolderValue !== undefined) await conf.update(key, value, vscode.ConfigurationTarget.WorkspaceFolder);
-    };
-    await set('provider', preset.provider);
-    await set('baseUrl', baseUrl);
-    await set('model', model);
+    // Straight to the gateway, as one change; the mirror writes the three settings.
+    const next = await this.attempt('change the model', this.client.call('model.set', { provider: preset.provider, model, baseUrl }));
+    if (!next) return;
     this.output.appendLine(`— model: ${model} via ${preset.label}${baseUrl ? ` (${baseUrl})` : ''} —`);
     const needsKey = preset.needsKey && !isLocalEndpoint(baseUrl);
-    if (needsKey && !(await this.apiKey())) {
+    if (needsKey && !(await this.apiKey(next)) && !this.client.keys.includes(keySlotFor(next.provider, next.baseUrl) ?? '')) {
       await this.setApiKey();
     } else {
       void vscode.window.showInformationMessage(`Deskfish: using ${model} via ${preset.label}.`);
@@ -819,6 +856,7 @@ export class AgentController implements vscode.Disposable {
   /** The window closes; the gateway (and a running task) keeps going. */
   dispose(): void {
     this.subs.forEach((s) => s.dispose());
+    this.configEmitter.dispose();
     this.client.close();
   }
 }

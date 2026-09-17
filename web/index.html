@@ -27,9 +27,12 @@
   #bar .brand { display: flex; align-items: center; gap: 7px; font-size: 12px; font-weight: 600; letter-spacing: 0.02em; }
   #bar .brand svg { width: 18px; height: 18px; color: var(--vscode-button-background); }
   #bar .spacer { flex: 1; }
-  #newChat { display: flex; align-items: center; gap: 5px; padding: 3px 9px; font: inherit; font-size: 11.5px; border: 1px solid var(--vscode-widget-border); border-radius: 6px; cursor: pointer; color: inherit; background: transparent; }
-  #newChat:hover { background: var(--vscode-list-hoverBackground); border-color: var(--vscode-focusBorder); }
-  #newChat svg { width: 12px; height: 12px; }
+  #bar .tool { display: flex; align-items: center; gap: 5px; padding: 3px 9px; font: inherit; font-size: 11.5px; border: 1px solid var(--vscode-widget-border); border-radius: 6px; cursor: pointer; color: inherit; background: transparent; }
+  #bar .tool:hover { background: var(--vscode-list-hoverBackground); border-color: var(--vscode-focusBorder); }
+  #bar .tool svg { width: 12px; height: 12px; flex: none; }
+  #bar .tools { display: flex; gap: 6px; }
+  /* Narrow: Schedules and Settings keep their icon, New chat its words. */
+  @media (max-width: 420px) { #bar .tool.icon-narrow .label { display: none; } #bar .tool.icon-narrow { padding: 4px 7px; } }
   @media (max-width: 760px) {
     #panes { flex-direction: column; height: auto; }
     #chatPane { flex: none; width: 100%; height: 100vh; height: 100svh; border-right: 0; border-bottom: 1px solid var(--vscode-widget-border); }
@@ -37,7 +40,7 @@
   }
   #conn { position: fixed; top: 0; left: 50%; transform: translateX(-50%); z-index: 9; padding: 4px 12px; border-radius: 0 0 8px 8px; font-size: 12px; color: #fff; background: var(--vscode-editorWarning-foreground); }
   #toast { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); z-index: 10; max-width: min(560px, calc(100vw - 32px)); padding: 9px 14px; border-radius: 8px; font-size: 12.5px; line-height: 1.45; color: var(--vscode-editor-background); background: var(--vscode-foreground); box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25); }
-  dialog { width: min(440px, calc(100vw - 32px)); padding: 18px 20px; border: 1px solid var(--vscode-widget-border); border-radius: 10px; color: inherit; background: var(--vscode-editor-background); box-shadow: 0 12px 40px rgba(0, 0, 0, 0.3); }
+  dialog { width: min(440px, calc(100vw - 32px)); max-height: calc(100dvh - 32px); padding: 18px 20px; border: 1px solid var(--vscode-widget-border); border-radius: 10px; color: inherit; background: var(--vscode-editor-background); box-shadow: 0 12px 40px rgba(0, 0, 0, 0.3); }
   dialog::backdrop { background: rgba(0, 0, 0, 0.4); }
   dialog h2 { margin: 0 0 12px; font-size: 15px; font-weight: 600; }
   dialog label { display: block; margin: 12px 0 4px; font-size: 12px; color: var(--vscode-descriptionForeground); }
@@ -51,6 +54,42 @@
   dialog button.primary { font-weight: 600; color: var(--vscode-button-foreground); background: var(--vscode-button-background); }
   dialog button.primary:hover { background: var(--vscode-button-hoverBackground); }
   #logDialog { width: min(900px, calc(100vw - 32px)); }
+  dialog textarea { width: 100%; padding: 6px 8px; font: inherit; line-height: 1.4; resize: vertical; border: 1px solid var(--vscode-input-border); border-radius: 6px; color: var(--vscode-input-foreground); background: var(--vscode-input-background); }
+  dialog textarea:focus { outline: 1px solid var(--vscode-focusBorder); border-color: var(--vscode-focusBorder); }
+  dialog h3 { margin: 18px 0 2px; font-size: 12.5px; font-weight: 600; }
+  dialog .ok { color: var(--vscode-testing-iconPassed); }
+  /* The settings and schedules dialogs: a header, a body that scrolls, the buttons always in view. */
+  dialog.sheet { display: none; flex-direction: column; width: min(620px, calc(100vw - 32px)); padding: 0; }
+  dialog.sheet[open] { display: flex; }
+  dialog.sheet > header { padding: 16px 20px 12px; border-bottom: 1px solid var(--vscode-widget-border); }
+  dialog.sheet > header h2 { margin: 0; }
+  dialog.sheet .body { flex: 1 1 auto; min-height: 0; overflow: auto; padding: 2px 20px 16px; }
+  dialog.sheet .actions { margin: 0; padding: 12px 20px 16px; border-top: 1px solid var(--vscode-widget-border); align-items: center; }
+  dialog.sheet .actions .note { flex: 1; margin: 0; }
+  .field { margin-top: 14px; }
+  .field > label { margin: 0 0 4px; font-weight: 600; color: var(--vscode-foreground); }
+  .field .setting-id { margin-left: 6px; font-weight: 400; font-family: var(--vscode-editor-font-family); font-size: 11px; color: var(--vscode-descriptionForeground); }
+  .field .check { display: flex; align-items: flex-start; gap: 8px; margin: 0; font-weight: 600; color: var(--vscode-foreground); }
+  .field .check input { width: auto; margin: 2px 0 0; }
+  .field .hint { margin-top: 4px; }
+  .field.refused input, .field.refused select { border-color: var(--vscode-errorForeground); }
+  details.group { margin-top: 18px; }
+  details.group > summary { cursor: pointer; font-size: 12.5px; font-weight: 600; }
+  #scheduleList { list-style: none; margin: 10px 0 0; padding: 0; }
+  #scheduleList li { display: flex; align-items: center; gap: 8px; padding: 8px 0; border-bottom: 1px solid var(--vscode-widget-border); }
+  #scheduleList li .line { flex: 1; min-width: 0; font-size: 12.5px; line-height: 1.45; overflow-wrap: anywhere; }
+  #scheduleList li button { flex: none; padding: 4px 10px; }
+  #scheduleList li button.confirm { color: #fff; background: var(--vscode-errorForeground); }
+  .row2 { display: flex; gap: 10px; }
+  .row2 > div { flex: 1; min-width: 0; }
+  .row2 > div:first-child { flex: 1.4; }
+  /* At phone width a dialog fills the screen. */
+  @media (max-width: 520px) {
+    dialog.sheet { width: 100vw; max-width: 100vw; height: 100dvh; max-height: 100dvh; margin: 0; border: 0; border-radius: 0; }
+    .row2 { flex-direction: column; gap: 0; }
+    #scheduleList li { flex-wrap: wrap; justify-content: flex-end; }
+    #scheduleList li .line { flex-basis: 100%; }
+  }
   #logText { max-height: 62vh; margin: 0; padding: 10px; overflow: auto; font: 12px/1.45 var(--vscode-editor-font-family); white-space: pre-wrap; word-break: break-word; border-radius: 6px; background: var(--vscode-textCodeBlock-background); }
   [hidden] { display: none !important; }
 </style>
@@ -62,7 +101,11 @@
     <header id="bar">
       <span class="brand"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4.5 12c1.9-2.6 4.4-3.7 6.6-3.3 2.3.4 3.9 1.9 4.6 3.3-.7 1.4-2.3 2.9-4.6 3.3-2.2.4-4.7-.7-6.6-3.3z"/><path d="M15.7 12l3.8-2.5v5z"/><circle cx="7.4" cy="11.4" r="1" fill="currentColor" stroke="none"/></svg>Deskfish</span>
       <span class="spacer"></span>
-      <button id="newChat" type="button" title="Start a new chat. The current one is kept in her past chats."><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>New chat</button>
+      <span class="tools">
+        <button id="schedules" class="tool icon-narrow" type="button" title="Tasks that start themselves: add, run now, remove" aria-label="Schedules"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></svg><span class="label">Schedules</span></button>
+        <button id="settings" class="tool icon-narrow" type="button" title="Deskfish's settings (the model and the key have their own buttons in the chat)" aria-label="Settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/></svg><span class="label">Settings</span></button>
+        <button id="newChat" class="tool" type="button" title="Start a new chat. The current one is kept in her past chats."><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg><span class="label">New chat</span></button>
+      </span>
     </header>
     <iframe id="chat" title="Chat" srcdoc="{{chat}}"></iframe>
   </section>
@@ -106,6 +149,74 @@
       <button type="button" value="cancel">Cancel</button>
       <button type="button" value="save" class="primary">Save</button>
     </div>
+  </div>
+</dialog>
+
+<dialog id="settingsDialog" class="sheet" aria-labelledby="settingsTitle">
+  <header>
+    <h2 id="settingsTitle">Settings</h2>
+    <p class="hint">Kept by Deskfish itself, so VS Code and this page show the same values. The model and the API key have their own buttons in the chat.</p>
+  </header>
+  <div class="body" id="settingsFields"></div>
+  <div class="actions">
+    <p class="hint note" id="settingsNote"></p>
+    <button type="button" value="cancel">Cancel</button>
+    <button type="button" value="save" class="primary">Save</button>
+  </div>
+</dialog>
+
+<dialog id="schedulesDialog" class="sheet" aria-labelledby="schedulesTitle">
+  <header>
+    <h2 id="schedulesTitle">Scheduled tasks</h2>
+    <p class="hint">They run while Deskfish runs, with or without VS Code or this page. A time missed while it was not running is skipped, not run late.</p>
+  </header>
+  <div class="body">
+    <ul id="scheduleList"></ul>
+    <p class="hint" id="scheduleEmpty" hidden>No scheduled tasks yet.</p>
+    <h3>Schedule a task</h3>
+    <div class="row2">
+      <div>
+        <label for="schedKind">When</label>
+        <select id="schedKind">
+          <option value="once">Once, at a date and time</option>
+          <option value="daily">Every day at a time</option>
+          <option value="weekly">Every week, on a day at a time</option>
+          <option value="every">Every N minutes</option>
+        </select>
+      </div>
+      <div id="schedAtRow">
+        <label for="schedAt">Date and time</label>
+        <input id="schedAt" type="datetime-local">
+      </div>
+      <div id="schedDayRow" hidden>
+        <label for="schedDay">Day</label>
+        <select id="schedDay"></select>
+      </div>
+      <div id="schedTimeRow" hidden>
+        <label for="schedTime">Time</label>
+        <input id="schedTime" type="time">
+      </div>
+      <div id="schedEveryRow" hidden>
+        <label for="schedMinutes">Minutes between runs</label>
+        <input id="schedMinutes" type="number" min="5" step="1" inputmode="numeric">
+      </div>
+    </div>
+    <label for="schedTask">What should she do?</label>
+    <textarea id="schedTask" rows="3" placeholder="e.g. Order my usual coffee from the Starbucks site for pickup at 7:30; under $10; tell me the total"></textarea>
+    <label for="schedAutonomy">How much should she decide on her own when this runs?</label>
+    <select id="schedAutonomy">
+      <option value="guided">Guided (default)</option>
+      <option value="free">Free, like a task you type yourself</option>
+    </select>
+    <p class="hint" id="schedAutonomyDetail"></p>
+    <label for="schedBudget">Budget for each run, in US dollars (optional)</label>
+    <input id="schedBudget" type="number" min="0" step="0.5" inputmode="decimal">
+    <p class="hint" id="schedBudgetHint"></p>
+  </div>
+  <div class="actions">
+    <p class="hint note" id="schedNote" role="status"></p>
+    <button type="button" value="close">Close</button>
+    <button type="button" value="add" class="primary">Add</button>
   </div>
 </dialog>
 

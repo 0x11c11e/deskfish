@@ -1,5 +1,4 @@
 import * as vscode from 'vscode';
-import { readConfig } from '../config';
 import type { AgentController } from '../controller';
 import type { Snapshot } from '../gateway/protocol';
 import type { FromChat, ToChat } from '../webview/protocol';
@@ -44,9 +43,8 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       this.controller.onDidPost((p) => this.send(p.kind === 'user' ? { type: 'user', text: p.text } : { type: 'notice', text: p.text })),
       this.controller.onDidDownload((file) => this.send({ type: 'download', file })),
       desktop.onDidChange((status) => this.send({ type: 'desktop', status })),
-      vscode.workspace.onDidChangeConfiguration((e) => {
-        if (e.affectsConfiguration('deskfish')) void this.sendConfig();
-      }),
+      // The header shows the gateway's config: re-rendered when it (or the key slots) change, from any client.
+      this.controller.onDidConfig(() => void this.sendConfig()),
       this.ctx.secrets.onDidChange((e) => {
         if (e.key.startsWith('deskfish.')) void this.sendConfig();
       }),
@@ -148,7 +146,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
   /** Turn the desktop on once per window when the setting asks for it (after the gateway answers). */
   private async autoStart(): Promise<void> {
     const desktop = this.controller.desktop;
-    if (!readConfig().autoStart || this.autoStarted || !this.controller.client.connected) return;
+    if (!this.controller.gatewayConfig().autoStart || this.autoStarted || !this.controller.client.connected) return;
     await desktop.refresh().catch(() => undefined);
     if (desktop.current.state === 'off' && !desktop.runtimeMissing) {
       this.autoStarted = true;

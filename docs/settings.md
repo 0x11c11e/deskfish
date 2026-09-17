@@ -5,14 +5,28 @@ section: Reference
 order: 1
 ---
 
-Open **Settings** and search for *Deskfish*. All settings live under the `deskfish` prefix.
-(The **Change** button next to *Model* in the sidebar opens the model picker, which writes the
-three model settings for you; it does not open this list.)
+In VS Code, open **Settings** and search for *Deskfish*; on the web page, press **Settings** in
+the title bar. All settings live under the `deskfish` prefix. (The **Change** button next to
+*Model* in the chat opens the model picker, which sets the three model settings for you; the key
+has its own button too. Neither opens this list.)
+
+## One set of settings
+
+Deskfish keeps its settings itself, in `config.json` in its data folder, and runs on those —
+whichever window or page changed them last. VS Code mirrors them into your **User** settings, so
+the two always agree: a value you set on the web page shows up in VS Code's settings (and in
+`settings.json`), and a value you change in VS Code shows up on the page. The very first time
+Deskfish starts, it takes VS Code's settings as they are.
+
+On the web page, **Settings** shows the same settings with the words VS Code shows, in three
+groups: *How she works*, *Her desktop*, and *Advanced* (folded). **Save** sends only what you
+changed; a value Deskfish does not accept is marked on its field and nothing is saved. The three
+*Where Deskfish runs* settings below belong to VS Code alone and are not on the page.
 
 > [!TIP]
-> Put the model settings (`provider`, `model`, `baseUrl`) and `desktop.containerCli` in your
-> **User** settings. Deskfish is used from any folder, and a workspace's settings only apply
-> to that workspace.
+> Keep Deskfish settings in your **User** settings. A folder's (workspace) settings are not sent
+> to Deskfish and are not updated when a value changes elsewhere; Deskfish writes a line in its
+> log when one hides a value in a window.
 
 ## Model
 
@@ -32,7 +46,7 @@ The API key is not a setting; **Deskfish: Set LLM API Key** stores it in the key
 | Setting | Default | What it does |
 | --- | --- | --- |
 | `deskfish.maxSteps` | `0` | Cap on model turns per task. `0` = no cap: the agent works until it is done or you press Stop. A number stops the task there with a summary; "continue" resumes |
-| `deskfish.maxCostUsd` | `0` | Cost budget per task in dollars: at list prices for Claude or Kimi used directly, or the cost OpenRouter reports. `0` = none. At 80% the agent is told to wrap up; once a turn reaches the budget it takes no more actions and summarizes; "continue" resumes. A brake, not a hard ceiling: the wrap-up can go a little over, and endpoints with no cost source cannot enforce it |
+| `deskfish.maxCostUsd` | `0` | Cost budget per task in dollars: at list prices for Claude, Kimi or Grok used directly, or the cost OpenRouter reports. `0` = none. At 80% the agent is told to wrap up; once a turn reaches the budget it takes no more actions and summarizes; "continue" resumes. A brake, not a hard ceiling: the wrap-up can go a little over, and endpoints with no cost source cannot enforce it |
 | `deskfish.unattendedMaxCostUsd` | `2` | Cost budget in dollars for a run nobody asked for and nobody is watching — a scheduled task. Such a run also behaves as `guided` unless the schedule says otherwise. `0` = no budget; a budget on the schedule itself wins. Same limits as `deskfish.maxCostUsd`: it can only act where the cost is known. See [Schedules](schedules#the-fence-on-a-run-nobody-is-watching) |
 | `deskfish.temperature` | *(unset)* | Sampling temperature for OpenAI-compatible endpoints. Unset, none is sent and the model runs at its provider default, which reasoning models such as `kimi-k3` and GPT-5 insist on (they answer any other value with HTTP 400). Set a number, `0` for the most repeatable clicks, only for models that accept one. Not used by the Anthropic provider, whose adaptive thinking fixes the temperature |
 | `deskfish.promptCaching` | `auto` | Cache breakpoints on OpenAI-compatible endpoints: `auto` adds them for openrouter.ai only, `on` for any gateway that passes them through (LiteLLM), `off` never. The Anthropic provider always caches. See [Models and providers](models-and-providers#a-note-on-openrouter) |

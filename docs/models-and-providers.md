@@ -147,8 +147,13 @@ the cache and, where Deskfish can tell, a cost. The estimate exists for the mode
 Deskfish's price table, at the provider's list prices, and only where those prices apply:
 Claude used directly (Opus 5 at $5 per million input tokens, $25 per million output and $0.50
 per million read from cache; Sonnet 5 at $2, $10 and $0.20) and Kimi used directly from
-Moonshot AI (K3 at $3, $15 and $0.30; K2.6 at $0.95, $4 and $0.16). Moonshot's own API caches
-prefixes automatically and reports the cached share, so the estimate counts it. The same model
+Moonshot AI (K3 at $3, $15 and $0.30; K2.6 at $0.95, $4 and $0.16), and Grok used directly
+from xAI at `api.x.ai` (grok-4.6 at $2, $6 and $0.50; grok-4.5 at $2, $6 and $0.30; grok-4.3 and
+the grok-4.20 models at $1.25, $2.50 and $0.20; grok-build-0.1 at $1, $2 and $0.20). Moonshot's
+own API caches prefixes automatically and reports the cached share, so the estimate counts it.
+xAI doubles every rate once a single request reaches 200,000 tokens; the ledger restarts the
+conversation at 100,000 (`deskfish.ledgerTokens`), so a task stays at the rates above unless you
+raise that setting a long way. A Grok model not listed there shows tokens only. The same model
 name served from a local endpoint is not priced, since it costs nothing but time. Note that Kimi
 K3's list prices are higher than Sonnet 5's on every line. A long task can process a million
 tokens or more in total; with caching, most of that is the cheap kind.

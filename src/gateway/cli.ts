@@ -9,7 +9,7 @@ import { DEFAULT_PORT } from './protocol';
 import { GatewayServer } from './server';
 import { DeskfishService } from './service';
 import { probeGateway } from './spawn';
-import { dataDir, ensureToken, readToken, writePrivate } from './storage';
+import { LogFile, dataDir, ensureToken, gatewayLogFile, readToken, writePrivate } from './storage';
 import { VERSION } from './version';
 
 /**
@@ -70,13 +70,14 @@ async function main(argv: string[]): Promise<number> {
 
 /* ---------- serve ---------- */
 
-function loadConfig(file: string, log: (line: string) => void): DeskfishConfig {
+/** The saved config over the defaults; `saved` is false when there is no readable `config.json` (a client seeds it). */
+function loadConfig(file: string, log: (line: string) => void): { cfg: DeskfishConfig; saved: boolean } {
   let cfg = DEFAULT_CONFIG;
   let saved: Record<string, unknown> = {};
   try {
     saved = JSON.parse(fs.readFileSync(file, 'utf8'));
   } catch {
-    return cfg;
+    return { cfg, saved: false };
   }
   for (const [k, v] of Object.entries(saved)) {
     try {
@@ -85,7 +86,7 @@ function loadConfig(file: string, log: (line: string) => void): DeskfishConfig {
       log(`config.json: ignored ${k}`);
     }
   }
-  return cfg;
+  return { cfg, saved: true };
 }
 
 /** The data dir's lock: one gateway per data dir, so exactly one process writes her files. */
@@ -110,8 +111,12 @@ async function serve(o: { dir: string; port: number; host: string; allowRemote: 
   process.stderr.on('error', () => {});
   const ring: string[] = [];
   let server: GatewayServer | undefined;
+  // Its own log file, whoever started it (VS Code, the login entry, a terminal).
+  const logFile = new LogFile(gatewayLogFile(o.dir));
   const log = (line: string) => {
-    process.stdout.write(`${new Date().toISOString()} ${line}\n`);
+    const stamped = `${new Date().toISOString()} ${line}\n`;
+    process.stdout.write(stamped);
+    logFile.append(stamped);
     ring.push(line);
     if (ring.length > 5000) ring.splice(0, 1000);
     server?.logLine(line);
@@ -127,9 +132,10 @@ async function serve(o: { dir: string; port: number; host: string; allowRemote: 
     writePrivate(path.join(o.dir, 'gateway.pid'), JSON.stringify({ pid: process.pid, port: o.port }) + '\n');
   }
   const configFile = path.join(o.dir, 'config.json');
-  const service = new DeskfishService({ dataDir: o.dir, resourceDir: path.resolve(__dirname, '..'), config: loadConfig(configFile, log), log });
+  const loaded = loadConfig(configFile, log);
+  const service = new DeskfishService({ dataDir: o.dir, resourceDir: path.resolve(__dirname, '..'), config: loaded.cfg, configSaved: loaded.saved, log });
   service.init();
-  // The last settings a client pushed: the gateway runs on them when no client is connected.
+  // The one source of truth for settings: every client's change lands here, and every client mirrors it.
   service.on('config', (cfg: DeskfishConfig) => writePrivate(configFile, JSON.stringify(cfg, null, 1) + '\n'));
   let stopping = false;
   const shutdown = async (why: string) => {

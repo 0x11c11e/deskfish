@@ -12,8 +12,10 @@ free to do other work in the meantime.
 
 ## Creating one
 
-Run **Deskfish: Schedule a Task…** from the **…** menu of the chat or the command palette.
-It asks when, then what, then how much she should decide on her own when it runs. Write the task
+Run **Deskfish: Schedule a Task…** from the **…** menu of the chat or the command palette, or
+press **Schedules** in the title bar of the web page. Both ask the same things: when, what, how
+much she should decide on her own when it runs, and a budget for its runs (leave it empty for the
+setting). Write the task
 the way you would in the chat, and since nobody may be watching when it runs, be explicit about
 limits and what you want reported:
 
@@ -21,8 +23,10 @@ limits and what you want reported:
 > main changes with the date ranges and a link to each view. Do not change any settings; if
 > the dashboard asks you to log in again, knock and wait.
 
-**Deskfish: Scheduled Tasks…** lists what is scheduled, with the next time and the last
-outcome, and lets you run one now or remove it. Schedules are kept in a small file in the
+**Deskfish: Scheduled Tasks…**, and the list at the top of the web page's **Schedules** dialog,
+show what is scheduled, with the next time, the fence when it is not the default and the last
+outcome, and let you run one now or remove it (on the page, **Remove** asks once more on the
+same button). Schedules are kept in a small file in the
 agent's storage, so they survive reloads, restarts and any number of shutdowns.
 
 ## What happens at the due time
@@ -57,7 +61,8 @@ runs with two limits you do not have to think about:
 - **It has a cost budget**, `deskfish.unattendedMaxCostUsd`, two dollars by default. At 80% she
   is told to wrap up; at the budget she takes no more actions and writes a summary. `0` turns it
   off. The same caveat as `deskfish.maxCostUsd` applies: the budget can only act where the cost
-  is known (Claude or Kimi used directly, or an endpoint that reports the charge).
+  is known (Claude, Kimi or Grok used directly, or an endpoint that reports the charge). A budget
+  typed when the schedule is made is kept on that schedule and wins over the setting.
 
 Both are hers only while nobody asked for the run. **Run it now** is your click, so it runs with
 your own settings, like anything you type.
@@ -82,7 +87,6 @@ decides from there whether to carry the old task on. See
   not what the agent buys.
 - A schedule is created with the command, not by asking in the chat. Telling the agent "do
   this every Monday" does not register one. Repeats are at least five minutes apart.
-- Times are local. A one-off schedule is removed after it fires or is missed.
-- A budget for one schedule alone is stored on the schedule and wins over the setting; the
-  command does not ask for it yet (the web page's form will).
+- Times are local to the computer Deskfish runs on (which matters only when you open the web page
+  from somewhere in another time zone). A one-off schedule is removed after it fires or is missed.
 - Not yet implemented: attaching files to a scheduled task.
