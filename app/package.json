@@ -1,0 +1,66 @@
+{
+  "name": "deskfish-app",
+  "productName": "Deskfish",
+  "version": "0.1.0",
+  "description": "Give your AI its own computer. Watch it work through the glass.",
+  "homepage": "https://deskfish.sh",
+  "author": { "name": "Iman Reihanian", "email": "hello@deskfish.sh" },
+  "license": "Apache-2.0",
+  "private": true,
+  "main": "main.js",
+  "desktopName": "deskfish.desktop",
+  "scripts": {
+    "dist": "electron-builder --publish never"
+  },
+  "devDependencies": {
+    "electron": "44.4.1",
+    "electron-builder": "26.15.3",
+    "electron-updater": "6.8.9",
+    "sharp": "0.35.4"
+  },
+  "build": {
+    "appId": "sh.deskfish.app",
+    "productName": "Deskfish",
+    "executableName": "deskfish",
+    "copyright": "Copyright © 2026 Iman Reihanian",
+    "directories": { "output": "release", "buildResources": "icons" },
+    "files": [
+      "package.json",
+      { "from": "../dist/app", "to": ".", "filter": ["main.js"] },
+      "icons/tray.png",
+      "icons/tray@2x.png",
+      "icons/png/256x256.png"
+    ],
+    "extraResources": [
+      { "from": "../dist", "to": "deskfish/dist", "filter": ["cli.js", "web/*.js", "webview/*.js"] },
+      { "from": "../web", "to": "deskfish/web", "filter": ["*.html", "*.css"] },
+      { "from": "../media", "to": "deskfish/media" },
+      { "from": "../docs", "to": "deskfish/docs" },
+      { "from": "../docker/desktop", "to": "deskfish/docker/desktop" },
+      { "from": "../library", "to": "deskfish/library" },
+      { "from": "../package.json", "to": "deskfish/package.json" }
+    ],
+    "publish": [{ "provider": "github", "owner": "0x11c11e", "repo": "deskfish", "releaseType": "release" }],
+    "linux": {
+      "target": ["AppImage", "deb"],
+      "icon": "icons/png",
+      "category": "Utility",
+      "syncDesktopName": true,
+      "synopsis": "Give your AI its own computer",
+      "artifactName": "Deskfish-linux-${arch}.${ext}"
+    },
+    "deb": { "artifactName": "Deskfish-linux-${arch}.deb" },
+    "mac": {
+      "target": [{ "target": "dmg", "arch": ["universal"] }],
+      "icon": "icons/icon.icns",
+      "category": "public.app-category.productivity",
+      "artifactName": "Deskfish-mac-${arch}.${ext}"
+    },
+    "win": {
+      "target": [{ "target": "nsis", "arch": ["x64"] }],
+      "icon": "icons/icon.ico",
+      "artifactName": "Deskfish-windows-${arch}-setup.${ext}"
+    },
+    "nsis": { "oneClick": true, "perMachine": false }
+  }
+}

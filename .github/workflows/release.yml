@@ -1,7 +1,11 @@
-# Every push to main becomes a GitHub Release with one asset, deskfish.vsix, so the download on
+# Every push to main becomes a GitHub Release with deskfish.vsix, so the download on
 # deskfish.sh (…/releases/latest/download/deskfish.vsix) is always the newest build and nobody
-# has to remember to package one. One asset, always the same name: the version is in the release
-# title and inside the file, and nobody has to choose between two identical downloads. The version is major.minor from package.json plus the number
+# has to remember to package one. Always the same names: the version is in the release
+# title and inside the files, and nobody has to choose between two identical downloads. The `app` job
+# then builds the app on Linux, macOS and Windows and attaches its installers (and the files the app's
+# updater reads) to the same release: Deskfish-linux-x86_64.AppImage, Deskfish-linux-amd64.deb,
+# Deskfish-mac-universal.dmg, Deskfish-windows-x64-setup.exe. Unsigned for now (Gatekeeper and
+# SmartScreen warn); signing is on the launch checklist. The version is major.minor from package.json plus the number
 # of commits on main, e.g. 0.1.37: bump major.minor by hand in package.json when it matters;
 # the patch number takes care of itself.
 name: Release
@@ -25,6 +29,8 @@ concurrency:
 jobs:
   release:
     runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
     steps:
       - uses: actions/checkout@v5
         with:
@@ -53,7 +59,7 @@ jobs:
         run: |
           prev=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || true)
           if [ -n "$prev" ]; then changes=$(git log --format='- %s' "$prev..HEAD"); else changes=$(git log --format='- %s' -n 20); fi
-          notes=$(printf 'Deskfish %s, built from %s.\n\nInstall: download `deskfish.vsix`, then in VS Code choose **Install from VSIX…** from the Extensions view, or run `code --install-extension deskfish.vsix`. Extensions installed from a file do not update themselves; download again for a newer build.\n\n**Changes**\n%s' "$V" "${GITHUB_SHA::7}" "$changes")
+          notes=$(printf 'Deskfish %s, built from %s.\n\n**The app** (attached a few minutes after this release appears): `Deskfish-linux-x86_64.AppImage` or `Deskfish-linux-amd64.deb`, `Deskfish-mac-universal.dmg`, `Deskfish-windows-x64-setup.exe`. Not signed yet: macOS asks you to open it from System Settings → Privacy & Security, Windows SmartScreen asks you to choose Run anyway. The app offers its own updates.\n\n**The VS Code extension**: download `deskfish.vsix`, then in VS Code choose **Install from VSIX…** from the Extensions view, or run `code --install-extension deskfish.vsix`. Extensions installed from a file do not update themselves; download again for a newer build.\n\n**Changes**\n%s' "$V" "${GITHUB_SHA::7}" "$changes")
           # A manual run on a commit that already has its push release reuses it (same version, same
           # count), replacing the asset instead of failing on the existing tag.
           if gh release view "v$V" >/dev/null 2>&1; then
@@ -88,3 +94,46 @@ jobs:
           if curl -sf "https://open-vsx.org/api/$ns/$name/$v" >/dev/null; then echo "Open VSX already has $ns.$name $v; nothing to publish"; exit 0; fi
           npx --yes ovsx create-namespace "$ns" -p "$OVSX_PAT" 2>/dev/null || echo "namespace $ns exists"
           npx --yes ovsx publish deskfish.vsix -p "$OVSX_PAT"
+
+  # The app on each system's own runner, attached to the release the job above made. A failed system does not
+  # hold the others back; the vsix is already out.
+  app:
+    needs: release
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            app/package-lock.json
+      - run: npm ci
+      - run: npm ci --prefix app
+      - name: The release's version, in both package.json files
+        env:
+          V: ${{ needs.release.outputs.version }}
+        run: |
+          npm version "$V" --no-git-tag-version
+          npm version "$V" --no-git-tag-version --prefix app
+      - name: Build the app (unsigned)
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+        run: npm run app:dist
+      - name: Attach to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          V: ${{ needs.release.outputs.version }}
+        run: |
+          shopt -s nullglob
+          files=(app/release/*.AppImage app/release/*.deb app/release/*.dmg app/release/*-setup.exe app/release/*.blockmap app/release/latest*.yml)
+          ls -la "${files[@]}"
+          gh release upload "v$V" "${files[@]}" --clobber

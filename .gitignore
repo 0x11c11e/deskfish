@@ -1,5 +1,6 @@
 node_modules/
 dist/
+app/release/
 *.vsix
 docker/.env
 .DS_Store

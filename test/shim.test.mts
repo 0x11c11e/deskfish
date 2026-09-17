@@ -314,9 +314,11 @@ class FakeSocket implements SocketLike {
   const toasts: string[] = [];
   const saved: { name: string; blob: Blob }[] = [];
   const confirms: string[] = [];
+  const copies: string[] = [];
   let confirmAnswer = false;
   const ui = {
     visible: () => true, connection: () => {}, toast: (t: string) => toasts.push(t), knock: () => {}, showDesktop: () => {}, showLog: () => () => {},
+    copy: async (_pane: string, text: string) => { copies.push(text); return true; },
     saveBlob: (name: string, blob: Blob) => saved.push({ name, blob }),
     confirm: async (text: string, action: string) => { confirms.push(`${action}: ${text}`); return confirmAnswer; },
   } as unknown as HostUi;
@@ -381,6 +383,21 @@ class FakeSocket implements SocketLike {
   s.reply('reflect', 'started');
   await p;
   ok(toasts.length === toastCount, 'started → nothing more (the status line shows it)');
+
+  // Install Podman: the app's gateway opens a terminal on its screen; any other answers false and the command is copied
+  s.frame({ event: 'desktop', data: { state: 'error', message: 'no container engine', runtime: { cli: 'none', install: { platform: 'linux', system: 'Debian', command: 'sudo apt-get install -y podman', docsUrl: 'https://podman.io' } } } });
+  await tick();
+  host.api('chat').postMessage({ type: 'installRuntime' });
+  await tick();
+  ok(valid('desktop.install'), 'Install Podman asks the gateway first (desktop.install, valid)');
+  s.reply('desktop.install', true);
+  await tick();
+  ok(/^A terminal opened/.test(toasts.at(-1)!) && copies.length === 0, `the app's gateway opened a terminal: a toast, nothing copied (${toasts.at(-1)})`);
+  host.api('chat').postMessage({ type: 'installRuntime' });
+  await tick();
+  s.reply('desktop.install', false);
+  await tick();
+  ok(copies.at(-1) === 'sudo apt-get install -y podman' && /clipboard/.test(toasts.at(-1)!), 'any other gateway answers false: the command is copied, as before');
 
   // … Export: the bundle into the downloads, the bytes VS Code writes
   const bundle = { format: 'deskfish-memory', version: 1, exportedAt: '2026-09-16T10:00:00Z', memory: '- tea', self: '# Me', journal: '', chats: [] };

@@ -4,6 +4,7 @@
 //   dist/web/shim.js         - the web page's stand-in for VS Code (the gateway inlines it into the page it serves)
 //   dist/smoke.js            - headless CLI runner for testing the agent loop without VS Code
 //   dist/gateway.js, dist/cli.js - the gateway (`deskfish serve`, started detached by the extension) and the `deskfish` command
+//   dist/app/main.js         - the app's Electron main process (only when app/node_modules is installed: `npm ci --prefix app`)
 //   docs/site/index.html     - the documentation site, rendered from docs/*.md (scripts/build-docs.mjs)
 import * as esbuild from 'esbuild';
 import { buildDocs } from './scripts/build-docs.mjs';
@@ -12,7 +13,7 @@ buildDocs();
 
 // The reading library ships fixed: hash every passage so a file changed on disk is not read.
 import { createHash } from 'node:crypto';
-import { readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 {
   const manifest = {};
   for (const f of readdirSync('library').filter((f) => f.endsWith('.md')).sort()) {
@@ -82,6 +83,22 @@ const builds = [
     banner: { js: '#!/usr/bin/env node' },
   })),
 ];
+
+// The app is its own npm package (Electron and its builder stay out of the extension's install); without
+// its node_modules there is nothing to bundle electron-updater from, and the extension builds as before.
+if (existsSync('app/node_modules/electron-updater')) {
+  builds.push({
+    ...common,
+    entryPoints: ['app/main.ts'],
+    outfile: 'dist/app/main.js',
+    platform: 'node',
+    format: 'cjs',
+    target: 'node20',
+    external: ['electron', ...wsOptional],
+  });
+} else {
+  console.log('app: skipped (no app/node_modules; run npm ci --prefix app to build the app)');
+}
 
 if (watch) {
   const contexts = await Promise.all(builds.map((b) => esbuild.context(b)));

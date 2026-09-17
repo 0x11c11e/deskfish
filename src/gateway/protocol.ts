@@ -23,7 +23,7 @@ export const MAX_FRAME = 64 * 1024 * 1024;
 /** Largest file copied into or out of the tank. */
 export const MAX_TRANSFER = 100 * 1024 * 1024;
 
-export type ClientKind = 'vscode' | 'web' | 'cli';
+export type ClientKind = 'vscode' | 'web' | 'cli' | 'app';
 
 /**
  * A run request. `unattended` marks a run nobody asked for and nobody is watching (a schedule,
@@ -101,6 +101,11 @@ export interface Commands {
   /** The desktop's status; `refresh` probes the daemon first. */
   'desktop.status': [{ refresh?: boolean }, DesktopView];
   'desktop.detectRuntime': [Record<string, never>, RuntimeStatus];
+  /**
+   * Open a terminal on the gateway's computer running the container runtime's install command. False when
+   * this gateway has no terminal to open (only the app's has one) or nothing needs installing.
+   */
+  'desktop.install': [Record<string, never>, boolean];
   /** This client wants the 15 s health poll while it shows the desktop's state. */
   'desktop.poll': [{ on: boolean }, null];
   'files.upload': [{ name: string; base64: string }, DesktopFile];
@@ -205,6 +210,7 @@ const SPEC: { [K in CommandName]: Record<string, Field> } = {
   'desktop.toggle': NONE,
   'desktop.status': { refresh: 'boolean?' },
   'desktop.detectRuntime': NONE,
+  'desktop.install': NONE,
   'desktop.poll': { on: 'boolean' },
   'files.upload': { name: 'string', base64: 'string' },
   'files.list': NONE,
@@ -258,7 +264,7 @@ function fieldOk(type: Field, v: unknown): boolean {
     case 'editable':
       return v === 'memory.md' || v === 'charter.md';
     case 'client':
-      return v === 'vscode' || v === 'web' || v === 'cli';
+      return v === 'vscode' || v === 'web' || v === 'cli' || v === 'app';
     case 'provider':
       return v === 'anthropic' || v === 'openai-compatible' || v === 'mock';
     case 'autonomy':

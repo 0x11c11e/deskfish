@@ -542,11 +542,12 @@ function renderSetup(): void {
   if (plan.command) {
     const code = document.createElement('pre');
     code.textContent = plan.command;
-    code.title = 'This runs in a VS Code terminal when you click Install';
+    code.title = host === 'vscode' ? 'This runs in a VS Code terminal when you click Install' : 'The Deskfish app runs this in a terminal; a browser copies it for you';
     parts.push(code);
     const hint = document.createElement('div');
     hint.className = 'hint';
-    hint.textContent = `Runs in a VS Code terminal and asks for your password.${plan.afterwards ? ` ${plan.afterwards}` : ''}`;
+    const where = host === 'vscode' ? 'Runs in a VS Code terminal' : 'Runs in a terminal (in a browser: copied, for a terminal on the computer where Deskfish runs)';
+    hint.textContent = `${where} and asks for your password.${plan.afterwards ? ` ${plan.afterwards}` : ''}`;
     parts.push(hint);
     const install = document.createElement('button');
     install.className = 'primary';

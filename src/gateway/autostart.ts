@@ -8,7 +8,9 @@ import * as path from 'node:path';
  * schedule fires and a task finishes on a computer that was restarted.
  *
  * The plan is a pure function — platform, runtime, entry, data dir, port in; the file to write and
- * the commands to run out — so it is testable without a login and step 7's app can reuse it. The
+ * the commands to run out — so it is testable without a login. The app reuses it on Linux with `argv`
+ * (its own binary, `--hidden`) under a file name of its own, so the extension's entry and the app's
+ * never overwrite each other; on macOS and Windows the app uses the OS login item instead. The
  * extension writes the file and shows the command in a visible terminal; nothing happens silently
  * except the rewrite after an update, when the extension's folder has moved.
  *
@@ -57,6 +59,12 @@ export interface AutostartOptions {
    * nothing reads `~/.config/autostart`, so the fallback is a cron `@reboot` line.
    */
   desktopSession?: boolean;
+  /**
+   * The app's entry (Linux only): the command line itself, e.g. `[<AppImage>, '--hidden']`. It is
+   * written to `deskfish-app.desktop` without `ELECTRON_RUN_AS_NODE` (the app is Electron as itself),
+   * and `execPath`, `entry`, `dataDir` and `port` are not used.
+   */
+  argv?: string[];
 }
 
 /** A string as one POSIX shell word. */
@@ -83,6 +91,7 @@ const LAUNCH_LABEL = 'sh.deskfish.gateway';
 const TASK_NAME = 'Deskfish';
 
 export function autostartPlan(o: AutostartOptions): AutostartPlan {
+  if (o.argv) return appPlan(o, o.argv);
   const args = serveArgs(o);
   if (o.platform === 'darwin') {
     const file = path.join(o.home, 'Library', 'LaunchAgents', `${LAUNCH_LABEL}.plist`);
@@ -165,6 +174,35 @@ echo "Remove it from here with: Deskfish: Keep Running When VS Code Is Closed (i
   const removeScript = `rm -f ${sq(file)}
 echo "Removed ${file} — Deskfish no longer starts when you log in."`;
   return { kind: 'xdg', command, file, contents, install: `sh -c ${sq(script)}`, installScript: script, remove: `sh -c ${sq(removeScript)}`, where: file, reapplyOnChange: false };
+}
+
+/** The app's login entry on Linux: an XDG autostart file of its own. */
+function appPlan(o: AutostartOptions, argv: string[]): AutostartPlan {
+  if (o.platform !== 'linux') throw new Error('the app uses the OS login item on macOS and Windows');
+  if (!argv.length) throw new Error('argv is empty');
+  const file = path.join(o.home, '.config', 'autostart', 'deskfish-app.desktop');
+  const contents = `[Desktop Entry]
+Type=Application
+Name=Deskfish
+Comment=Starts Deskfish in the tray when you log in, so her tasks and schedules keep going.
+Exec=${argv.map(desktopArg).join(' ')}
+Icon=deskfish
+Terminal=false
+X-GNOME-Autostart-enabled=true
+`;
+  const removeScript = `rm -f ${sq(file)}
+echo "Removed ${file} — Deskfish no longer starts when you log in."`;
+  return {
+    kind: 'xdg',
+    command: argv.map(sq).join(' '),
+    file,
+    contents,
+    install: `sh -c ${sq(`cat ${sq(file)}`)}`,
+    installScript: `cat ${sq(file)}`,
+    remove: `sh -c ${sq(removeScript)}`,
+    where: file,
+    reapplyOnChange: false,
+  };
 }
 
 /** Is a desktop session running? Without one, nothing reads `~/.config/autostart`. */

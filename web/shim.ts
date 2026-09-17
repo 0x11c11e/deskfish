@@ -492,6 +492,11 @@ export class WebHost {
         const rt = this.mirror.desktop.runtime;
         const command = rt?.cli === 'none' ? rt.install.command : undefined;
         if (!command) break;
+        // The app's gateway opens a terminal on its own screen; any other gateway answers false.
+        if (await this.call('desktop.install').catch(() => false)) {
+          ui.toast('A terminal opened with the install command. When it has finished, click Check again.');
+          break;
+        }
         const copied = await ui.copy('chat', command);
         ui.toast(copied ? 'The install command is on your clipboard: run it in a terminal on the computer where Deskfish runs, then click Check again.' : `Run this in a terminal on the computer where Deskfish runs, then click Check again: ${command}`);
         break;

@@ -2,13 +2,15 @@ import { spawn } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { GatewayClient } from './client';
-import { DEFAULT_PORT } from './protocol';
+import { decideGateway, isOlderBuild } from './decide';
+import { DEFAULT_PORT, type ClientKind } from './protocol';
 import { ensureToken, gatewayLogFile, rotateLog } from './storage';
 
 /**
  * Find a running gateway, or start one on this computer: detached (its own session; it writes
  * `logs/gateway.log` itself, and its stderr goes there too), so closing VS Code does not end it. A gateway left running by an older build
- * is replaced when it is idle, and kept (until the next start) while it works on a task.
+ * is replaced when it is idle, and kept (until the next start) while it works on a task (`decide.ts`;
+ * the app makes the same decision and starts its gateway in its own process instead).
  * No `vscode` import.
  */
 
@@ -48,27 +50,39 @@ export interface LocalGatewayOptions {
   entry: string;
   /** The runtime: VS Code's own (`process.execPath`, run as Node) or `node`. */
   execPath?: string;
-  /** This build's version (`VERSION`); a running gateway with another one is replaced when idle. */
+  /** This build's version (`VERSION`); a running gateway of an older build is replaced when idle. */
   version: string;
   log: (line: string) => void;
 }
 
-/** Ask an older gateway to stop if it is idle. Resolves true when it was asked to stop. */
-async function replaceIfIdle(url: string, token: string, log: (line: string) => void): Promise<boolean> {
-  const client = new GatewayClient({ url, token, client: 'vscode', version: 'replace-check' });
+/**
+ * Look at port `url` and act on the table in `decide.ts`: 'use' when a gateway answers that should be
+ * kept, 'start' when none answers — including after an idle older build was asked to shut down and
+ * has stopped. Shared by the extension and the app.
+ */
+export async function settleLocalGateway(o: { url: string; token: string; version: string; client: ClientKind; log: (line: string) => void }): Promise<'use' | 'start'> {
+  const running = await probeGateway(o.url);
+  let client: GatewayClient | undefined;
+  let busy: boolean | undefined;
   try {
-    const snap = await Promise.race([client.connect(), sleep(3000).then(() => undefined)]);
-    if (!snap) return false;
-    if (snap.busy) {
-      log(`— the running gateway (${snap.version}) is busy with a task; it is kept, and replaced by this build at the next start —`);
-      return false;
+    if (running && isOlderBuild(running.version, o.version)) {
+      o.log(`— a gateway of an older build is running (${running.version}; this is ${o.version}) —`);
+      client = new GatewayClient({ url: o.url, token: o.token, client: o.client, version: 'replace-check' });
+      const snap = await Promise.race([client.connect().catch(() => undefined), sleep(3000).then(() => undefined)]);
+      busy = snap?.busy;
     }
-    await client.call('shutdown');
-    return true;
-  } catch {
-    return false;
+    const action = decideGateway(o.version, running && { version: running.version, busy });
+    if (action === 'use-busy') o.log(`— the running gateway (${running!.version}) is busy with a task; it is kept, and replaced by this build at the next start —`);
+    if (action !== 'replace') return action === 'start' ? 'start' : 'use';
+    try {
+      await client!.call('shutdown');
+    } catch {
+      return 'use';
+    }
+    if (!(await waitFor(async () => !(await probeGateway(o.url, 500)), 10_000))) throw new Error(`the old gateway on ${o.url} did not stop`);
+    return 'start';
   } finally {
-    client.close();
+    client?.close();
   }
 }
 
@@ -77,13 +91,7 @@ export async function ensureLocalGateway(o: LocalGatewayOptions): Promise<{ url:
   const port = o.port ?? DEFAULT_PORT;
   const url = `http://127.0.0.1:${port}`;
   const token = ensureToken(o.dataDir);
-  const running = await probeGateway(url);
-  if (running) {
-    if (running.version === o.version) return { url, token, started: false };
-    o.log(`— a gateway of another build is running (${running.version}; this is ${o.version}) —`);
-    if (!(await replaceIfIdle(url, token, o.log))) return { url, token, started: false };
-    if (!(await waitFor(async () => !(await probeGateway(url, 500)), 10_000))) throw new Error(`the old gateway on port ${port} did not stop`);
-  }
+  if ((await settleLocalGateway({ url, token, version: o.version, client: 'vscode', log: o.log })) === 'use') return { url, token, started: false };
   const { logFile, child } = startDetached(o, port);
   let exited: number | null | undefined;
   child.once('exit', (code) => (exited = code));

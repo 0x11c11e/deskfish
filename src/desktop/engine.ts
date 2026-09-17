@@ -1,5 +1,6 @@
 import { spawn } from 'node:child_process';
 import { exec, onPath, portOf, probeDesktop, resolveContainerCli, type ContainerCli, type ContainerCliPreference } from './cli';
+import { ensurePodmanMachine, needsMachine } from './machine';
 import { RECIPE_LABEL, recipeHash } from './recipe';
 
 /**
@@ -213,6 +214,8 @@ export class DesktopEngine {
   /** The whole "turn on" sequence. Returns when the daemon answers. */
   async start(): Promise<void> {
     const cli = await this.resolveCli();
+    // macOS and Windows: Podman's containers live in its Linux VM, which must exist and run first.
+    if (needsMachine(process.platform, cli)) await ensurePodmanMachine(this.log);
     const state = await this.imageState(cli);
     if (state === 'missing') {
       await this.build(cli);

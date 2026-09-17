@@ -35,6 +35,11 @@ export interface GatewayServerOptions {
   logTail?: (lines: number) => string[];
   /** Called after `shutdown` was answered. */
   onShutdown?: () => void;
+  /**
+   * Opens a visible terminal on this computer running `command` (the app gives one: a person sits at
+   * this screen). Without it `desktop.install` answers false and the page copies the command instead.
+   */
+  openTerminal?: (command: string) => void | Promise<void>;
   /** The Deskfish folder holding `web/`, `media/`, `dist/webview/`, `dist/web/` and `docs/site/`; without it `/` is a placeholder. */
   webRoot?: string;
 }
@@ -65,6 +70,8 @@ export class GatewayServer {
   private readonly off: (() => void)[] = [];
   private pollers = 0;
   private readonly web?: WebClient;
+  /** Open `/vnc` pipes: detached from the HTTP server once upgraded, so `close()` ends them itself. */
+  private readonly pipes = new Set<() => void>();
 
   constructor(private readonly opts: GatewayServerOptions) {
     this.service = opts.service;
@@ -110,12 +117,24 @@ export class GatewayServer {
     this.off.forEach((f) => f());
     for (const c of this.conns) c.ws.terminate();
     this.conns.clear();
+    // A live view still open would otherwise keep the server's close waiting forever (the gateway never exits).
+    for (const end of [...this.pipes]) end();
     if (this.pollers) this.service.desktop.stopPolling();
     this.wss.close();
     return new Promise((resolve) => {
       this.http.close(() => resolve());
       this.http.closeAllConnections?.();
     });
+  }
+
+  /** The install command of the runtime this computer lacks, in a terminal of its own; never a command a client sent. */
+  private async installRuntime(): Promise<boolean> {
+    if (!this.opts.openTerminal) return false;
+    const rt = await this.service.desktop.detectRuntime();
+    if (rt.cli !== 'none' || !rt.install.command) return false;
+    this.log(`— opening a terminal with the install command: ${rt.install.command} —`);
+    await this.opts.openTerminal(rt.install.command);
+    return true;
   }
 
   /* ---------- auth ---------- */
@@ -254,9 +273,11 @@ export class GatewayServer {
       socket.pipe(upstream);
     });
     const end = () => {
+      this.pipes.delete(end);
       upstream.destroy();
       socket.destroy();
     };
+    this.pipes.add(end);
     upstream.on('error', (err) => {
       this.log(`vnc proxy: ${err.message}`);
       if (!upstream.readableFlowing) refuse(socket, 502, 'Bad Gateway');
@@ -370,6 +391,8 @@ export class GatewayServer {
         return (a.refresh ? s.desktop.refresh() : Promise.resolve(s.desktop.current)).then((status) => ({ status, networkMode: s.desktop.networkMode }));
       case 'desktop.detectRuntime':
         return s.desktop.detectRuntime();
+      case 'desktop.install':
+        return this.installRuntime();
       case 'desktop.poll':
         return this.setPoll(conn, a.on), null;
       case 'files.upload': {

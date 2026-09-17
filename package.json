@@ -518,7 +518,10 @@
     "mock-daemon": "node scripts/mock-daemon.mjs",
     "smoke": "node dist/smoke.js",
     "package": "npx vsce package --allow-missing-repository --out deskfish.vsix && node scripts/check-vsix.mjs",
-    "test": "node test/run.mjs"
+    "test": "node test/run.mjs",
+    "icons": "node scripts/build-icons.mjs",
+    "app": "node esbuild.mjs && node app/node_modules/electron/cli.js dist/app/main.js",
+    "app:dist": "node esbuild.mjs && cd app && npx electron-builder --publish never"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",

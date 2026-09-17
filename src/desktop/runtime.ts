@@ -98,7 +98,7 @@ export function planForWindows(): InstallPlan {
     platform: 'win32',
     system: `Windows ${os.release()}`,
     command: 'winget install -e --id RedHat.Podman --accept-package-agreements --accept-source-agreements',
-    afterwards: 'Then restart VS Code and run "podman machine init" and "podman machine start" once in a terminal. Podman needs WSL 2; the installer offers to enable it.',
+    afterwards: 'Then restart Deskfish (or VS Code) and turn the desktop on: the first start creates Podman\'s Linux VM. Podman needs WSL 2; the installer offers to enable it.',
     docsUrl: 'https://podman.io/docs/installation#windows',
   };
 }

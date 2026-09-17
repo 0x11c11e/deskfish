@@ -33,9 +33,11 @@ causes:
 - **Port 9990 is already in use.** Another tank (or something else) is listening. Stop it,
   or start this one on another port from a terminal and change `deskfish.desktop.daemonUrl`
   and `deskfish.desktop.vncUrl`.
-- **On macOS the Podman machine is not running.** Run `podman machine start`.
-- **On Windows WSL 2 is missing** or the Podman machine is not initialized. Run
-  `podman machine init` and `podman machine start` in a terminal.
+- **On macOS or Windows, Podman's machine would not start.** Deskfish creates and starts Podman's
+  Linux VM itself when the tank turns on (the log shows `podman machine init` and `start`). If that
+  step fails, run `podman machine init` (once) and `podman machine start` in a terminal and read
+  what Podman says. (Written from Podman's documentation; not yet tried on a Mac or Windows PC.)
+- **On Windows WSL 2 is missing.** Podman's installer offers to enable it; restart afterwards.
 
 ## "The desktop did not come up within 90 s"
 
