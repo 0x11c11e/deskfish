@@ -19,7 +19,7 @@ import { priceForConfig } from '../agent/pricing';
 import { AgentRunner, type AgentEvent, type AgentStatus } from '../agent/loop';
 import { DesktopDaemonComputer } from '../computer/daemon';
 import { describeAction } from '../computer/types';
-import { maskSecrets } from '../agent/secrets';
+import { maskDeep, maskSecrets } from '../agent/secrets';
 import { keySlotFor } from '../agent/presets';
 import { DOWNLOADS_DIR, DownloadsWatcher, UPLOADS_DIR, formatSize, isTemporary, safeFileName, type NewDownload } from '../desktop/files';
 import { DesktopSupervisor, type DesktopStatus, type SupervisorOptions } from '../desktop/supervisor';
@@ -110,6 +110,8 @@ export class DeskfishService extends EventEmitter {
   private statusMessage?: string;
   /** What the running task is doing, mirrored to `state.json` so an interruption is not a hole. */
   private runState?: RunState;
+  /** Set by `dispose()`: the record of the running task stays on disk for the next start. */
+  private disposed = false;
   /**
    * The run a gateway start found unfinished. The next run that is not a reflection is told about
    * it and it is then forgotten; it survives New chat, because the interruption happened whatever
@@ -260,7 +262,9 @@ export class DeskfishService extends EventEmitter {
   private flushState(): void {
     if (!this.runState) return;
     try {
-      writeState(this.dataDir, this.runState);
+      // Masked like every other file the gateway writes (decision 88): the task, what the user said
+      // and her last line can quote a token; the note she gets back reads the masked form.
+      writeState(this.dataDir, maskDeep(this.runState));
     } catch (err) {
       this.log(`state.json could not be written: ${err instanceof Error ? err.message : String(err)}`);
     }
@@ -268,6 +272,9 @@ export class DeskfishService extends EventEmitter {
 
   /** The run ended (or the chat was cleared): nothing is interrupted, so nothing is left behind. */
   private endState(): void {
+    // A gateway that is going away (`deskfish stop`, SIGTERM, an update) is exactly the
+    // interruption the file exists for: the runner's late "stopped" must not erase it.
+    if (this.disposed) return;
     this.runState = undefined;
     clearState(this.dataDir);
   }
@@ -487,7 +494,10 @@ export class DeskfishService extends EventEmitter {
     // adapter may hold half-finished tool calls, so those start fresh.
     // The fence is part of the setup: an unattended run never continues an attended conversation
     // built with other rules (and a scheduled run is its own chat anyway).
-    const fingerprint = JSON.stringify([cfg.provider, cfg.model, cfg.baseUrl, cfg.anthropicWorkspaceId, fence.autonomy, cfg.daemonUrl, apiKey, cfg.effort, cfg.cacheTtl, fence.budgetUsd]);
+    // The budget itself is not: "Stopped at the cost budget — raise deskfish.maxCostUsd or say
+    // continue" must keep the conversation when the person does both (the raised budget applies
+    // from the next fresh runner, as before step 5).
+    const fingerprint = JSON.stringify([cfg.provider, cfg.model, cfg.baseUrl, cfg.anthropicWorkspaceId, fence.autonomy, cfg.daemonUrl, apiKey, cfg.effort, cfg.cacheTtl, opts?.unattended ? fence.budgetUsd : null]);
     let runner = this.runner;
     if (!runner || runner.currentStatus !== 'done' || fingerprint !== this.runnerFingerprint) {
       try {
@@ -684,7 +694,10 @@ export class DeskfishService extends EventEmitter {
     }
     this.transcript?.user(withAttachments(text, attachments));
     // What the person said mid-task is part of the task: the note after an interruption carries it.
-    if (this.runState && this.runState.said.length < 5) this.runState.said.push(text);
+    if (this.runState) {
+      this.runState.said.push(text);
+      if (this.runState.said.length > 5) this.runState.said.splice(0, this.runState.said.length - 5); // the last five: the latest instruction is the one that counts
+    }
     this.runner.say(withAttachments(text, attachments));
     if (this.runner.waitingForUser) this.runner.resume();
   }
@@ -1114,6 +1127,7 @@ export class DeskfishService extends EventEmitter {
   }
 
   dispose(): void {
+    this.disposed = true;
     clearTimeout(this.autoReflectTimer);
     clearTimeout(this.firstTick);
     clearInterval(this.scheduleTimer);

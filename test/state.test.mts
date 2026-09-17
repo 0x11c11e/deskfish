@@ -230,6 +230,10 @@ try {
   held = new Promise<void>((r) => (release = r));
   await live.run('TASK-STOP');
   await until(() => !!state(dirA), 'recording again');
+  // What the user says mid-task is recorded — masked, like the transcript (decision 88).
+  live.say(`the token is ghp_${'A'.repeat(36)} — use it`);
+  await until(() => (state(dirA)?.said.length ?? 0) === 1, 'the tick records what the user said');
+  ok(state(dirA)!.said[0].includes('the token is') && !state(dirA)!.said[0].includes('A'.repeat(36)), `a secret said mid-task is masked in the file: ${state(dirA)!.said[0]}`);
   live.stop();
   release();
   await until(() => !fs.existsSync(path.join(dirA, 'state.json')), 'Stop clears the state');
@@ -238,8 +242,20 @@ try {
   writeState(dirA, base);
   live.newConversation();
   ok(!fs.existsSync(path.join(dirA, 'state.json')), 'New chat clears the state file');
+
+  // The gateway going away mid-task (`deskfish stop`, SIGTERM, an update) is the interruption the
+  // file exists for: dispose() stops the runner, and its late "stopped" must not erase the record.
+  queued = [{ kind: 'wait' }];
+  holdFrom = 2;
+  held = new Promise<void>((r) => (release = r));
+  await live.run('TASK-GATEWAY-STOPPED');
+  await until(() => !!state(dirA), 'recording before the gateway stops');
   live.dispose();
+  release();
+  await new Promise((r) => setTimeout(r, 300));
+  ok(state(dirA)?.task.includes('TASK-GATEWAY-STOPPED') === true, 'a gateway stopped mid-task leaves the record for the next start');
   live = undefined;
+  holdFrom = Infinity;
 
   // ---------- 3. resume: the journal line and the note ----------
   const interrupted: RunState = { ...base, task: 'TASK-INTERRUPTED buy the tickets', containerId: 'tank-zero' };
