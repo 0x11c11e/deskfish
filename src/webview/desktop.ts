@@ -269,6 +269,15 @@ const userHasControl = () => connected && !!rfb && !rfb.viewOnly;
 let buttonHeld = false;
 screen.addEventListener('mousedown', () => { buttonHeld = true; }, true);
 window.addEventListener('mouseup', () => { buttonHeld = false; }, true);
+/*
+ * While a button is down noVNC holds the mouse itself (`setCapture`, emulated in Chromium and Firefox by a
+ * full-window element, `noVNC_mouse_capture_elem`, laid over everything): every move and the release reach
+ * the canvas through it, so nothing can be left held. The pointer passing onto that element is not the
+ * person leaving the screen; treating it so released the button on the first move of every drag and no
+ * text could be selected (2026-09-17: "released button 1" in the gateway log at each drag).
+ */
+const CAPTURE_ELEM = 'noVNC_mouse_capture_elem';
+const noVncHolds = (el?: EventTarget | null) => !!(document as Document & { captureElement?: Element | null }).captureElement || (el instanceof Element && el.id === CAPTURE_ELEM);
 function releaseInputSoon(unlessHeld = false): void {
   if (!userHasControl()) return;
   if (unlessHeld && buttonHeld) return;
@@ -284,12 +293,13 @@ function releaseInputIfStale(): void {
   if (Date.now() - lastRelease > 3000) releaseInputSoon(true);
 }
 window.addEventListener('mouseup', (ev) => {
-  if (!screen.contains(ev.target as Node)) releaseInputSoon();
+  // A release over noVNC's capture element is the end of a drag that started on the canvas: noVNC sends it.
+  if (!screen.contains(ev.target as Node) && !noVncHolds(ev.target)) releaseInputSoon();
 });
 window.addEventListener('blur', () => releaseInputSoon(true));
-document.addEventListener('mouseleave', () => releaseInputSoon());
+document.addEventListener('mouseleave', () => releaseInputSoon(true));
 screen.addEventListener('mouseleave', (ev) => {
-  if (ev.buttons) releaseInputSoon(); // left the canvas with a button still down
+  if (ev.buttons && !noVncHolds(ev.relatedTarget)) releaseInputSoon(); // left the canvas with a button still down, and noVNC is not following it
 });
 // Just before the person starts interacting: whatever was left held (by anyone) is let go, so the
 // first click after a take-over is a plain click.

@@ -1,66 +1,40 @@
 /*
- * The web page's palette: the variables VS Code gives its webviews, with plain values, light by
- * default and dark when the system prefers it. media/chat.css and media/desktop.css are used as they
- * are on top of this; the page's own frame and dialogs use the same variables.
+ * The web page's palette: the variables VS Code gives its webviews, with the values of VS Code's
+ * default dark theme (Dark Modern), so the page looks like the sidebar people know from VS Code —
+ * a near-black pane, her replies on grey cards, your messages in blue. One palette whatever the
+ * system prefers (decided 2026-09-17: the light palette made her replies and the status lines hard
+ * to tell apart). media/chat.css and media/desktop.css are used as they are on top of this; the
+ * page's own frame and dialogs use the same variables.
  */
 :root {
-  color-scheme: light dark;
-  --vscode-font-family: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  color-scheme: dark;
+  --vscode-font-family: system-ui, -apple-system, 'Segoe UI', Ubuntu, 'Droid Sans', sans-serif;
   --vscode-font-size: 13px;
-  --vscode-editor-font-family: ui-monospace, 'SF Mono', Menlo, Consolas, 'DejaVu Sans Mono', monospace;
-  --vscode-foreground: #1f2328;
-  --vscode-descriptionForeground: #59636e;
-  --vscode-editor-background: #ffffff;
-  --vscode-sideBar-background: #f6f8fa;
-  --vscode-editorWidget-background: #ffffff;
-  --vscode-widget-border: rgba(31, 35, 40, 0.15);
-  --vscode-focusBorder: #0b7285;
-  --vscode-button-background: #0b7285;
+  --vscode-editor-font-family: ui-monospace, 'SF Mono', Menlo, Consolas, 'Droid Sans Mono', 'DejaVu Sans Mono', monospace;
+  --vscode-foreground: #cccccc;
+  --vscode-descriptionForeground: #9d9d9d;
+  --vscode-editor-background: #1f1f1f;
+  --vscode-sideBar-background: #181818;
+  --vscode-editorWidget-background: #202020;
+  --vscode-widget-border: #313131;
+  --vscode-focusBorder: #0078d4;
+  --vscode-button-background: #0078d4;
   --vscode-button-foreground: #ffffff;
-  --vscode-button-hoverBackground: #095f6f;
-  --vscode-button-secondaryBackground: #e6eaef;
-  --vscode-button-secondaryForeground: #1f2328;
-  --vscode-button-secondaryHoverBackground: #d6dce3;
-  --vscode-input-background: #ffffff;
-  --vscode-input-foreground: #1f2328;
-  --vscode-input-border: rgba(31, 35, 40, 0.22);
-  --vscode-input-placeholderForeground: #8c959f;
-  --vscode-textLink-foreground: #0b7285;
-  --vscode-textCodeBlock-background: rgba(31, 35, 40, 0.06);
-  --vscode-list-hoverBackground: rgba(31, 35, 40, 0.06);
-  --vscode-progressBar-background: #0b7285;
-  --vscode-testing-iconPassed: #1a7f37;
-  --vscode-editorWarning-foreground: #9a6700;
-  --vscode-errorForeground: #cf222e;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --vscode-foreground: #e6edf3;
-    --vscode-descriptionForeground: #9198a1;
-    --vscode-editor-background: #0d1117;
-    --vscode-sideBar-background: #151b23;
-    --vscode-editorWidget-background: #151b23;
-    --vscode-widget-border: rgba(240, 246, 252, 0.14);
-    --vscode-focusBorder: #2fb8cc;
-    --vscode-button-background: #13879a;
-    --vscode-button-foreground: #ffffff;
-    --vscode-button-hoverBackground: #1a9cb0;
-    --vscode-button-secondaryBackground: #262c36;
-    --vscode-button-secondaryForeground: #e6edf3;
-    --vscode-button-secondaryHoverBackground: #2f3742;
-    --vscode-input-background: #0d1117;
-    --vscode-input-foreground: #e6edf3;
-    --vscode-input-border: rgba(240, 246, 252, 0.2);
-    --vscode-input-placeholderForeground: #6e7681;
-    --vscode-textLink-foreground: #4cc3d6;
-    --vscode-textCodeBlock-background: rgba(240, 246, 252, 0.08);
-    --vscode-list-hoverBackground: rgba(240, 246, 252, 0.06);
-    --vscode-progressBar-background: #2fb8cc;
-    --vscode-testing-iconPassed: #3fb950;
-    --vscode-editorWarning-foreground: #d29922;
-    --vscode-errorForeground: #f85149;
-  }
+  --vscode-button-hoverBackground: #026ec1;
+  --vscode-button-secondaryBackground: #313131;
+  --vscode-button-secondaryForeground: #cccccc;
+  --vscode-button-secondaryHoverBackground: #3c3c3c;
+  --vscode-input-background: #313131;
+  --vscode-input-foreground: #cccccc;
+  --vscode-input-border: #3c3c3c;
+  --vscode-input-placeholderForeground: #989898;
+  --vscode-textLink-foreground: #4daafc;
+  --vscode-textCodeBlock-background: #2b2b2b;
+  --vscode-list-hoverBackground: #2a2d2e;
+  --vscode-progressBar-background: #0078d4;
+  --vscode-testing-iconPassed: #73c991;
+  --vscode-editorWarning-foreground: #cca700;
+  --vscode-errorForeground: #f85149;
 }
 
 /* The Desktop view on the web page: status line and Take over / Hand back under the screen. */
