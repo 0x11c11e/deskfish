@@ -6,8 +6,8 @@ order: 1
 ---
 
 In VS Code, open **Settings** and search for *Deskfish*, or choose **Deskfish: Settings…** in the
-chat's **…** menu; on the web page, press the settings icon in the title bar. All settings live
-under the `deskfish` prefix. (The **Change** button next to
+chat's **…** menu; on the web page and in the app, press the settings icon in the title bar. All
+settings live under the `deskfish` prefix. (The **Change** button next to
 *Model* in the chat opens the model picker, which sets the three model settings for you; the key
 has its own button too. Neither opens this list.)
 
@@ -25,7 +25,7 @@ to Deskfish; a setting changed on the web page in the meantime is written into `
 If the same setting was changed in both places to different values, Deskfish's value wins and
 the Deskfish log names the setting.
 
-The **Settings** panel (in the chat, in VS Code and on the web page alike) shows the same settings
+The **Settings** panel (in the chat — in VS Code, on the web page and in the app alike) shows the same settings
 with the words VS Code shows, in three groups: *How she works*, *Her desktop*, and *Advanced*
 (folded). **Save** sends only what you changed; a value Deskfish does not accept is marked on its
 field and nothing is saved. The three *Where Deskfish runs* settings below belong to VS Code alone
@@ -87,12 +87,19 @@ The remote-tank settings are explained in [Advanced setups](advanced).
 ## Where Deskfish runs
 
 Deskfish itself — the desktop, the agent, her memory, her chats and her schedules — lives in a
-background process (the *gateway*) that VS Code starts and that keeps working when VS Code is
-closed. These three settings say where it runs and whether it comes back by itself. Reload the
-window after changing the first two.
+background process (the *gateway*) that keeps working when every window is closed. See
+[Running without VS Code](running-without-vscode).
+
+These three settings belong to the VS Code extension: they say which gateway *this window*
+talks to. Reload the window after changing the first two.
+
+- **The app** has no settings of its own for this. It runs a gateway on the computer it is on,
+  or joins one already there. See [The app](the-app).
+- **A gateway on a server** is the `remote` placement below, reached through an SSH tunnel or
+  Tailscale. The recipe is in [Advanced setups](advanced#a-gateway-on-another-machine).
 
 | Setting | Default | What it does |
 | --- | --- | --- |
 | `deskfish.gateway.placement` | `local` | `local`: Deskfish runs on this computer and the extension starts it — nothing to set up. `remote`: it runs on another machine; set `deskfish.gateway.url` and enter its token with **Deskfish: Set Gateway Token** |
 | `deskfish.gateway.url` | *(empty)* | Address of the remote one, e.g. `http://127.0.0.1:9980` through an SSH tunnel, or a Tailscale address. Empty with `local`: this computer, port 9980 |
-| `deskfish.gateway.keepRunning` | `false` | Start Deskfish when you log in, so her schedules run and an interrupted task can be picked up after a restart. Turn it on with **Deskfish: Keep Running When VS Code Is Closed**, which writes the entry and shows it to you in a terminal; the same command removes it. Without it, Deskfish still keeps running after you close VS Code — until the computer restarts |
+| `deskfish.gateway.keepRunning` | `false` | Start Deskfish when you log in, so her schedules run and an interrupted task can be picked up after a restart. Turn it on with **Deskfish: Keep Running When VS Code Is Closed**, which writes the entry and shows it to you in a terminal; the same command removes it. Without it, Deskfish still keeps running after you close VS Code — until the computer restarts. Only for the `local` placement: with `remote`, the command says so and writes nothing, because the machine that must start her is the other one |

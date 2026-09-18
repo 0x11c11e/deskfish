@@ -14,6 +14,31 @@
       "source": "/downloads/deskfish-:version.vsix",
       "destination": "https://github.com/0x11c11e/deskfish/releases/latest/download/deskfish.vsix",
       "permanent": false
+    },
+    {
+      "source": "/downloads/Deskfish-linux-x86_64.AppImage",
+      "destination": "https://github.com/0x11c11e/deskfish/releases/latest/download/Deskfish-linux-x86_64.AppImage",
+      "permanent": false
+    },
+    {
+      "source": "/downloads/Deskfish-linux-amd64.deb",
+      "destination": "https://github.com/0x11c11e/deskfish/releases/latest/download/Deskfish-linux-amd64.deb",
+      "permanent": false
+    },
+    {
+      "source": "/downloads/Deskfish-mac-universal.dmg",
+      "destination": "https://github.com/0x11c11e/deskfish/releases/latest/download/Deskfish-mac-universal.dmg",
+      "permanent": false
+    },
+    {
+      "source": "/downloads/Deskfish-windows-x64-setup.exe",
+      "destination": "https://github.com/0x11c11e/deskfish/releases/latest/download/Deskfish-windows-x64-setup.exe",
+      "permanent": false
+    },
+    {
+      "source": "/downloads/deskfish.tgz",
+      "destination": "https://github.com/0x11c11e/deskfish/releases/latest/download/deskfish.tgz",
+      "permanent": false
     }
   ]
 }

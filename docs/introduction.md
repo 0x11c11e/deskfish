@@ -7,11 +7,15 @@ hero: true
 tagline: Give your AI its own computer. | Watch it work through the glass.
 ---
 
-Deskfish, created by Iman Reihanian in 2026, is a VS Code extension that gives an AI agent a computer of its own: a small,
-sandboxed Linux desktop with a browser and a terminal, shown live in an editor tab. You
-type a task in the chat sidebar. The agent looks at the screen, moves the mouse, types, and
-gets on with it, exactly the way a person at a keyboard would. When it hits something only a
-human can do, a login, a two-factor code, a CAPTCHA, it stops and asks you.
+Deskfish, created by Iman Reihanian in 2026, gives an AI agent a computer of its own: a small,
+sandboxed Linux desktop with a browser and a terminal, shown live beside the chat. You type a
+task; the agent looks at the screen, moves the mouse, types, and gets on with it, exactly the
+way a person at a keyboard would. When it hits something only a human can do, a login, a
+two-factor code, a CAPTCHA, it stops and asks you.
+
+It comes as a desktop app for Linux, macOS and Windows, as a VS Code extension, and as a web
+page it serves itself — three windows onto one program, with one memory behind them. Pick
+whichever suits you; this documentation shows VS Code most often because it came first.
 
 Think of it as a junior coworker with a desk in a glass box: you can see everything it does,
 you can lean in and take the mouse whenever you want, and no folder of yours is inside the
@@ -35,13 +39,14 @@ the one that has hands.
 
 ## The three things you will see
 
-- **The chat sidebar.** Where you give tasks, read what the agent says, and get handed files.
-  It lives in the activity bar under the fish icon.
+- **The chat.** Where you give tasks, read what the agent says, and get handed files. In VS
+  Code it lives in the activity bar under the fish icon; in the app and on the web page it is
+  the window.
 - **The Desktop tab.** A live view of the agent's screen. You can watch, and you can take
   over at any moment. It opens by itself when you send a task; the **Open** button at the top
-  of the sidebar brings it back any time.
-- **The tank.** The agent's computer itself: a Linux container running on your machine. You
-  turn it on and off with the power button in the sidebar, and Deskfish manages everything
+  of the chat brings it back any time.
+- **The tank.** The agent's computer itself: a Linux container running on the machine Deskfish
+  runs on. You turn it on and off with the power button, and Deskfish manages everything
   else about it. See [The tank](the-tank).
 
 ## A few words you will meet
@@ -95,5 +100,7 @@ It only reads a page when you ask such a question, so it costs nothing during or
 ## Where to go next
 
 - New here? Start with [Getting started](getting-started).
+- Not a VS Code person? [The app](the-app), or
+  [Running without VS Code](running-without-vscode).
 - Curious how it actually works? Read [How the bot sees and acts](how-the-bot-sees-and-acts).
 - Something not working? Try [Troubleshooting](troubleshooting).

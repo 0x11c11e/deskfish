@@ -39,6 +39,8 @@ export class GatewayClient extends EventEmitter {
   private retry?: NodeJS.Timeout;
   private isConnected = false;
   private errorLogged = false;
+  /** `connect()` has been called: a token set before that is simply the token the first open uses. */
+  private started = false;
   private readonly log: (line: string) => void;
 
   /** Mirrors of the gateway's state, kept current by events. */
@@ -66,6 +68,7 @@ export class GatewayClient extends EventEmitter {
 
   /** Connect (and keep reconnecting until close()). Resolves with the first snapshot. */
   connect(): Promise<Snapshot> {
+    this.started = true;
     this.closed = false;
     const first = new Promise<Snapshot>((resolve) => this.once('connected', resolve));
     this.open();
@@ -86,6 +89,30 @@ export class GatewayClient extends EventEmitter {
       };
       this.once('connected', done);
     });
+  }
+
+  /**
+   * A new token (someone just entered one for a gateway on another machine). Used from now on, and
+   * the connection is made again at once — entering the token is the whole step, not a step plus a
+   * window reload.
+   */
+  setToken(token: string): void {
+    if (token === this.opts.token) return;
+    this.opts.token = token;
+    if (!this.started || this.closed) return;
+    clearTimeout(this.retry);
+    this.backoff = 500;
+    this.errorLogged = false;
+    const old = this.ws;
+    this.ws = undefined;
+    old?.removeAllListeners(); // closing it is this method's doing, not an outage to log
+    old?.terminate();
+    if (this.isConnected) {
+      this.isConnected = false;
+      this.dropPending('the gateway token changed');
+      this.emit('disconnected');
+    }
+    this.open();
   }
 
   close(): void {

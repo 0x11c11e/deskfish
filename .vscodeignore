@@ -10,6 +10,7 @@ tsconfig.json
 .gitignore
 docker/.env
 demo/**
+growth/**
 site/**
 test/**
 .git-archive/**

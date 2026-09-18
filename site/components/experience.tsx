@@ -873,6 +873,59 @@ export function FilmSection() {
   );
 }
 
+/**
+ * Every release carries the same six files under the same names, so /downloads/<name> can be a
+ * fixed redirect to releases/latest/download/<name> (see vercel.json).
+ */
+const DOWNLOADS = {
+  linux: { file: 'Deskfish-linux-x86_64.AppImage', system: 'Linux' },
+  mac: { file: 'Deskfish-mac-universal.dmg', system: 'macOS' },
+  windows: { file: 'Deskfish-windows-x64-setup.exe', system: 'Windows' },
+} as const;
+
+const OTHER_DOWNLOADS = [
+  { label: 'AppImage', file: 'Deskfish-linux-x86_64.AppImage' },
+  { label: 'deb', file: 'Deskfish-linux-amd64.deb' },
+  { label: 'dmg', file: 'Deskfish-mac-universal.dmg' },
+  { label: 'exe', file: 'Deskfish-windows-x64-setup.exe' },
+  { label: 'VS Code extension', file: 'deskfish.vsix' },
+  { label: 'npm tarball', file: 'deskfish.tgz' },
+];
+
+/** Linux, macOS or Windows from the browser; the AppImage when it will not say. */
+function guessSystem(): keyof typeof DOWNLOADS {
+  if (typeof navigator === 'undefined') return 'linux';
+  const nav = navigator as Navigator & { userAgentData?: { platform?: string } };
+  const p = (nav.userAgentData?.platform || nav.platform || '').toLowerCase();
+  if (p.includes('mac')) return 'mac';
+  if (p.includes('win')) return 'windows';
+  return 'linux';
+}
+
+/** The app for the visitor's system, with every other file one quiet line below. */
+function DownloadApp() {
+  const [target, setTarget] = useState<keyof typeof DOWNLOADS>('linux');
+  useEffect(() => setTarget(guessSystem()), []);
+  const { file, system } = DOWNLOADS[target];
+  return (
+    <>
+      <a className="button button-mint" href={`/downloads/${file}`}>
+        <Download size={17} /> Download Deskfish for {system}{' '}
+        <ArrowUpRight size={18} />
+      </a>
+      <LatestVersion />
+      <div className="other-downloads">
+        {OTHER_DOWNLOADS.map((d, i) => (
+          <span key={d.file}>
+            {i > 0 && <i aria-hidden="true"> · </i>}
+            <a href={`/downloads/${d.file}`}>{d.label}</a>
+          </span>
+        ))}
+      </div>
+    </>
+  );
+}
+
 /** The newest release's tag, from GitHub; the download link above always serves that build. */
 function LatestVersion() {
   const [tag, setTag] = useState<string | null>(null);
@@ -890,9 +943,7 @@ function LatestVersion() {
       alive = false;
     };
   }, []);
-  return (
-    <span>{tag ?? 'Latest build'} · VS Code extension · Apache 2.0</span>
-  );
+  return <span>{tag ?? 'Latest build'} · app, extension or server · Apache 2.0</span>;
 }
 
 const faq = [
@@ -992,14 +1043,7 @@ export function GetStarted() {
             </h2>
           </div>
           <div className="get-started-action">
-            <a
-              className="button button-mint"
-              href="/downloads/deskfish.vsix"
-            >
-              <Download size={17} /> Download Deskfish{' '}
-              <ArrowUpRight size={18} />
-            </a>
-            <LatestVersion />
+            <DownloadApp />
             <a href="/docs/getting-started/" className="setup-guide">
               Read the setup guide <ArrowUpRight size={13} />
             </a>
@@ -1010,8 +1054,8 @@ export function GetStarted() {
             <span>01</span>
             <h3>Give it a home.</h3>
             <p>
-              Download the extension. In VS Code’s Extensions menu, choose{' '}
-              <strong>Install from VSIX…</strong>
+              Open the app and you are done. In VS Code, download the extension
+              and choose <strong>Install from VSIX…</strong>
             </p>
           </div>
           <div>

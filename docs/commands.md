@@ -9,6 +9,9 @@ Open the command palette (Ctrl+Shift+P, or ⌘⇧P on macOS) and type *Deskfish*
 these. Most of them are also reachable from the sidebar, which is the normal way to use
 Deskfish; the commands exist for keyboard people and for keybindings.
 
+This page is the VS Code extension's list. The web page and the app reach the same things from
+the title bar and the **…** menu — see [Running without VS Code](running-without-vscode).
+
 | Command | What it does |
 | --- | --- |
 | **Deskfish: Open Desktop View** | Opens the Desktop tab with the live view of the tank. Same as the Desktop chip |
@@ -37,6 +40,8 @@ Deskfish; the commands exist for keyboard people and for keybindings.
 | **Deskfish: Import Her Memory…** | Restores that bundle from such a file, after a confirmation, and signs the imported self file for this installation. Also under the **…** menu |
 | **Deskfish: Save a File from the Desktop…** | Lists the files in the tank's Downloads folder and saves the one you pick to your computer |
 | **Deskfish: Install Podman…** | Opens a terminal with the installation command for this system. Same as the Install button on the setup card |
+| **Deskfish: Set Gateway Token** | For a Deskfish running on another machine (`deskfish.gateway.placement` = `remote`): asks for that gateway's token and connects with it straight away, no reload. If the token is refused it asks again. See [Advanced setups](advanced#a-gateway-on-another-machine) |
+| **Deskfish: Keep Running When VS Code Is Closed** | A toggle: writes (or removes) the entry that starts Deskfish when you log in, and shows it to you in a terminal. Only for a Deskfish on this computer; with the `remote` placement it says so and writes nothing. See [Settings](settings#where-deskfish-runs) |
 | **Deskfish: Show Log** | Opens the Deskfish output channel: every step of every task, unfolded |
 | **Deskfish: Open Documentation** | Opens this documentation in your browser |
 
@@ -47,7 +52,7 @@ search for *deskfish*; the command identifiers are `deskfish.openDesktop`,
 `deskfish.toggleDesktop`, `deskfish.startDesktop`, `deskfish.restartDesktop`,
 `deskfish.stopDesktop`, `deskfish.setApiKey`, `deskfish.stopAgent`, `deskfish.changeModel`,
 `deskfish.pastChats`, `deskfish.deletePastChats`, `deskfish.newChat`, `deskfish.herFiles`,
-`deskfish.settings`, `deskfish.editMemory`,
+`deskfish.settings`, `deskfish.setGatewayToken`, `deskfish.keepRunning`, `deskfish.editMemory`,
 `deskfish.clearMemory`, `deskfish.showSelf`, `deskfish.openJournal`, `deskfish.openPlaybook`,
 `deskfish.editCharter`, `deskfish.scheduleTask`, `deskfish.scheduledTasks`, `deskfish.reflect`,
 `deskfish.exportMemory`, `deskfish.importMemory`, `deskfish.saveFile`,

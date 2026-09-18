@@ -69,6 +69,33 @@ machine wakes from sleep or the tab is shown again. **Reconnect** makes it try i
 If it still does not connect, check the Desktop row: the tank may be off or starting. If the
 tank is on and the view never connects, the log will show whether the control port answers.
 
+## The app shows "Connecting…" and nothing else
+
+The app either starts Deskfish itself or joins one already on port 9980. If something else holds
+that port — another program, or a Deskfish that is wedged — the window has nothing to connect to.
+Check with `deskfish status` (or `curl http://127.0.0.1:9980/status`, which answers with a name
+and a version and nothing else). If it is not a Deskfish, free the port or start the app with
+another one (`--port 9981`, or `DESKFISH_PORT=9981`). The app's own log is `logs/app.log` in her
+data folder, beside `logs/gateway.log`.
+
+## The app prints lines about `vaInitialize` or the GPU process
+
+Harmless. The app draws its window with the same engine as Chrome, and at start that engine asks
+your graphics card whether it can decode video. On Linux with no Intel VA-API driver installed
+you get one line, `vaInitialize failed: unknown libva error`. With the driver installed, and two
+graphics chips in the machine, you may instead get a GPU process that crashes once and restarts
+(`gbm_bo_import` returned null, `exit_code=8704`). Both happen at start, both are printed only if
+you launched the app from a terminal, and neither affects Deskfish: the window, the tank and her
+tasks are unaffected. VS Code and Chrome print the same lines on the same machines.
+
+## No tray icon on GNOME
+
+GNOME removed tray icons from the shell; applications that have one need the **AppIndicator and
+KStatusNotifierItem Support** extension. Install it from your distribution's package manager (or
+extensions.gnome.org) and log out and in. Without it the app still works, but closing the window
+hides it with no way to bring it back except launching the app again — which does bring the
+window back, so nothing is lost.
+
 ## Every click selects text, keys seem stuck, or I cannot select with the mouse
 
 A key or mouse button is being held down inside the tank without anyone holding it: a

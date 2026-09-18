@@ -64,12 +64,6 @@ const pages = fs
         .replaceAll('`grok-4`', '`<your-vision-and-tools-model>`')
         .replaceAll('`llama3.2-vision`', '`<your-vision-and-tools-model>`');
     }
-    if (file === 'getting-started.md') {
-      body = body.replace(
-        'Deskfish is currently installed from a `.vsix` file built from the source tree. You need\nNode.js 20 or newer.',
-        'Download the [Deskfish v0.1.0 extension](/downloads/deskfish-0.1.0.vsix). In VS Code, open Extensions, choose **Install from VSIX…** from the **…** menu, and select the downloaded file.\n\nIf you have the source tree and prefer to build the extension yourself, run these commands from the project root. Building the extension needs Node.js 20 or newer.',
-      );
-    }
     const page = {
       slug: file.replace('.md', ''),
       title: meta.title,

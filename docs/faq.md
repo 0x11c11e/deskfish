@@ -5,6 +5,14 @@ section: Help
 order: 2
 ---
 
+## Do I need VS Code?
+
+No. Deskfish is a program of its own; VS Code was only the first window onto it. There is a
+desktop app for Linux, macOS and Windows that you download and open — see [The app](the-app) —
+and whichever way she is running, any browser can open her page at her address. VS Code is one
+client of three, and they all show the same agent, the same memory and the same chats. See
+[Running without VS Code](running-without-vscode).
+
 ## Does the agent see my files?
 
 No. Nothing on your computer is visible inside the tank. Files cross only when you attach
@@ -93,8 +101,15 @@ the hand-over.
 
 ## Does it work on Windows and macOS?
 
-Yes, as long as Podman (or Docker) runs Linux containers there: Podman Desktop or
-`podman machine` on macOS, WSL 2 on Windows. The tank itself is always Linux.
+Yes. The app is built for both, and the VS Code extension works there too. The tank is always a
+Linux container, which on macOS and Windows means Podman runs it inside a small virtual machine
+— Deskfish creates and starts that machine itself the first time you turn the tank on, so
+`podman machine init` is no longer yours to run. On Windows that needs WSL 2, which Podman's
+installer offers to enable.
+
+Honest state of it: the Mac and Windows builds are made by the release process and have not yet
+been *run* on a Mac or a PC. If something is wrong there, that is where it will be. See
+[The app](the-app#honest-limits).
 
 ## Why is the first start so slow?
 
@@ -136,14 +151,21 @@ the previous conversation.
 
 ## Does she keep running when I log out?
 
-Closing VS Code does not stop her: she lives in a background process of her own, and a task or a
-schedule carries on. Logging out or restarting the computer does end that process. Run
-**Deskfish: Keep Running When VS Code Is Closed** once and she comes back when you log in — the
-command writes the entry (an autostart entry on Linux, a launch agent on macOS, a logon task on
-Windows) and shows it to you in a terminal, and running it again removes it. She still needs the
-machine to be awake: a sleeping laptop runs nothing, and a schedule whose time passed while it
-slept is reported as missed rather than run late. If she was in the middle of a task when the
-computer restarted, her next task is told about it before she touches anything — see
+Closing a window does not stop her: she lives in a background process of her own, and a task or a
+schedule carries on. Logging out or restarting the computer does end that process. Three ways to
+bring her back by herself, one per way of running her:
+
+- **VS Code**: run **Deskfish: Keep Running When VS Code Is Closed** once. It writes the entry
+  (an autostart entry on Linux, a launch agent on macOS, a logon task on Windows) and shows it
+  to you in a terminal; running it again removes it.
+- **The app**: tick **Start when I log in** in the tray menu. See [The app](the-app#start-when-i-log-in).
+- **On a server**: a systemd user service with linger, so she survives your logging out entirely.
+  See [A gateway on another machine](advanced#a-gateway-on-another-machine).
+
+She still needs the machine to be awake: a sleeping laptop runs nothing, and a schedule whose
+time passed while it slept is reported as missed rather than run late — which is the best reason
+to keep her on something that stays on. If she was in the middle of a task when the computer
+restarted, her next task is told about it before she touches anything — see
 [Running tasks](running-tasks#if-deskfish-is-interrupted).
 
 ## Can the agent reach other devices on my network?
@@ -159,9 +181,27 @@ Deskfish warns you when it has to fall back to sharing your machine's network. D
 Iman Reihanian, in 2026. The agent knows it too; it is in its own story and in the charter it
 reads every time.
 
+## Where do my settings live?
+
+In `config.json` in her data folder, next to her memory — she keeps her own settings and runs on
+them, whichever window changed them last. VS Code mirrors them into your **User** settings so the
+two always agree, so you can keep editing `settings.json` if that is your habit. The data folder
+is `~/.local/share/deskfish` on Linux, `~/Library/Application Support/deskfish` on macOS and
+`%APPDATA%\deskfish` on Windows. See [Settings](settings#one-set-of-settings).
+
+## Can I use her from my phone?
+
+Yes, on your own network. Her page is an ordinary web page: reach her machine over Tailscale or
+an SSH tunnel and open the address in the phone's browser, sign in once with the token, and you
+have the chat, the live view and the rest. The layout stacks at phone width. Checked in Firefox
+and Chrome at that width, not yet on a real phone — and never expose her port to the internet to
+make this easier; see [Security and privacy](security-and-privacy#one-port-one-token).
+
 ## Where is the full log?
 
-**Deskfish: Show Log** opens the output channel with every step of every task.
+**Deskfish: Show Log** opens the output channel with every step of every task. The gateway keeps
+its own file as well — `logs/gateway.log` in her data folder — which is the one to read when no
+window was open at the time.
 
 ## Can the agent answer questions about itself?
 

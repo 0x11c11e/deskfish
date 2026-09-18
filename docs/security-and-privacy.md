@@ -37,12 +37,43 @@ page's reach through the agent.
 
 An opt-in shared folder is planned for large files; it will stay off by default.
 
+## One port, one token
+
+Deskfish runs as one program of its own, the *gateway* (see
+[Running without VS Code](running-without-vscode)). Everything you use — the app's window, the
+VS Code sidebar, a browser tab, `deskfish run` — is a client of it, and the whole surface is
+**one port with one token**.
+
+- **It listens on `127.0.0.1` by default**, port 9980. Nothing outside your computer can reach
+  it. A non-loopback `--host` is refused unless you also pass `--allow-remote`, so opening it is
+  a decision, never a default.
+- **The token is required for everything but one thing.** `/status` answers without it, with the
+  name and the version and nothing else — enough for a window to tell a Deskfish from whatever
+  else might hold that port, and not a word about you. Every other request, the chat connection
+  and the live view carry the token.
+- **The token file is `gateway.token` in her data folder, readable only by your user account**,
+  as is `secrets.json`, which holds the model API key. The folder itself is created private.
+- **Whoever has the token has her.** They can run tasks in her tank, read her memory and her
+  chats, and watch her screen. Treat it like a password: paste it into the sign-in page, not
+  into a chat or a ticket.
+- **The connection is plain HTTP.** On `127.0.0.1` that is fine. Across machines it is not, so
+  put it inside an SSH tunnel or a Tailscale network, which encrypt the hop and need nothing
+  else from you. **Never `--allow-remote` on a public address**: the token would cross the
+  internet in clear.
+
+Where the gateway runs is where her key, her memory and her transcripts live — a ladder from
+your own laptop to a box at home to a rented server, with what each costs you, is in
+[Running without VS Code](running-without-vscode#where-she-should-live). Screenshots are never
+written to disk anywhere on that ladder: they go to the model and to the windows watching, and
+then they are gone.
+
 ## Network exposure
 
 The tank's control API and live-view connection listen on `127.0.0.1` only, port 9990.
 Anything that can reach that port can drive the desktop and read the agent's home folder, so
-Deskfish never publishes it on a network interface. If you run a tank on another machine,
-reach it through an SSH tunnel and set a token; see [Advanced setups](advanced).
+Deskfish never publishes it on a network interface. When Deskfish runs on another machine, the
+tank runs there too, beside it, and you reach the gateway rather than the tank; see
+[A gateway on another machine](advanced#a-gateway-on-another-machine).
 
 The tank itself has ordinary outbound internet access through your machine, the same as any
 program you run. Normally it lives in its own network namespace: it does not see your network

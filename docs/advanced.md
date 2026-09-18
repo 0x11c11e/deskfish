@@ -1,6 +1,6 @@
 ---
 title: Advanced setups
-description: Controlling the tank from a terminal, running it on another machine, headless runs, and model gateways.
+description: The gateway on a server, reaching it over a tunnel or Tailscale, the command line, controlling the tank from a terminal, and model gateways.
 section: Reference
 order: 4
 ---
@@ -45,54 +45,178 @@ It reads these environment variables:
 The container itself understands `SCREEN`, `DAEMON_TOKEN`, `VNC_PASSWORD`, `DAEMON_BIND`,
 `DAEMON_PORT` and `DISPLAY_NUM`.
 
-## A tank on another machine
+## A gateway on another machine
 
-The tank can run anywhere Linux containers run, for example on a small VPS, while VS Code
-runs on your laptop.
+Deskfish is one program, the [gateway](running-without-vscode), and it does not have to run on
+your laptop. Put it on a machine that stays awake — an old laptop in a cupboard, a mini PC, a
+rented server — and her schedules run whether or not you are at your desk, and an interrupted
+task is picked up when the machine comes back.
 
-1. Start the tank there with a token:
-   `DESKFISH_DESKTOP_TOKEN=some-long-secret scripts/desktop.sh up`.
-2. VS Code's live view can only open unencrypted connections to `localhost`, so tunnel the
-   port: `ssh -L 9990:localhost:9990 my-vps`.
-3. Put `some-long-secret` in `deskfish.desktop.token`. The default URLs already point at
-   `localhost:9990`, which is now the tunnel.
+What follows is the whole recipe for a fresh **Ubuntu 24.04** box with systemd. Other Linux
+distributions differ only in the package names.
 
-Set `deskfish.desktop.autoStart` to `false` on the laptop so Deskfish does not try to start a
-local tank as well. The power button controls local tanks only; a remote tank is started and
-stopped on its machine.
+### 1. Podman and Node
 
-Without a tunnel, the tank would have to be published behind an encrypted `wss://` proxy
-with the token; the plain control port must never be exposed to a network.
+```bash
+sudo apt update
+sudo apt install -y podman passt
+```
+
+`passt` is what lets rootless Podman give the tank a network of its own; without it Deskfish
+still works but shares the machine's network namespace.
+
+Ubuntu 24.04 ships Node.js 18, which is too old — Deskfish is built for Node 20 or newer. Take
+Node 22 from NodeSource:
+
+```bash
+curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -
+sudo apt install -y nodejs
+```
+
+### 2. Deskfish
+
+```bash
+sudo npm i -g https://github.com/0x11c11e/deskfish/releases/latest/download/deskfish.tgz
+deskfish --help
+```
+
+That link always serves the newest build. Run the gateway once by hand so it creates her data
+folder and her token, then stop it with Ctrl+C:
+
+```bash
+deskfish serve
+```
+
+`deskfish status` (in another shell, while it runs) prints the web address and the path of the
+token file. Keep that token: it is what every window will sign in with.
+
+### 3. Keep it running
+
+A user service, so it starts at boot and comes back after a crash. Write
+`~/.config/systemd/user/deskfish.service`:
+
+```text
+[Unit]
+Description=Deskfish gateway
+After=network-online.target
+
+[Service]
+ExecStart=/usr/local/bin/deskfish serve
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target
+```
+
+Then:
+
+```bash
+systemctl --user enable --now deskfish
+loginctl enable-linger $USER
+```
+
+`enable-linger` is the important one: without it the service stops when you log out of the SSH
+session. Her own log is `~/.local/share/deskfish/logs/gateway.log`; if the service will not
+start at all, `journalctl --user -u deskfish` says why.
+
+### 4. Reach it from your laptop
+
+**With an SSH tunnel.** Nothing is opened to the network; SSH carries everything:
+
+```bash
+ssh -L 9980:127.0.0.1:9980 my-box
+```
+
+If your laptop also runs Deskfish, port 9980 is already taken there, so use another local port:
+
+```bash
+ssh -L 9981:127.0.0.1:9980 my-box
+```
+
+While the tunnel is up:
+
+- **In a browser**, open `http://127.0.0.1:9981/?token=<the token>` once. The page keeps the
+  token, so after that `http://127.0.0.1:9981/` is enough.
+- **In VS Code**, set `deskfish.gateway.placement` to `remote` and `deskfish.gateway.url` to
+  `http://127.0.0.1:9981`, reload the window, and paste the token when it asks (or run
+  **Deskfish: Set Gateway Token**).
+- **In the app**: not yet. The app always runs or finds a gateway on the machine it is on; a
+  field for another machine is still to come. Use the page or VS Code for this.
+
+**With Tailscale.** A private network between your own machines, with no port open to the
+internet and no tunnel to remember. (Tailscale is made by Tailscale Inc., Toronto, Canada; the
+gateway token travels through it, which is why the origin is worth naming.) Install it on both
+machines, then on the box:
+
+```bash
+deskfish serve --host 100.x.y.z --allow-remote
+```
+
+with its Tailscale address, and use `http://100.x.y.z:9980` as the address in the browser, in
+`deskfish.gateway.url`, or on your phone. In the systemd unit, put the same flags on
+`ExecStart`.
+
+> [!WARNING]
+> **Never use `--allow-remote` on a public address.** The page and its connection are plain
+> HTTP: on a public interface the token, and everything she does, would travel in clear, and
+> anyone who catches the token owns her tank. A tunnel or Tailscale encrypts the hop between
+> your two machines, and then nothing else is needed. Deskfish refuses a non-loopback `--host`
+> unless you pass `--allow-remote`, precisely so that this is a decision and not an accident.
+
+### What lives on that machine
+
+Everything of hers except the screenshots:
+
+- the model API key (`secrets.json`, readable only by that user) and the gateway token;
+- her facts, the page about who she is and its history, her journal, her playbooks, the charter;
+- every chat transcript (text only), `config.json` and `state.json`;
+- the tank's volume, with the browser profile and whatever websites it is logged into.
+
+**Screenshots are never written to disk.** They go to the model and to the windows watching,
+and then they are gone.
+
+On a machine you rent, the disk belongs to someone else. Two things follow. Choose encryption
+at rest, or put her data folder on an encrypted volume. And keep the authoritative copy of her
+memory at home: export it from the server's page and import it on your own machine now and
+then, and the other way around after a stretch of work on the server. It is a manual step
+today — see [Memory](memory#backup-export-and-import).
+
+> [!NOTE]
+> This recipe is written from the current behaviour of `deskfish serve`, Podman on Ubuntu and
+> systemd user services; a droplet has not been rented and run end to end. If a step is wrong
+> on your box, please say so.
 
 ## Headless runs without VS Code
 
-The same agent loop the extension uses can be driven from a terminal, which is how
-Deskfish itself is tested:
+The `deskfish` command is the whole program without a window. Install it as above, and:
 
 ```bash
-npm run mock-daemon            # a fake tank on 127.0.0.1:9990 with a synthetic screen
-npm run build
-npm run smoke -- "open the browser and go to wikipedia.org"
+deskfish serve                 # the gateway itself; Ctrl+C stops it
+deskfish status                # what is running, on what model, and where the token file is
+deskfish run "open wikipedia.org and tell me when Debian 1.1 was released"
+deskfish stop                  # stop the gateway (the tank keeps running)
 ```
 
-By default this uses the demo model. Environment variables select a real one and a real
-tank:
+`deskfish run` prints her replies and her actions as they happen. Ctrl+C detaches and leaves the
+task running — `deskfish status` shows it, and any window that connects later picks it up
+mid-task with the whole chat.
 
-| Variable | Meaning |
-| --- | --- |
-| `DESKFISH_PROVIDER` | `mock`, `anthropic`, or `openai-compatible` |
-| `DESKFISH_MODEL`, `DESKFISH_BASE_URL`, `DESKFISH_API_KEY` | As the settings of the same names |
-| `DESKFISH_DAEMON_URL`, `DESKFISH_DAEMON_TOKEN` | The tank to drive |
-| `DESKFISH_MAX_STEPS`, `DESKFISH_SCREENSHOT_WIDTH`, `DESKFISH_SETTLE_MS` | As the settings, with headless defaults of 15 steps and 300 ms |
-| `DESKFISH_DOCS_DIR` | Where the documentation pages are, if not the `docs` folder next to `dist` |
-| `DESKFISH_MAX_COST_USD`, `DESKFISH_AUTONOMY`, `DESKFISH_WORKSPACE_ID`, `DESKFISH_PROMPT_CACHING` | As the settings of the same names |
-| `DESKFISH_MEMORY_FILE` | A facts file to use; without it the headless agent has no memory |
-| `DESKFISH_MEMORY_DIR` | A folder for the self page, journal and playbooks; on first use it writes the seed and the starter notes |
-| `DESKFISH_SELF_KEY` | The signing key for the self page (hex); a random one is used when unset, so signatures will not carry over |
-| `DESKFISH_REFLECT_EVERY` | Reflect after this many finished tasks, default `0` (never, headless) |
+All four take `--data-dir DIR` and `--port N` when the gateway is not the default one; `serve`
+also takes `--host` and `--allow-remote`. `DESKFISH_HOME` moves her data folder, which is
+`~/.local/share/deskfish` on Linux, `~/Library/Application Support/deskfish` on macOS and
+`%APPDATA%\deskfish` on Windows. Only one gateway may run per data folder; a second `serve` on
+the same folder exits rather than compete for her files.
 
-The headless runner is the loop without the extension around it. It has no ledger, no
-`userName` and no schedules, and it stops at 15 steps unless you raise `DESKFISH_MAX_STEPS`.
+Settings are hers, in `config.json` in that folder, and the way to change them without a window
+is the web page the gateway serves (`deskfish status` prints the address), or editing that file
+before a start.
+
+> [!NOTE]
+> `npm run smoke` in the source tree is a different thing: the agent loop on its own, with no
+> gateway, no memory and no schedules, driven by `DESKFISH_*` environment variables. It exists
+> for Deskfish's own tests; its variables are listed at the top of `src/smoke.ts`.
+
 
 ## One URL for many models
 

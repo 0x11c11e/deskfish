@@ -510,6 +510,19 @@
       }
     }
   },
+  "files": [
+    "dist/cli.js",
+    "dist/web/*.js",
+    "dist/webview/*.js",
+    "web/*.html",
+    "web/*.css",
+    "media/",
+    "docs/*.md",
+    "docs/images/",
+    "docs/site/index.html",
+    "docker/desktop/",
+    "library/"
+  ],
   "scripts": {
     "build": "node esbuild.mjs",
     "docs": "node scripts/build-docs.mjs",

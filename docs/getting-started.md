@@ -1,12 +1,29 @@
 ---
 title: Getting started
-description: Install Podman, install the extension, pick a model, turn on the tank, and run your first task.
+description: The three ways to have Deskfish, then the VS Code path end to end: Podman, the extension, a model, the tank, and your first task.
 section: Start here
 order: 2
 ---
 
 Deskfish needs three things: a container engine, a model, and about ten minutes the very
 first time. After that, turning the tank on takes a couple of seconds.
+
+## Three ways to have her
+
+The agent, her tank and her memory live in a program of their own, so there is more than one
+way to put a window in front of it. All three give you the same fish.
+
+| | | |
+| --- | --- | --- |
+| **The app** | Download the file for your system, open it, done. No editor, nothing to configure | [The app](the-app) |
+| **The VS Code extension** | The sidebar and a live Desktop tab next to your work. The seven steps below | *this page* |
+| **On a server** | She runs on a machine that stays awake, and you open her page in any browser | [A gateway on another machine](advanced#a-gateway-on-another-machine) |
+
+They are not exclusive: the app and the extension on one computer share a single Deskfish and a
+single memory, and either of them can talk to one on a server instead. See
+[Running without VS Code](running-without-vscode).
+
+The rest of this page is the VS Code path.
 
 ## 1. Install Podman (or Docker)
 

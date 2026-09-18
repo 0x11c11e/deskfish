@@ -2,7 +2,7 @@
 title: Schedules
 description: Tasks that start themselves, once at a time or on a repeat, while Deskfish runs, and what happens when the time is missed.
 section: Using Deskfish
-order: 6
+order: 7
 ---
 
 A schedule is a task with a time attached: *once on Tuesday at 22:00*, *every day at 22:00*,

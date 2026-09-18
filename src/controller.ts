@@ -242,6 +242,9 @@ export class AgentController implements vscode.Disposable {
 
   /** Connect to the gateway (starting it on this computer when needed). Waits a while for the first connection, never forever. */
   async init(): Promise<void> {
+    // One line naming the placement and the address, so a remote setup that never connects is
+    // diagnosable from the log alone (it used to say nothing until the first event arrived).
+    this.output.appendLine(`— Deskfish ${VERSION}: ${this.placement === 'remote' ? 'a gateway on another machine' : 'the gateway on this computer'} at ${this.client.url} —`);
     this.syncAutostart();
     if (this.placement === 'local') await this.ensureLocal().catch(() => {});
     else if (!(await this.ctx.secrets.get(GATEWAY_TOKEN_SECRET))) await this.askGatewayToken('Deskfish runs on another machine. Enter its gateway token (the gateway.token file in its data folder).');
@@ -313,10 +316,19 @@ export class AgentController implements vscode.Disposable {
   async askGatewayToken(prompt = 'The token of the Deskfish gateway on another machine (the gateway.token file in its data folder).'): Promise<void> {
     const value = await vscode.window.showInputBox({ title: 'Deskfish gateway token', prompt, password: true, ignoreFocusOut: true });
     if (value === undefined) return;
-    if (value.trim()) await this.ctx.secrets.store(GATEWAY_TOKEN_SECRET, value.trim());
+    const token = value.trim();
+    if (token) await this.ctx.secrets.store(GATEWAY_TOKEN_SECRET, token);
     else await this.ctx.secrets.delete(GATEWAY_TOKEN_SECRET);
-    const choice = await vscode.window.showInformationMessage('Deskfish: gateway token saved. Reload the window to connect with it.', 'Reload');
-    if (choice) void vscode.commands.executeCommand('workbench.action.reloadWindow');
+    if (this.placement !== 'remote') {
+      // A gateway on this computer reads its own token from its data folder; this one is not used.
+      void vscode.window.showInformationMessage('Deskfish runs on this computer and uses the token in its own data folder, so this one is not needed. Set deskfish.gateway.placement to "remote" for a gateway on another machine.');
+      return;
+    }
+    // Typing the token is the whole step: the client takes it and connects again at once. A wrong
+    // one comes back here through `unauthorized`, which is why the once-guard is lifted.
+    this.askedToken = false;
+    this.output.appendLine(`— gateway token saved; connecting to ${this.client.url} —`);
+    this.client.setToken(token);
   }
 
   /** The config she runs on: the gateway's (last event or snapshot); VS Code's settings only before the first connect. */

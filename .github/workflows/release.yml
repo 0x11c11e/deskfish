@@ -1,4 +1,4 @@
-# Every push to main becomes a GitHub Release with deskfish.vsix, so the download on
+# Every push to main becomes a GitHub Release with deskfish.vsix and deskfish.tgz, so the download on
 # deskfish.sh (…/releases/latest/download/deskfish.vsix) is always the newest build and nobody
 # has to remember to package one. Always the same names: the version is in the release
 # title and inside the files, and nobody has to choose between two identical downloads. The `app` job
@@ -52,6 +52,15 @@ jobs:
           echo "Deskfish $v"
       - run: npm run build
       - run: npm run package
+      # The server install: one stable name, so
+      # https://github.com/0x11c11e/deskfish/releases/latest/download/deskfish.tgz is always the
+      # newest build and `sudo npm i -g <that url>` gives the `deskfish` command on any machine
+      # with Node 20 or newer. The version is inside the tarball, not in its name.
+      - name: Pack the npm tarball
+        run: |
+          name=$(npm pack --silent)
+          mv "$name" deskfish.tgz
+          ls -la deskfish.tgz
       - name: Release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -59,13 +68,13 @@ jobs:
         run: |
           prev=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || true)
           if [ -n "$prev" ]; then changes=$(git log --format='- %s' "$prev..HEAD"); else changes=$(git log --format='- %s' -n 20); fi
-          notes=$(printf 'Deskfish %s, built from %s.\n\n**The app** (attached a few minutes after this release appears): `Deskfish-linux-x86_64.AppImage` or `Deskfish-linux-amd64.deb`, `Deskfish-mac-universal.dmg`, `Deskfish-windows-x64-setup.exe`. Not signed yet: macOS asks you to open it from System Settings → Privacy & Security, Windows SmartScreen asks you to choose Run anyway. The app offers its own updates.\n\n**The VS Code extension**: download `deskfish.vsix`, then in VS Code choose **Install from VSIX…** from the Extensions view, or run `code --install-extension deskfish.vsix`. Extensions installed from a file do not update themselves; download again for a newer build.\n\n**Changes**\n%s' "$V" "${GITHUB_SHA::7}" "$changes")
+          notes=$(printf 'Deskfish %s, built from %s.\n\n**The app** (attached a few minutes after this release appears): `Deskfish-linux-x86_64.AppImage` or `Deskfish-linux-amd64.deb`, `Deskfish-mac-universal.dmg`, `Deskfish-windows-x64-setup.exe`. Not signed yet: macOS asks you to open it from System Settings → Privacy & Security, Windows SmartScreen asks you to choose Run anyway. The app offers its own updates.\n\n**The VS Code extension**: download `deskfish.vsix`, then in VS Code choose **Install from VSIX…** from the Extensions view, or run `code --install-extension deskfish.vsix`. Extensions installed from a file do not update themselves; download again for a newer build.\n\n**On a server**, with Node 20 or newer: `sudo npm i -g https://github.com/0x11c11e/deskfish/releases/latest/download/deskfish.tgz`, then `deskfish serve`. See the docs page *A gateway on another machine*.\n\n**Changes**\n%s' "$V" "${GITHUB_SHA::7}" "$changes")
           # A manual run on a commit that already has its push release reuses it (same version, same
           # count), replacing the asset instead of failing on the existing tag.
           if gh release view "v$V" >/dev/null 2>&1; then
-            gh release upload "v$V" deskfish.vsix --clobber
+            gh release upload "v$V" deskfish.vsix deskfish.tgz --clobber
           else
-            gh release create "v$V" deskfish.vsix --title "Deskfish $V" --notes "$notes"
+            gh release create "v$V" deskfish.vsix deskfish.tgz --title "Deskfish $V" --notes "$notes"
           fi
       # The stores are opt-in: run the workflow by hand and tick "publish". Every push is a GitHub
       # release, but store users get an update prompt for every version, so those are chosen.
