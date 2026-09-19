@@ -2,7 +2,7 @@
   "name": "deskfish",
   "displayName": "Deskfish",
   "description": "Give your AI its own computer. A sandboxed Linux desktop in a VS Code tab, an agent that works it like a human, any LLM via API — and it knocks on the glass when it needs you.",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "publisher": "ImanReihanian",
   "license": "Apache-2.0",
   "private": true,
