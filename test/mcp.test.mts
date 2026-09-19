@@ -20,6 +20,7 @@ import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 import { DeskfishService } from '../src/gateway/service';
 import { GatewayServer } from '../src/gateway/server';
 import type { DeskfishConfig } from '../src/gateway/config';
+import { costOf } from '../src/gateway/mcp';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 let n = 0;
@@ -165,6 +166,15 @@ try {
   const st = asJson(await client.callTool({ name: 'status', arguments: {} }));
   ok(st.status === 'done' && st.busy === false && st.model === 'model-a' && st.provider === 'openai-compatible', `status reports her setup: ${JSON.stringify(st)}`);
   ok(st.desktop === 'on' && typeof st.step === 'number' && st.costUsd > 0, 'status reports the tank, the step and the cost');
+  ok(st.costEstimated === undefined, 'a cost the provider reported is not marked as an estimate');
+  // Without a reported cost, status prices the chat at the list price like the chat's usage line and the
+  // journal do (lesson 1, 2026-09-18: grok-4.6 read "$0" over MCP while the journal said $0.22) — and
+  // with neither, it says nothing rather than "0".
+  const grokUsage = { type: 'usage' as const, input: 68423, output: 238, cacheRead: 169472, cacheWrite: 0 };
+  const grok = costOf(grokUsage, { provider: 'openai-compatible', model: 'grok-4.6', baseUrl: 'https://api.x.ai/v1' } as DeskfishConfig);
+  ok(grok?.costEstimated === true && Math.abs(grok.costUsd - 0.223) < 0.001, `no reported cost + a list price → an estimate (${JSON.stringify(grok)})`);
+  ok(costOf(grokUsage, { provider: 'openai-compatible', model: 'model-a', baseUrl } as DeskfishConfig) === undefined, 'no reported cost and no list price → no cost field, not $0');
+  ok(costOf({ ...grokUsage, costUsd: 0.02 }, { provider: 'openai-compatible', model: 'grok-4.6', baseUrl: 'https://api.x.ai/v1' } as DeskfishConfig)?.costUsd === 0.02, 'a reported cost wins over the estimate');
   const tr = asJson(await client.callTool({ name: 'transcript', arguments: {} }));
   ok(tr.items.some((i: any) => i.kind === 'assistant') && tr.items.some((i: any) => i.kind === 'user'), 'transcript shows the chat she is in now');
 

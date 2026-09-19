@@ -4,6 +4,7 @@ import { z } from 'zod';
 import type { ReplayItem } from '../agent/chats';
 import type { AgentEvent } from '../agent/loop';
 import { describeAction } from '../computer/types';
+import { costUsd, priceForConfig } from '../agent/pricing';
 import { GatewayClient } from './client';
 import type { ChatInfo, Snapshot } from './protocol';
 import { VERSION } from './version';
@@ -30,6 +31,19 @@ type Json = Record<string, unknown>;
 
 const text = (s: string) => ({ content: [{ type: 'text' as const, text: s }] });
 const json = (v: Json) => text(JSON.stringify(v, null, 2));
+
+/**
+ * What the chat so far cost: the provider's own figure when it reports one (OpenRouter), otherwise an
+ * estimate at the model's list price — the same arithmetic as the chat's usage line and the journal.
+ * Without either, nothing at all: a teacher must not read "0" as "free" when it means "unknown".
+ */
+export function costOf(u: Snapshot['usage'], cfg: Snapshot['config']): { costUsd: number; costEstimated?: true } | undefined {
+  if (!u) return undefined;
+  const round = (x: number) => Math.round(x * 1e4) / 1e4;
+  if (u.costUsd && u.costUsd > 0) return { costUsd: round(u.costUsd) };
+  const price = priceForConfig({ provider: cfg.provider, model: cfg.model, baseUrl: cfg.baseUrl });
+  return price ? { costUsd: round(costUsd(u, price)), costEstimated: true } : undefined;
+}
 
 /** The teacher's own words back in an item: it knows what it sent, so the echo is trimmed. */
 const SAID_CUT = 1000;
@@ -292,7 +306,7 @@ export class DeskfishMcp {
       ...(knock ? { knock } : {}),
       task: lastUser && lastUser.kind === 'user' ? lastUser.text.slice(0, 300) : undefined,
       step: s.screenshot?.step ?? 0,
-      costUsd: u?.costUsd,
+      ...(costOf(u, s.config) ?? {}),
       tokens: u ? { input: u.input, output: u.output, cacheRead: u.cacheRead, cacheWrite: u.cacheWrite } : undefined,
       model: s.config.model,
       provider: s.config.provider,
@@ -424,7 +438,7 @@ export function buildMcpServer(client: GatewayClient): McpServer {
     'status',
     {
       title: 'What she is doing, and what it has cost',
-      description: 'Status, the current task, the step she is on, cost and tokens so far, her model and provider, whether the tank is on, how many tasks are queued, and a knock if she is waiting for a person.',
+      description: 'Status, the current task, the step she is on, cost and tokens so far (the cost is the provider\'s own figure, or an estimate at list price marked costEstimated; absent when neither is known), her model and provider, whether the tank is on, how many tasks are queued, and a knock if she is waiting for a person.',
       inputSchema: {},
       annotations: { title: 'What she is doing', readOnlyHint: true, openWorldHint: false },
     },
