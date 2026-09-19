@@ -37,7 +37,11 @@ const json = (v: Json) => text(JSON.stringify(v, null, 2));
  * estimate at the model's list price — the same arithmetic as the chat's usage line and the journal.
  * Without either, nothing at all: a teacher must not read "0" as "free" when it means "unknown".
  */
-export function costOf(u: Snapshot['usage'], cfg: Snapshot['config']): { costUsd: number; costEstimated?: true } | undefined {
+export function costOf(u: Snapshot['usage'], cfg: Snapshot['config']): { costUsd?: number; costEstimated?: true; billing?: 'subscription' } | undefined {
+  // Signed in with Grok: the run draws a pool the person's plan already paid for. There is no
+  // per-token charge to report and no list price that applies, so the teacher is told what it is
+  // instead of a number it would read as money.
+  if (cfg.auth) return { billing: 'subscription' };
   if (!u) return undefined;
   const round = (x: number) => Math.round(x * 1e4) / 1e4;
   if (u.costUsd && u.costUsd > 0) return { costUsd: round(u.costUsd) };
@@ -438,7 +442,7 @@ export function buildMcpServer(client: GatewayClient): McpServer {
     'status',
     {
       title: 'What she is doing, and what it has cost',
-      description: 'Status, the current task, the step she is on, cost and tokens so far (the cost is the provider\'s own figure, or an estimate at list price marked costEstimated; absent when neither is known), her model and provider, whether the tank is on, how many tasks are queued, and a knock if she is waiting for a person.',
+      description: 'Status, the current task, the step she is on, cost and tokens so far (the cost is the provider\'s own figure, or an estimate at list price marked costEstimated; absent when neither is known, and replaced by billing: "subscription" when she runs on a signed-in plan, where tokens are spent but no money is), her model and provider, whether the tank is on, how many tasks are queued, and a knock if she is waiting for a person.',
       inputSchema: {},
       annotations: { title: 'What she is doing', readOnlyHint: true, openWorldHint: false },
     },

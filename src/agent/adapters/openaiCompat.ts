@@ -73,7 +73,7 @@ import { diffNotes } from '../notesDelta';
 import { KEEP_LONG_RESULTS, PRUNE_TEXT_BATCH, isLongResult, shortenResult } from '../prune';
 import type { AgentNotes } from './types';
 import type { ComputerAction } from '../../computer/types';
-import { describeResult, type AdapterConfig, type ModelAdapter, type ModelTurn, type Observation } from './types';
+import { describeResult, PoolExhaustedError, type AdapterConfig, type ModelAdapter, type ModelTurn, type Observation } from './types';
 
 /**
  * Adapter for any OpenAI-compatible `/chat/completions` endpoint that supports vision and tool
@@ -340,10 +340,13 @@ export class OpenAICompatAdapter implements ModelAdapter {
     return out;
   }
 
-  private async chat(): Promise<any> {
+  private async chat(retriedAfter401 = false): Promise<any> {
     const url = `${this.cfg.baseUrl!.replace(/\/+$/, '')}/chat/completions`;
     const headers: Record<string, string> = { 'content-type': 'application/json' };
-    if (this.cfg.apiKey) headers.authorization = `Bearer ${this.cfg.apiKey}`;
+    // A signed-in endpoint hands out a fresh bearer per call (the gateway refreshes behind it);
+    // everything else carries the pasted key.
+    const token = this.cfg.bearer ? await this.cfg.bearer(retriedAfter401) : this.cfg.apiKey;
+    if (token) headers.authorization = `Bearer ${token}`;
     const body = {
       model: this.cfg.model,
       messages: this.cacheMarks() ? this.withCacheMarks() : this.messages,
@@ -414,11 +417,24 @@ export class OpenAICompatAdapter implements ModelAdapter {
           `or set deskfish.provider to "anthropic" or "mock".`,
       );
     }
-    if (r.status === 401 || r.status === 403) {
-      throw new Error(`${url} rejected the API key (HTTP ${r.status}). Set one with "Deskfish: Set LLM API Key".`);
-    }
     if (!r.ok) {
-      throw new Error(`${this.cfg.model} @ ${url}: HTTP ${r.status} ${(await r.text()).slice(0, 500)}`);
+      const detail = (await r.text()).slice(0, 500);
+      // The subscription's pool, not the credential: the loop turns this into a knock on the glass.
+      if (this.cfg.bearer && (r.status === 429 || (r.status === 403 && /run out of available resources|active grok subscription/i.test(detail)))) {
+        throw new PoolExhaustedError("Your Grok subscription's pool is used up. Say when to continue, or switch to an API key in Settings.");
+      }
+      if (r.status === 401 && this.cfg.bearer && !retriedAfter401) {
+        // The access token expired mid-task (or was rotated elsewhere): one fresh one, one retry.
+        return this.chat(true);
+      }
+      if (r.status === 401 || r.status === 403) {
+        throw new Error(
+          this.cfg.bearer
+            ? `${url} refused the Grok sign-in (HTTP ${r.status}). Sign in again, or use an xAI API key, in Settings.`
+            : `${url} rejected the API key (HTTP ${r.status}). Set one with "Deskfish: Set LLM API Key".`,
+        );
+      }
+      throw new Error(`${this.cfg.model} @ ${url}: HTTP ${r.status} ${detail}`);
     }
     return r.json();
   }

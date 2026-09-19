@@ -77,8 +77,10 @@ export interface Snapshot {
   config: DeskfishConfig;
   /** The gateway has a `config.json` (found at start or written since): false only before the first client seeded it. */
   configSaved: boolean;
-  /** Slots that hold an API key (names only). */
+  /** Slots that hold a credential (names only): `deskfish.apiKey.<…>` and, when signed in, `deskfish.oauth.<host>`. */
   keys: string[];
+  /** Who the current endpoint is signed in as, for the key row's "Signed in as …". A display name, never a token. */
+  signedInAs?: string;
 }
 
 /** Every command: [args, result]. */
@@ -127,7 +129,16 @@ export interface Commands {
   /** An empty key clears the slot. Returns the slots that hold a key. */
   'key.set': [{ slot: string; key: string }, string[]];
   'key.status': [Record<string, never>, string[]];
-  'model.set': [{ provider: DeskfishConfig['provider']; model: string; baseUrl: string }, DeskfishConfig];
+  'model.set': [{ provider: DeskfishConfig['provider']; model: string; baseUrl: string; auth?: DeskfishConfig['auth'] }, DeskfishConfig];
+  /**
+   * "Sign in with Grok". The gateway runs xAI's device-code flow and owns the tokens; a view only
+   * shows the code and asks how it went. `auth.start` returns what the person must do.
+   */
+  'auth.start': [Record<string, never>, { userCode: string; verificationUri: string; expiresIn: number }];
+  /** One poll of the sign-in in progress. `gated` = xAI refused this account; `detail` is the sentence to show. */
+  'auth.poll': [Record<string, never>, { state: 'pending' | 'done' | 'expired' | 'denied' | 'gated'; detail?: string; who?: string }];
+  /** Forget the tokens (and tell xAI to revoke them). An API key in the other slot is untouched. */
+  'auth.signOut': [Record<string, never>, null];
   'schedules.list': [Record<string, never>, { schedules: Schedule[]; lines: string[] }];
   /** `autonomy` and `maxCostUsd` are the fence on the runs this schedule starts unattended; both optional (guided, `deskfish.unattendedMaxCostUsd`). */
   'schedules.add': [{ task: string; when: When; autonomy?: 'free' | 'guided'; maxCostUsd?: number }, Schedule];
@@ -197,7 +208,7 @@ export interface EventFrame<K extends EventName = EventName> {
 
 /* ---------- validation (hand-written: unknown commands, unknown fields and wrong types are refused) ---------- */
 
-type Field = 'string' | 'string?' | 'number?' | 'boolean' | 'boolean?' | 'object' | 'files?' | 'when' | 'editable' | 'client' | 'provider' | 'autonomy?';
+type Field = 'string' | 'string?' | 'number?' | 'boolean' | 'boolean?' | 'object' | 'files?' | 'when' | 'editable' | 'client' | 'provider' | 'autonomy?' | 'auth?';
 
 const NONE: Record<string, Field> = {};
 const SPEC: { [K in CommandName]: Record<string, Field> } = {
@@ -229,7 +240,10 @@ const SPEC: { [K in CommandName]: Record<string, Field> } = {
   'config.schema': NONE,
   'key.set': { slot: 'string', key: 'string' },
   'key.status': NONE,
-  'model.set': { provider: 'provider', model: 'string', baseUrl: 'string' },
+  'model.set': { provider: 'provider', model: 'string', baseUrl: 'string', auth: 'auth?' },
+  'auth.start': NONE,
+  'auth.poll': NONE,
+  'auth.signOut': NONE,
   'schedules.list': NONE,
   'schedules.add': { task: 'string', when: 'when', autonomy: 'autonomy?', maxCostUsd: 'number?' },
   'schedules.remove': { id: 'string' },
@@ -276,6 +290,8 @@ function fieldOk(type: Field, v: unknown): boolean {
       return v === 'anthropic' || v === 'openai-compatible' || v === 'mock';
     case 'autonomy':
       return v === 'free' || v === 'guided';
+    case 'auth':
+      return v === '' || v === 'xai-oauth';
     default:
       return false;
   }

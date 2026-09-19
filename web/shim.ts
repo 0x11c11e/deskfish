@@ -43,6 +43,8 @@ const sameDesktop = (a: DesktopStatus, b: DesktopStatus) => a.state === b.state 
 export class Mirror {
   config?: DeskfishConfig;
   keys: string[] = [];
+  /** The display name the gateway reports for a completed sign-in. */
+  signedInAs?: string;
   desktop: DesktopStatus = { state: 'unknown' };
   status: AgentStatus = 'idle';
   statusMessage?: string;
@@ -56,8 +58,21 @@ export class Mirror {
   uiConfig(): UiConfig | undefined {
     const c = this.config;
     if (!c) return undefined;
-    const slot = keySlotFor(c.provider, c.baseUrl);
-    return { provider: c.provider, model: c.model, baseUrl: c.baseUrl, daemonUrl: c.daemonUrl, vncUrl: c.vncUrl, hasApiKey: !!slot && this.keys.includes(slot), maxSteps: c.maxSteps, desktop: this.desktop, keyStored: 'Stored in the gateway' };
+    const slot = keySlotFor(c.provider, c.baseUrl, c.auth);
+    const preset = presetFor(c.provider, c.baseUrl, c.auth);
+    return {
+      provider: c.provider,
+      model: c.model,
+      baseUrl: c.baseUrl,
+      daemonUrl: c.daemonUrl,
+      vncUrl: c.vncUrl,
+      hasApiKey: !!slot && this.keys.includes(slot),
+      ...(preset?.auth ? { signIn: preset.auth } : {}),
+      ...(this.signedInAs ? { signedInAs: this.signedInAs } : {}),
+      maxSteps: c.maxSteps,
+      desktop: this.desktop,
+      keyStored: 'Stored in the gateway',
+    };
   }
 
   private configMessage(): ToChat[] {
@@ -245,11 +260,24 @@ export interface HostUi {
   openDocs(pane: Pane | 'page', load: () => Promise<Blob>): void;
   askKey(title: string): Promise<string | undefined>;
   askModel(config: DeskfishConfig): Promise<ModelChoice | undefined>;
+  /**
+   * The "Sign in with Grok" dialog: shows the code and the link, then whatever `poll` reports, until
+   * it resolves. The gateway does the polling; this only asks and shows. Resolves when the sign-in
+   * ended (either way) or the person closed the dialog.
+   */
+  signIn(step: { userCode: string; verificationUri: string }, poll: () => Promise<SignInState>): Promise<void>;
   /** Ask once, inside the page (a browser `confirm()` would block it); true when `action` was pressed. */
   confirm(text: string, action: string): Promise<boolean>;
   /** Shows the lines; returns a function that appends a live line while the log is open. */
   showLog(lines: string[], onClose: () => void): (line: string) => void;
   reload(): void;
+}
+
+/** What one `auth.poll` came back with, as the sign-in dialog needs it. */
+export interface SignInState {
+  state: 'pending' | 'done' | 'expired' | 'denied' | 'gated';
+  detail?: string;
+  who?: string;
 }
 
 export interface HostEnv {
@@ -666,16 +694,17 @@ export class WebHost {
     if (deleted !== undefined) this.env.ui.toast(`Deleted ${deleted} past chat${deleted === 1 ? '' : 's'}.`);
   }
 
-  /** The "Set API key" / "Change" button of the key row. */
+  /** The "Set API key" / "Change" button of the key row — or the sign-in, when the endpoint signs in. */
   async setKey(): Promise<void> {
     const cfg = this.mirror.config;
     if (!cfg) return;
-    const slot = keySlotFor(cfg.provider, cfg.baseUrl);
+    if (presetFor(cfg.provider, cfg.baseUrl, cfg.auth)?.auth) return this.grokSignIn();
+    const slot = keySlotFor(cfg.provider, cfg.baseUrl, cfg.auth);
     if (!slot) {
       this.env.ui.toast('The demo model needs no key.');
       return;
     }
-    const where = presetFor(cfg.provider, cfg.baseUrl)?.label ?? (cfg.baseUrl || cfg.provider);
+    const where = presetFor(cfg.provider, cfg.baseUrl, cfg.auth)?.label ?? (cfg.baseUrl || cfg.provider);
     const key = await this.env.ui.askKey(`API key for ${where} (${cfg.model})`);
     if (key === undefined) return;
     const slots = await this.attempt('save the key', this.call('key.set', { slot, key: key.trim() }));
@@ -685,18 +714,46 @@ export class WebHost {
     this.env.ui.toast(key.trim() ? `API key for ${where} saved.` : `API key for ${where} cleared.`);
   }
 
+  /**
+   * "Sign in with Grok", and its other half, "Sign out". The gateway runs the device flow and keeps
+   * the tokens; this shows the code, opens the page outside, and asks how it went.
+   */
+  async grokSignIn(): Promise<void> {
+    const cfg = this.mirror.config;
+    if (!cfg) return;
+    const slot = keySlotFor(cfg.provider, cfg.baseUrl, cfg.auth);
+    if (slot && this.mirror.keys.includes(slot)) {
+      if (!(await this.env.ui.confirm('Sign out of Grok? Her next task needs a sign-in again, or an xAI API key.', 'Sign out'))) return;
+      if ((await this.attempt('sign out of Grok', this.call('auth.signOut'))) === undefined) return;
+      this.mirror.signedInAs = undefined;
+      this.mirror.keys = (await this.attempt('read the key list', this.call('key.status'))) ?? this.mirror.keys.filter((k) => k !== slot);
+      this.send(this.mirror.headerOut());
+      this.env.ui.toast('Signed out of Grok.');
+      return;
+    }
+    const step = await this.attempt('start the Grok sign-in', this.call('auth.start'));
+    if (!step) return;
+    await this.env.ui.signIn(step, () => this.call('auth.poll'));
+    const slots = await this.attempt('read the key list', this.call('key.status'));
+    if (slots) this.mirror.keys = slots;
+    this.send(this.mirror.headerOut());
+  }
+
   /** The model row's "Change": where the model comes from, which model, then the key if that place needs one and has none. */
   async changeModel(): Promise<void> {
     const cfg = this.mirror.config;
     if (!cfg) return;
     const choice = await this.env.ui.askModel(cfg);
     if (!choice) return;
-    const next = await this.attempt('change the model', this.call('model.set', { provider: choice.provider, model: choice.model, baseUrl: choice.baseUrl }));
+    const auth = choice.preset.auth ?? '';
+    const next = await this.attempt('change the model', this.call('model.set', { provider: choice.provider, model: choice.model, baseUrl: choice.baseUrl, auth }));
     if (!next) return;
     this.mirror.config = next;
     this.send(this.mirror.headerOut());
-    const slot = keySlotFor(choice.provider, choice.baseUrl);
-    if (choice.preset.needsKey && !isLocalEndpoint(choice.baseUrl) && slot && !this.mirror.keys.includes(slot)) await this.setKey();
+    const slot = keySlotFor(choice.provider, choice.baseUrl, auth);
+    const missing = slot && !this.mirror.keys.includes(slot);
+    if (auth && missing) await this.grokSignIn();
+    else if (choice.preset.needsKey && !isLocalEndpoint(choice.baseUrl) && missing) await this.setKey();
     else this.env.ui.toast(`Using ${choice.model} via ${choice.preset.label}.`);
   }
 }
@@ -868,7 +925,7 @@ export function browserUi(doc: Document): HostUi {
       const model = $<HTMLInputElement>('model');
       const list = $('modelList');
       const error = $('modelError');
-      const current = presetFor(cfg.provider, cfg.baseUrl) ?? (cfg.provider === 'openai-compatible' ? PRESETS.find((p) => p.id === 'custom') : undefined);
+      const current = presetFor(cfg.provider, cfg.baseUrl, cfg.auth) ?? (cfg.provider === 'openai-compatible' ? PRESETS.find((p) => p.id === 'custom') : undefined);
       if (!select.options.length) {
         for (const p of PRESETS) {
           const o = doc.createElement('option');
@@ -916,6 +973,38 @@ export function browserUi(doc: Document): HostUi {
       if (how !== 'save') return undefined;
       const p = preset();
       return { preset: p, provider: p.provider, baseUrl: p.askBaseUrl ? base.value.trim().replace(/\/+$/, '') : p.baseUrl, model: p.provider === 'mock' ? (p.models[0]?.name ?? 'mock') : model.value.trim() };
+    },
+    async signIn(step, poll) {
+      const dialog = $<HTMLDialogElement>('signInDialog');
+      const status = $('signInStatus');
+      $('signInCode').textContent = step.userCode;
+      const link = $<HTMLAnchorElement>('signInLink');
+      link.textContent = step.verificationUri;
+      link.href = step.verificationUri;
+      status.textContent = 'Waiting for you to approve it…';
+      let closed = false;
+      dialog.addEventListener('close', () => (closed = true), { once: true });
+      dialog.showModal();
+      // The gateway owns the polling loop's talking to xAI; the page just asks again every 3 s.
+      for (;;) {
+        await new Promise((r) => setTimeout(r, 3000));
+        if (closed) return;
+        let r: SignInState;
+        try {
+          r = await poll();
+        } catch (err) {
+          status.textContent = `The sign-in could not be checked: ${msg(err)}`;
+          return;
+        }
+        if (closed) return;
+        if (r.state === 'pending') continue;
+        dialog.close();
+        if (r.state === 'done') ui.toast(r.who ? `Signed in with Grok as ${r.who}.` : 'Signed in with Grok.');
+        else if (r.state === 'gated') ui.toast(r.detail ?? 'xAI decides which accounts get sign-in tokens; this one was refused (HTTP 403). You can use an xAI API key instead.');
+        else if (r.state === 'denied') ui.toast(r.detail ?? 'The sign-in was refused at xAI.');
+        else ui.toast('That sign-in expired before it was approved. Try again.');
+        return;
+      }
     },
     async confirm(text, action) {
       const dialog = $<HTMLDialogElement>('confirmDialog');

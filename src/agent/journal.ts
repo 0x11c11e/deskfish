@@ -84,10 +84,12 @@ export class JournalStore {
    * `reason` is what started the run when it was not simply the person typing — a schedule, or a
    * lesson from a teacher (decision 109): she should be able to read later why a task was there.
    */
-  appendTask(info: { task: string; outcome: string; steps: number; costUsd?: number; reason?: string; summary?: string; salience?: number }): JournalEntry {
+  appendTask(info: { task: string; outcome: string; steps: number; costUsd?: number; subscription?: boolean; reason?: string; summary?: string; salience?: number }): JournalEntry {
     const task = oneLine(info.task, MAX_TASK_LINE);
     const summary = oneLine(info.summary ?? '', MAX_SUMMARY);
-    const cost = info.costUsd && info.costUsd > 0 ? ` · $${info.costUsd.toFixed(2)}` : '';
+    // A run on a subscription sign-in has no dollar figure: the pool is what it spent, and a "$0.00"
+    // would read as free. The word is the honest line (decision 110's rule, one provider further on).
+    const cost = info.subscription ? ' · subscription' : info.costUsd && info.costUsd > 0 ? ` · $${info.costUsd.toFixed(2)}` : '';
     const why = info.reason ? ` · ${oneLine(info.reason, 40)}` : '';
     const weight = info.salience && info.salience > 1 ? ` · ${'★'.repeat(Math.min(5, info.salience))}` : '';
     const text = `${info.outcome} · ${info.steps} step${info.steps === 1 ? '' : 's'}${cost}${why}${weight} — Task: ${task}${summary ? ` — ${summary}` : ''}`;

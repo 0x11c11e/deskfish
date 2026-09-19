@@ -1,6 +1,28 @@
 import type { ActionResult, ComputerAction } from '../../computer/types';
 import type { ScaledImage } from '../../image/resize';
 
+/**
+ * The provider says the subscription pool behind a "sign in" credential is spent (xAI: HTTP 429, or
+ * 403 with "run out of available resources"). Not an error the task dies of and never a silent
+ * switch to an API key — the loop knocks on the glass with it and waits for the person.
+ */
+export class PoolExhaustedError extends Error {
+  readonly poolExhausted = true;
+  constructor(message: string) {
+    super(message);
+    this.name = 'PoolExhaustedError';
+  }
+}
+
+/**
+ * Recognise it by its marker rather than by `instanceof`: the bundle and a `tsx`-loaded copy of this
+ * module are two different classes, and a knock must not turn back into an error because of which
+ * loader ran. (Found by `oauth.test.mts`, where the `.mts` suite and the `.ts` adapter each got one.)
+ */
+export function isPoolExhaustedError(err: unknown): err is PoolExhaustedError {
+  return !!err && typeof err === 'object' && (err as { poolExhausted?: unknown }).poolExhausted === true;
+}
+
 /** What the loop hands the model each turn: the screen, plus results of the model's last actions. */
 export interface Observation {
   image: ScaledImage;
@@ -65,6 +87,12 @@ export interface AdapterConfig {
   model: string;
   baseUrl?: string;
   apiKey?: string;
+  /**
+   * A credential that is fetched per call rather than pasted once: "Sign in with Grok" hands the
+   * adapter this instead of `apiKey`, and the gateway refreshes behind it. `force` asks for a fresh
+   * one after a 401, so a token that expired mid-task costs one retry and not the task.
+   */
+  bearer?: (force?: boolean) => Promise<string>;
   /** Anthropic workspace ID; identity-linked API keys must name the workspace they act in. */
   workspaceId?: string;
   systemPrompt?: string;

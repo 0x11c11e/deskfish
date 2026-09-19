@@ -13,6 +13,10 @@ export interface UiConfig {
   daemonUrl: string;
   vncUrl: string;
   hasApiKey: boolean;
+  /** This endpoint signs in instead of taking a key ("Sign in with Grok"); the key row becomes the sign-in row. */
+  signIn?: 'xai-oauth';
+  /** Who the sign-in is as, when it is done. A display name, never a token. */
+  signedInAs?: string;
   /** Step limit per task (for the "step 12 of 60" counter). */
   maxSteps: number;
   desktop: DesktopStatus;

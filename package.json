@@ -332,6 +332,19 @@
           "default": "",
           "description": "Base URL of the model endpoint. Required for provider=openai-compatible (LiteLLM: http://localhost:4000/v1, xAI: https://api.x.ai/v1, Ollama: http://localhost:11434/v1, OpenRouter: https://openrouter.ai/api/v1). For provider=anthropic leave empty (api.anthropic.com) unless you use a gateway."
         },
+        "deskfish.auth": {
+          "type": "string",
+          "enum": [
+            "",
+            "xai-oauth"
+          ],
+          "enumDescriptions": [
+            "An API key for the endpoint (the usual way).",
+            "The tokens from \"Sign in with Grok\": her calls draw your SuperGrok pool instead of billing an xAI API key. Set by the model picker, not by hand."
+          ],
+          "default": "",
+          "description": "Which credential the endpoint is used with. Leave empty unless you signed in with Grok from the model picker."
+        },
         "deskfish.anthropicWorkspaceId": {
           "type": "string",
           "default": "",

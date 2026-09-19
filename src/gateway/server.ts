@@ -416,7 +416,13 @@ export class GatewayServer {
       case 'config.schema':
         return s.settingsSchema;
       case 'model.set':
-        return s.patchConfig({ provider: a.provider, model: a.model, baseUrl: a.baseUrl });
+        return s.patchConfig({ provider: a.provider, model: a.model, baseUrl: a.baseUrl, auth: a.auth ?? '' });
+      case 'auth.start':
+        return s.authStart();
+      case 'auth.poll':
+        return s.authPoll();
+      case 'auth.signOut':
+        return s.authSignOut().then(() => null);
       case 'key.set':
         if (!/^deskfish\.apiKey\.[\w.:-]+$/.test(a.slot)) throw new Error('bad key slot');
         s.setKey(a.slot, a.key || undefined);

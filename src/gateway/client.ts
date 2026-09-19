@@ -49,6 +49,8 @@ export class GatewayClient extends EventEmitter {
   screenFree = false;
   latestScreenshot?: { dataUrl: string; width: number; height: number };
   keys: string[] = [];
+  /** Who the endpoint is signed in as ("Sign in with Grok"), when it is. A display name, never a token. */
+  signedInAs?: string;
   readonly desktop: RemoteDesktop;
 
   constructor(private opts: GatewayClientOptions) {
@@ -235,6 +237,7 @@ export class GatewayClient extends EventEmitter {
     this.screenFree = s.screenFree;
     this.latestScreenshot = s.screenshot ? { dataUrl: s.screenshot.dataUrl, width: s.screenshot.width, height: s.screenshot.height } : undefined;
     this.keys = s.keys;
+    this.signedInAs = s.signedInAs;
     this.desktop.absorb(s.desktop.status, s.desktop.networkMode);
   }
 

@@ -175,6 +175,11 @@ try {
   ok(grok?.costEstimated === true && Math.abs(grok.costUsd - 0.223) < 0.001, `no reported cost + a list price → an estimate (${JSON.stringify(grok)})`);
   ok(costOf(grokUsage, { provider: 'openai-compatible', model: 'model-a', baseUrl } as DeskfishConfig) === undefined, 'no reported cost and no list price → no cost field, not $0');
   ok(costOf({ ...grokUsage, costUsd: 0.02 }, { provider: 'openai-compatible', model: 'grok-4.6', baseUrl: 'https://api.x.ai/v1' } as DeskfishConfig)?.costUsd === 0.02, 'a reported cost wins over the estimate');
+  // Signed in with Grok: the run draws a pool the plan paid for. A dollar figure — reported, estimated
+  // or zero — would all be lies, so the teacher is told what kind of billing it is instead.
+  const signedIn = costOf(grokUsage, { provider: 'openai-compatible', model: 'grok-4.6', baseUrl: 'https://api.x.ai/v1', auth: 'xai-oauth' } as DeskfishConfig);
+  ok(signedIn?.billing === 'subscription' && signedIn.costUsd === undefined && signedIn.costEstimated === undefined, `signed in → billing: "subscription" and no cost at all (${JSON.stringify(signedIn)})`);
+  ok(costOf({ ...grokUsage, costUsd: 0.02 }, { provider: 'openai-compatible', model: 'grok-4.6', baseUrl: 'https://api.x.ai/v1', auth: 'xai-oauth' } as DeskfishConfig)?.costUsd === undefined, "signed in: even a figure the provider reports is not money the person spent, so it is not shown as cost");
   const tr = asJson(await client.callTool({ name: 'transcript', arguments: {} }));
   ok(tr.items.some((i: any) => i.kind === 'assistant') && tr.items.some((i: any) => i.kind === 'user'), 'transcript shows the chat she is in now');
 

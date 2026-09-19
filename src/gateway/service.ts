@@ -22,6 +22,7 @@ import { scalePng } from '../image/resize';
 import { describeAction } from '../computer/types';
 import { maskDeep, maskSecrets } from '../agent/secrets';
 import { keySlotFor } from '../agent/presets';
+import { discover, needsRefresh, parseTokens, pollOnce, refreshTokens, revoke, serializeTokens, startDeviceFlow, type DeviceGrant, type PollState, type XaiTokens } from './xaiOauth';
 import { DOWNLOADS_DIR, DownloadsWatcher, UPLOADS_DIR, formatSize, isTemporary, safeFileName, type NewDownload } from '../desktop/files';
 import { DesktopSupervisor, type DesktopStatus, type SupervisorOptions } from '../desktop/supervisor';
 import type { DesktopFile } from '../webview/protocol';
@@ -58,6 +59,8 @@ export interface ServiceOptions {
   log?: (line: string) => void;
   /** Tests replace the container engine. */
   createEngine?: SupervisorOptions['createEngine'];
+  /** The OAuth issuer "Sign in with Grok" talks to; only a test points it anywhere but xAI. */
+  authIssuer?: string;
   /** How often the clock is checked for due schedules and the running task's state is written. Default 30 s; tests make it short. */
   tickMs?: number;
 }
@@ -100,6 +103,8 @@ export class DeskfishService extends EventEmitter {
   private configSaved: boolean;
   /** The settings dialog's fields, from the `package.json` Deskfish shipped with (read once at start). */
   readonly settingsSchema: SettingsSchema;
+  /** Where "Sign in with Grok" signs in; undefined means xAI's own issuer. */
+  private readonly authIssuer?: string;
   /** API keys by slot and the self key, in `secrets.json` (0600). */
   readonly secrets: SecretsFile;
   private readonly log: (line: string) => void;
@@ -179,6 +184,7 @@ export class DeskfishService extends EventEmitter {
     this.resourceDir = opts.resourceDir;
     this.dataDir = opts.dataDir;
     this.secrets = opts.secrets ?? new SecretsFile(path.join(opts.dataDir, 'secrets.json'));
+    this.authIssuer = opts.authIssuer;
     this.desktop = new DesktopSupervisor({
       buildContext: path.join(opts.resourceDir, 'docker', 'desktop'),
       config: () => this.cfg,
@@ -318,10 +324,99 @@ export class DeskfishService extends EventEmitter {
     if (this.secrets.set(slot, key || undefined)) this.fire('keys', this.secrets.slots());
   }
 
-  /** The API key for the current provider's slot. */
+  /** The credential slot the current configuration uses: an API key slot, or an OAuth one when signed in. */
+  private slot(): string | undefined {
+    return keySlotFor(this.cfg.provider, this.cfg.baseUrl, this.cfg.auth);
+  }
+
+  /** The API key for the current provider's slot. Undefined while the configuration signs in instead. */
   apiKey(): string | undefined {
-    const slot = keySlotFor(this.cfg.provider, this.cfg.baseUrl);
+    if (this.cfg.auth) return undefined;
+    const slot = this.slot();
     return slot ? this.secrets.get(slot) : undefined;
+  }
+
+  /* ---------- "Sign in with Grok": the device flow, the tokens, the refresh (one writer: here) ---------- */
+
+  /** The sign-in the person is completing in their browser, between `auth.start` and `auth.poll`. */
+  private grant?: DeviceGrant;
+  /** One refresh in flight at a time: a second call waits for the first rather than racing it. */
+  private refreshing?: Promise<XaiTokens>;
+
+  /** The tokens in the current configuration's OAuth slot, if it has any. */
+  private tokens(): XaiTokens | undefined {
+    const slot = this.cfg.auth ? this.slot() : undefined;
+    return slot ? parseTokens(this.secrets.get(slot)) : undefined;
+  }
+
+  /** Write tokens back to their slot (and tell the clients the slot list changed). */
+  private storeTokens(t: XaiTokens | undefined): void {
+    const slot = keySlotFor(this.cfg.provider, this.cfg.baseUrl, 'xai-oauth');
+    if (!slot) return;
+    if (this.secrets.set(slot, t ? serializeTokens(t) : undefined)) this.fire('keys', this.secrets.slots());
+  }
+
+  /**
+   * The bearer for one model call: the stored access token, renewed when under an hour of it is
+   * left or when the adapter says a 401 forced it. The rotated refresh token is written before this
+   * resolves, so a crash right after cannot strand the grant.
+   */
+  private async bearer(force = false): Promise<string> {
+    const have = this.tokens();
+    if (!have) throw new Error('Not signed in with Grok. Sign in in Settings, or use an xAI API key.');
+    if (!force && !needsRefresh(have)) return have.access;
+    if (!this.refreshing) {
+      this.refreshing = refreshTokens(have)
+        .then((next) => {
+          this.storeTokens(next);
+          return next;
+        })
+        .finally(() => {
+          this.refreshing = undefined;
+        });
+    }
+    return (await this.refreshing).access;
+  }
+
+  /** Start the device flow: the code and the URL the person approves in their own browser. */
+  async authStart(): Promise<{ userCode: string; verificationUri: string; expiresIn: number }> {
+    const grant = await startDeviceFlow({ issuer: this.authIssuer });
+    this.grant = grant;
+    this.log(`— signing in with Grok: code ${grant.userCode} at ${grant.verificationUri} —`);
+    return { userCode: grant.userCode, verificationUri: grant.verificationUri, expiresIn: Math.max(0, Math.round((grant.expiresAt - Date.now()) / 1000)) };
+  }
+
+  /** One poll of the sign-in in progress. The view asks; the gateway does the talking. */
+  async authPoll(): Promise<{ state: PollState; detail?: string; who?: string }> {
+    const grant = this.grant;
+    if (!grant) return { state: 'expired', detail: 'That sign-in is no longer running. Start it again.' };
+    const r = await pollOnce(grant);
+    if (r.slowDown) grant.intervalMs += 5000;
+    if (r.state === 'done' && r.tokens) {
+      this.grant = undefined;
+      this.storeTokens(r.tokens);
+      this.log(`— signed in with Grok${r.tokens.who ? ` as ${r.tokens.who}` : ''} —`);
+      return { state: 'done', who: r.tokens.who };
+    }
+    if (r.state !== 'pending') {
+      this.grant = undefined;
+      if (r.detail) this.log(`— Grok sign-in ${r.state}: ${r.detail} —`);
+    }
+    return { state: r.state, ...(r.detail ? { detail: r.detail } : {}) };
+  }
+
+  /** Sign out: tell xAI to forget the grant (best effort), then clear the slot. */
+  async authSignOut(): Promise<void> {
+    const have = this.tokens();
+    this.grant = undefined;
+    if (have) await revoke(have, await discover(this.authIssuer)).catch(() => false);
+    this.storeTokens(undefined);
+    this.log('— signed out of Grok —');
+  }
+
+  /** How long the sign-in in progress may still be polled, in seconds (0 when none is running). */
+  authPending(): number {
+    return this.grant ? Math.max(0, Math.round((this.grant.expiresAt - Date.now()) / 1000)) : 0;
   }
 
   /** The charter: the user's file when it exists and is not empty, else the default that ships with Deskfish. */
@@ -522,13 +617,21 @@ export class DeskfishService extends EventEmitter {
     // The budget itself is not: "Stopped at the cost budget — raise deskfish.maxCostUsd or say
     // continue" must keep the conversation when the person does both (the raised budget applies
     // from the next fresh runner, as before step 5).
-    const fingerprint = JSON.stringify([cfg.provider, cfg.model, cfg.baseUrl, cfg.anthropicWorkspaceId, fence.autonomy, cfg.daemonUrl, apiKey, cfg.effort, cfg.cacheTtl, opts?.unattended ? fence.budgetUsd : null]);
+    // `auth` is part of the setup: the same endpoint with a sign-in instead of a key is another
+    // credential and another conversation. The tokens themselves are not — they rotate mid-task.
+    const fingerprint = JSON.stringify([cfg.provider, cfg.model, cfg.baseUrl, cfg.anthropicWorkspaceId, cfg.auth, fence.autonomy, cfg.daemonUrl, apiKey, cfg.effort, cfg.cacheTtl, opts?.unattended ? fence.budgetUsd : null]);
     let runner = this.runner;
     if (!runner || runner.currentStatus !== 'done' || fingerprint !== this.runnerFingerprint) {
       try {
         const docs = this.docsLibrary();
-        const price = priceForConfig({ provider: cfg.provider, model: cfg.model, baseUrl: cfg.baseUrl });
-        if (opts?.unattended && fence.budgetUsd > 0 && !price) {
+        // On a sign-in the list price does not apply: nothing is billed per token, so the loop must
+        // not accumulate an imaginary spend (and the budget must not stop a task over it).
+        const price = cfg.auth ? undefined : priceForConfig({ provider: cfg.provider, model: cfg.model, baseUrl: cfg.baseUrl });
+        if (opts?.unattended && fence.budgetUsd > 0 && cfg.auth) {
+          // Same honesty one provider further on: a run on a subscription spends a pool, not dollars,
+          // so there is no figure for the budget to count — the pool running out is the knock.
+          this.log(`  ⚠ the unattended budget ($${fence.budgetUsd.toFixed(2)}) cannot act while she is signed in with Grok: the run draws the subscription's pool, which has no dollar figure`);
+        } else if (opts?.unattended && fence.budgetUsd > 0 && !price) {
           // Honest about the fence: without a list price the loop can only count what the provider
           // reports, and most OpenAI-compatible endpoints report nothing.
           this.log(`  ⚠ the unattended budget ($${fence.budgetUsd.toFixed(2)}) cannot act on ${cfg.model} (${cfg.provider}): no list price for it, so cost is only known if the endpoint reports it`);
@@ -538,6 +641,7 @@ export class DeskfishService extends EventEmitter {
           model: cfg.model,
           baseUrl: cfg.baseUrl || undefined,
           apiKey: apiKey || undefined,
+          ...(cfg.auth ? { bearer: (force?: boolean) => this.bearer(force) } : {}),
           workspaceId: cfg.anthropicWorkspaceId || undefined,
           autonomy: fence.autonomy,
           docsIndex: docs.size ? docs.index() : undefined,
@@ -579,6 +683,7 @@ export class DeskfishService extends EventEmitter {
           budgetUsd: fence.budgetUsd,
           budgetSetting: fence.budgetSetting,
           price,
+          subscription: !!cfg.auth,
           onEvent: (e) => {
             if (gen === this.generation) this.emitEvent(e);
           },
@@ -1042,6 +1147,7 @@ export class DeskfishService extends EventEmitter {
       config: this.cfg,
       configSaved: this.configSaved,
       keys: this.secrets.slots(),
+      ...(this.tokens()?.who ? { signedInAs: this.tokens()!.who } : {}),
     };
   }
 

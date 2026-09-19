@@ -11,6 +11,12 @@ export interface DeskfishConfig {
   model: string;
   /** Anthropic workspace ID for identity-linked API keys (sent as the anthropic-workspace-id header). */
   anthropicWorkspaceId: string;
+  /**
+   * Which credential the endpoint is used with. '' = an API key in the usual slot. 'xai-oauth' =
+   * the tokens a "Sign in with Grok" left in `deskfish.oauth.<host>`, so her calls draw the
+   * person's SuperGrok pool instead of billing an xAI key. Set by the model dialog, not by hand.
+   */
+  auth: '' | 'xai-oauth';
   maxSteps: number;
   /** Per-task cost budget in USD (0 = none). Only effective for models with a known list price. */
   maxCostUsd: number;
@@ -70,6 +76,7 @@ export const DEFAULT_CONFIG: DeskfishConfig = {
   baseUrl: '',
   model: 'claude-opus-5',
   anthropicWorkspaceId: '',
+  auth: '',
   maxSteps: 0,
   maxCostUsd: 0,
   unattendedMaxCostUsd: 2,
@@ -97,6 +104,7 @@ export const DEFAULT_CONFIG: DeskfishConfig = {
 
 const ENUMS: Partial<Record<keyof DeskfishConfig, readonly string[]>> = {
   provider: ['anthropic', 'openai-compatible', 'mock'],
+  auth: ['', 'xai-oauth'],
   autonomy: ['free', 'guided'],
   cacheTtl: ['1h', '5m'],
   effort: ['', 'low', 'medium', 'high', 'xhigh', 'max'],
