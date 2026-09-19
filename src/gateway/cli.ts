@@ -3,7 +3,7 @@ import { parseArgs } from 'node:util';
 import { describeAction } from '../computer/types';
 import type { AgentEvent } from '../agent/loop';
 import { GatewayClient } from './client';
-import { DEFAULT_PORT } from './protocol';
+import { DEFAULT_PORT, type ClientKind } from './protocol';
 import { probeGateway } from './spawn';
 import { startGateway, type StartedGateway } from './start';
 import { dataDir, readToken } from './storage';
@@ -11,8 +11,8 @@ import { VERSION } from './version';
 
 /**
  * `deskfish serve [--data-dir DIR] [--port N] [--host H] [--allow-remote]` runs the gateway;
- * `deskfish status`, `deskfish run "task"` and `deskfish stop` talk to a running one on this
- * computer. Built twice: `dist/cli.js` (the `deskfish` command) and `dist/gateway.js` (what the
+ * `deskfish status`, `deskfish run "task"`, `deskfish stop` and `deskfish mcp` talk to a running
+ * one. Built twice: `dist/cli.js` (the `deskfish` command) and `dist/gateway.js` (what the
  * extension starts). No `vscode` import.
  */
 
@@ -20,7 +20,10 @@ const USAGE = `Usage:
   deskfish serve [--data-dir DIR] [--port ${DEFAULT_PORT}] [--host 127.0.0.1] [--allow-remote]
   deskfish status [--data-dir DIR] [--port N]
   deskfish run "task" [--data-dir DIR] [--port N]
-  deskfish stop [--data-dir DIR] [--port N]      stops the gateway (the desktop keeps running)`;
+  deskfish stop [--data-dir DIR] [--port N]      stops the gateway (the desktop keeps running)
+  deskfish mcp [--data-dir DIR] [--port N] [--url http://host:port]
+                                                 an MCP server on stdio for a coding agent
+                                                 (--url takes the token from DESKFISH_GATEWAY_TOKEN)`;
 
 async function main(argv: string[]): Promise<number> {
   const [cmd, ...rest] = argv;
@@ -29,7 +32,7 @@ async function main(argv: string[]): Promise<number> {
   try {
     ({ values, positionals } = parseArgs({
       args: rest,
-      options: { 'data-dir': { type: 'string' }, port: { type: 'string' }, host: { type: 'string' }, 'allow-remote': { type: 'boolean' }, help: { type: 'boolean', short: 'h' } },
+      options: { 'data-dir': { type: 'string' }, port: { type: 'string' }, host: { type: 'string' }, 'allow-remote': { type: 'boolean' }, url: { type: 'string' }, help: { type: 'boolean', short: 'h' } },
       allowPositionals: true,
     }));
   } catch (err) {
@@ -59,6 +62,8 @@ async function main(argv: string[]): Promise<number> {
       return runTask(dir, port, positionals.join(' '));
     case 'stop':
       return stopGateway(dir, port);
+    case 'mcp':
+      return mcp(dir, port, typeof values.url === 'string' ? values.url : undefined);
     default:
       console.error(`unknown command: ${cmd}\n\n${USAGE}`);
       return 2;
@@ -87,21 +92,21 @@ async function serve(o: { dir: string; port: number; host: string; allowRemote: 
 
 /* ---------- the client commands ---------- */
 
-async function connect(dir: string, port: number): Promise<GatewayClient | undefined> {
-  const url = `http://127.0.0.1:${port}`;
-  if (!(await probeGateway(url))) {
+async function connect(dir: string, port: number, o: { kind?: ClientKind; url?: string; token?: string; timeoutMs?: number } = {}): Promise<GatewayClient | undefined> {
+  const url = o.url ?? `http://127.0.0.1:${port}`;
+  if (!(await probeGateway(url, o.timeoutMs))) {
     console.error(`No Deskfish gateway is running on ${url}. Start one with: deskfish serve`);
     return undefined;
   }
-  const token = readToken(dir);
+  const token = o.token ?? readToken(dir);
   if (!token) {
     console.error(`No gateway token in ${dir} (is --data-dir right?)`);
     return undefined;
   }
-  const client = new GatewayClient({ url, token, client: 'cli', version: VERSION });
+  const client = new GatewayClient({ url, token, client: o.kind ?? 'cli', version: VERSION });
   let refused = false;
   client.once('unauthorized', () => (refused = true));
-  const snap = await Promise.race([client.connect(), new Promise<undefined>((r) => setTimeout(r, 5000))]);
+  const snap = await Promise.race([client.connect(), new Promise<undefined>((r) => setTimeout(r, o.timeoutMs ?? 5000))]);
   if (!snap) {
     client.close();
     console.error(refused ? `The gateway on ${url} refused the token in ${dir}.` : `The gateway on ${url} did not answer.`);
@@ -160,6 +165,31 @@ async function runTask(dir: string, port: number, task: string): Promise<number>
       finish(1);
     });
   });
+}
+
+/**
+ * `deskfish mcp`: the MCP door on stdio (see `mcp.ts`). It finds a gateway the way `status` does, or
+ * takes `--url` plus `DESKFISH_GATEWAY_TOKEN` for one on another machine. It never starts a gateway —
+ * the app, the extension and `serve` do that — and it says so and exits within two seconds when none
+ * answers, because an MCP client hangs on a server that neither speaks nor exits. Nothing but the
+ * protocol may reach stdout.
+ */
+async function mcp(dir: string, port: number, url?: string): Promise<number> {
+  const token = url ? (process.env.DESKFISH_GATEWAY_TOKEN ?? '').trim() : undefined;
+  if (url && !token) {
+    console.error('deskfish mcp --url needs the gateway token in DESKFISH_GATEWAY_TOKEN');
+    return 1;
+  }
+  const client = await connect(dir, port, { kind: 'mcp', url, token, timeoutMs: 1500 });
+  if (!client) {
+    console.error('Start Deskfish first: open it in VS Code or the app, or run `deskfish serve`.');
+    return 1;
+  }
+  const { serveMcp } = await import('./mcp');
+  console.error(`deskfish mcp: connected to ${client.url} (${client.snapshot?.version ?? '?'})`);
+  await serveMcp(client);
+  client.close();
+  return 0;
 }
 
 async function stopGateway(dir: string, port: number): Promise<number> {

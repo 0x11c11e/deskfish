@@ -79,10 +79,13 @@ deskfish serve                 # run the gateway in the foreground (Ctrl+C stops
 deskfish status                # is it running, on what, with which model — and the token file
 deskfish run "book a table"    # give her a task and watch it; Ctrl+C detaches, she keeps going
 deskfish stop                  # stop the gateway (the tank keeps running)
+deskfish mcp                   # an MCP server on stdio, for a coding agent to use her
 ```
 
 `serve` takes `--data-dir DIR`, `--port N`, `--host H` and `--allow-remote`; the others take
-`--data-dir` and `--port` so they can reach a gateway that is not on the default one. Only one
+`--data-dir` and `--port` so they can reach a gateway that is not on the default one.
+`deskfish mcp` is for Claude Code, Codex and anything else that speaks MCP — see
+[Deskfish as an MCP server](advanced#deskfish-as-an-mcp-server). Only one
 gateway may run per data folder — a second `serve` on the same folder refuses to start, which
 is what keeps her one writer.
 

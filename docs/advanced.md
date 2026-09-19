@@ -196,13 +196,14 @@ deskfish serve                 # the gateway itself; Ctrl+C stops it
 deskfish status                # what is running, on what model, and where the token file is
 deskfish run "open wikipedia.org and tell me when Debian 1.1 was released"
 deskfish stop                  # stop the gateway (the tank keeps running)
+deskfish mcp                   # an MCP server on stdio (below)
 ```
 
 `deskfish run` prints her replies and her actions as they happen. Ctrl+C detaches and leaves the
 task running — `deskfish status` shows it, and any window that connects later picks it up
 mid-task with the whole chat.
 
-All four take `--data-dir DIR` and `--port N` when the gateway is not the default one; `serve`
+All of them take `--data-dir DIR` and `--port N` when the gateway is not the default one; `serve`
 also takes `--host` and `--allow-remote`. `DESKFISH_HOME` moves her data folder, which is
 `~/.local/share/deskfish` on Linux, `~/Library/Application Support/deskfish` on macOS and
 `%APPDATA%\deskfish` on Windows. Only one gateway may run per data folder; a second `serve` on
@@ -217,6 +218,85 @@ before a start.
 > gateway, no memory and no schedules, driven by `DESKFISH_*` environment variables. It exists
 > for Deskfish's own tests; its variables are listed at the top of `src/smoke.ts`.
 
+
+## Deskfish as an MCP server
+
+A coding agent — Claude Code, Codex, anything that speaks MCP — can talk to Deskfish the way you
+do: give her a task, watch it happen, look at her screen, read what she has written, and tell her
+what to do differently. Two uses, one door:
+
+- **Errands.** An agent working in your repository has no browser and no hands. Hers are next
+  door: "log in to the dashboard and download last month's invoice" goes to her tank, where the
+  browser, the logins and the Downloads folder are.
+- **Teaching.** Give her a task from a session that can judge the result, then tell her in the
+  same chat what was good and what to do differently. She keeps what she keeps: her playbooks and
+  her reflection are hers, and nothing here writes a file of hers.
+
+`deskfish mcp` is that door. It speaks MCP over stdin and stdout and is a **client** of the
+gateway — the same port and the same token as a window. It never starts a gateway; if none
+answers it says so and exits, so start Deskfish first (VS Code, the app, or `deskfish serve`).
+
+### Registering it
+
+Once, outside any project:
+
+```bash
+# installed from the tarball (npm i -g … deskfish.tgz)
+claude mcp add --scope user deskfish -- deskfish mcp
+
+# from a source checkout
+claude mcp add --scope user deskfish -- node /path/to/deskfish/dist/cli.js mcp
+
+# the app, which brings its own Node inside Electron (Linux AppImage shown)
+claude mcp add --scope user deskfish -- env ELECTRON_RUN_AS_NODE=1 /path/to/Deskfish.AppImage   /path/to/squashfs-root/resources/deskfish/dist/cli.js mcp
+```
+
+`claude mcp list` should then say **Connected**, and the tools appear as `mcp__deskfish__run`,
+`mcp__deskfish__wait` and so on. Codex takes the same command:
+
+```bash
+codex mcp add deskfish -- deskfish mcp
+```
+
+or, by hand in `~/.codex/config.toml`:
+
+```toml
+[mcp_servers.deskfish]
+command = "deskfish"
+args = ["mcp"]
+```
+
+Add `--port N` and `--data-dir DIR` when the gateway is not the default one. For a Deskfish on
+another machine, use `--url http://host:port` and put its token in `DESKFISH_GATEWAY_TOKEN` —
+over a tunnel or Tailscale, as in *A gateway on another machine* above. The token is the same one
+the web page asks for.
+
+### The tools
+
+| Tool | What it does |
+| --- | --- |
+| `run` | Give her a task, in her chat, the way you would type it. Queued if she is busy; she turns the tank on herself |
+| `say` | A message while she works — a correction, or the answer to a knock. Refused when she is idle |
+| `wait` | Block until the task ends, she knocks, or the timeout; returns the chat items since your cursor |
+| `status` | What she is doing, the step, the cost so far, her model, whether the tank is on, what is queued |
+| `transcript` | The chat she is in now, or a past one by name |
+| `screenshot` | A picture of the tank — a fresh one by default, which is passive and does not interrupt her |
+| `stop` | End the running task at once, standby and knocks included |
+| `new_chat` | File the chat and start an empty one: the boundary between one errand and the next |
+| `chats` | The history, with how each one ended |
+| `self`, `journal`, `playbooks`, `memory` | Read her pages: who she is, what she has done, what she has learned, what she remembers |
+| `reflect` | Ask her to reflect now rather than at the next due one |
+
+Nothing in that list writes a file of hers, sets a key or changes a setting; those stay with the
+windows. An agent using it is a person in her chat as far as she is concerned: what it says is in
+the transcript, the run is journaled with what put it there, and **Stop** in any window still
+stops her.
+
+> [!NOTE]
+> `wait` blocks for up to two minutes, which is longer than some hosts allow a single tool call.
+> Claude Code's CLI has no short limit; the desktop app cuts a call at about a minute, so set
+> `MCP_TOOL_TIMEOUT` (milliseconds) or ask for a shorter `timeoutSeconds`. Either way the answer
+> is to call `wait` again — it is meant to be used in a loop.
 
 ## One URL for many models
 

@@ -23,7 +23,7 @@ export const MAX_FRAME = 64 * 1024 * 1024;
 /** Largest file copied into or out of the tank. */
 export const MAX_TRANSFER = 100 * 1024 * 1024;
 
-export type ClientKind = 'vscode' | 'web' | 'cli' | 'app';
+export type ClientKind = 'vscode' | 'web' | 'cli' | 'app' | 'mcp';
 
 /**
  * A run request. `unattended` marks a run nobody asked for and nobody is watching (a schedule,
@@ -108,6 +108,12 @@ export interface Commands {
   'desktop.install': [Record<string, never>, boolean];
   /** This client wants the 15 s health poll while it shows the desktop's state. */
   'desktop.poll': [{ on: boolean }, null];
+  /**
+   * A fresh frame of the tank for a client that is not watching the live view (the MCP server's
+   * `screenshot` tool). Passive: the daemon queues it behind her actions and it changes nothing.
+   * The shape is `Snapshot.screenshot` without the step. Refused when the desktop is off.
+   */
+  'desktop.screenshot': [Record<string, never>, { dataUrl: string; width: number; height: number }];
   'files.upload': [{ name: string; base64: string }, DesktopFile];
   'files.list': [Record<string, never>, DesktopFile[]];
   /** Bot desktop → client clipboard: the text when it is new, else null. */
@@ -212,6 +218,7 @@ const SPEC: { [K in CommandName]: Record<string, Field> } = {
   'desktop.detectRuntime': NONE,
   'desktop.install': NONE,
   'desktop.poll': { on: 'boolean' },
+  'desktop.screenshot': NONE,
   'files.upload': { name: 'string', base64: 'string' },
   'files.list': NONE,
   'clipboard.get': { hint: 'string?' },
@@ -264,7 +271,7 @@ function fieldOk(type: Field, v: unknown): boolean {
     case 'editable':
       return v === 'memory.md' || v === 'charter.md';
     case 'client':
-      return v === 'vscode' || v === 'web' || v === 'cli' || v === 'app';
+      return v === 'vscode' || v === 'web' || v === 'cli' || v === 'app' || v === 'mcp';
     case 'provider':
       return v === 'anthropic' || v === 'openai-compatible' || v === 'mock';
     case 'autonomy':

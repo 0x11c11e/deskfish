@@ -395,6 +395,8 @@ export class GatewayServer {
         return this.installRuntime();
       case 'desktop.poll':
         return this.setPoll(conn, a.on), null;
+      case 'desktop.screenshot':
+        return s.desktopScreenshot();
       case 'files.upload': {
         const data = Buffer.from(a.base64, 'base64');
         return s.uploadFile(a.name, data);

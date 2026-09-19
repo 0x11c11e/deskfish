@@ -79,13 +79,18 @@ export class JournalStore {
     this.stateFile = file.replace(/\.md$/, '') + '-state.json';
   }
 
-  /** One line for a finished task. `summary` is the bot's final message (trimmed to 300 chars). */
-  appendTask(info: { task: string; outcome: string; steps: number; costUsd?: number; summary?: string; salience?: number }): JournalEntry {
+  /**
+   * One line for a finished task. `summary` is the bot's final message (trimmed to 300 chars).
+   * `reason` is what started the run when it was not simply the person typing — a schedule, or a
+   * lesson from a teacher (decision 109): she should be able to read later why a task was there.
+   */
+  appendTask(info: { task: string; outcome: string; steps: number; costUsd?: number; reason?: string; summary?: string; salience?: number }): JournalEntry {
     const task = oneLine(info.task, MAX_TASK_LINE);
     const summary = oneLine(info.summary ?? '', MAX_SUMMARY);
     const cost = info.costUsd && info.costUsd > 0 ? ` · $${info.costUsd.toFixed(2)}` : '';
+    const why = info.reason ? ` · ${oneLine(info.reason, 40)}` : '';
     const weight = info.salience && info.salience > 1 ? ` · ${'★'.repeat(Math.min(5, info.salience))}` : '';
-    const text = `${info.outcome} · ${info.steps} step${info.steps === 1 ? '' : 's'}${cost}${weight} — Task: ${task}${summary ? ` — ${summary}` : ''}`;
+    const text = `${info.outcome} · ${info.steps} step${info.steps === 1 ? '' : 's'}${cost}${why}${weight} — Task: ${task}${summary ? ` — ${summary}` : ''}`;
     return this.appendLine('task', text);
   }
 

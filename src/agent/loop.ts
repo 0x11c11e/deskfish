@@ -114,7 +114,7 @@ export class AgentRunner {
   /** A 320-px, marker-free copy of the last screenshot the model was shown: standby's default before-frame. */
   private lastSeen?: ScaledImage;
   /** Per-run bookkeeping for the journal. */
-  private current?: { task: string; reflection: boolean; steps: number; spentUsd: number; lastAssistant: string; revisions: number; journaled: boolean; handovers: number; notes: number; followUps: number; said: string[]; ledger?: string; ledgers: number };
+  private current?: { task: string; reflection: boolean; reason?: string; steps: number; spentUsd: number; lastAssistant: string; revisions: number; journaled: boolean; handovers: number; notes: number; followUps: number; said: string[]; ledger?: string; ledgers: number };
 
   private readonly opts: AgentRunnerOptions;
 
@@ -251,9 +251,9 @@ export class AgentRunner {
    * was interrupted and what it was doing (the gateway's resume note). It rides in the first
    * observation exactly as the notes delta does.
    */
-  async run(task: string, runOpts: { reflection?: boolean; note?: string } = {}): Promise<void> {
+  async run(task: string, runOpts: { reflection?: boolean; note?: string; reason?: string } = {}): Promise<void> {
     if (this.isActive) throw new Error('agent is already running');
-    this.current = { task, reflection: !!runOpts.reflection, steps: 0, spentUsd: 0, lastAssistant: '', revisions: 0, journaled: false, handovers: 0, notes: 0, followUps: 0, said: [], ledgers: 0 };
+    this.current = { task, reflection: !!runOpts.reflection, reason: runOpts.reason, steps: 0, spentUsd: 0, lastAssistant: '', revisions: 0, journaled: false, handovers: 0, notes: 0, followUps: 0, said: [], ledgers: 0 };
     this.stopRequested = false;
     this.resumedSinceObserve = false;
     this.lastSeen = undefined;
@@ -589,7 +589,7 @@ export class AgentRunner {
     const outcomeText = outcome === 'done' ? 'done' : outcome === 'stopped' ? 'stopped by the user' : outcome === 'limit' ? 'stopped at the limit' : 'ended with an error';
     const salience = salienceOf({ steps: cur.steps, costUsd: cur.spentUsd, outcome: outcomeText, handovers: cur.handovers, notes: cur.notes, followUps: cur.followUps });
     const said = cur.said.length ? ` — You told me: ${cur.said.map((s) => `"${s.replace(/\s+/g, ' ').trim().slice(0, 120)}"`).join(' | ')}` : '';
-    journal.appendTask({ task: cur.task, outcome: outcomeText, steps: cur.steps, costUsd: cur.spentUsd, summary: maskSecrets((cur.lastAssistant || '') + said), salience });
+    journal.appendTask({ task: cur.task, outcome: outcomeText, steps: cur.steps, costUsd: cur.spentUsd, reason: cur.reason, summary: maskSecrets((cur.lastAssistant || '') + said), salience });
     const c = journal.taskFinished(salience);
     const every = this.opts.reflectEvery ?? 0;
     const due = every > 0 && !!this.opts.self && (c.tasks >= every || c.salience >= SALIENCE_THRESHOLD);

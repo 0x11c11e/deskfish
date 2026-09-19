@@ -18,6 +18,7 @@ import type { AgentNotes } from '../agent/adapters/types';
 import { priceForConfig } from '../agent/pricing';
 import { AgentRunner, type AgentEvent, type AgentStatus } from '../agent/loop';
 import { DesktopDaemonComputer } from '../computer/daemon';
+import { scalePng } from '../image/resize';
 import { describeAction } from '../computer/types';
 import { maskDeep, maskSecrets } from '../agent/secrets';
 import { keySlotFor } from '../agent/presets';
@@ -432,7 +433,10 @@ export class DeskfishService extends EventEmitter {
 
     const runner = this.ensureRunner(opts);
     if (!runner) return;
-    this.log(`▶ task${opts?.unattended ? ` (unattended${opts.reason ? `, ${opts.reason}` : ''})` : ''}: ${maskSecrets(task)}`);
+    // `reason` says what put the task here (a schedule, a lesson from a teacher over MCP). It used to
+    // be logged for unattended runs only, so an attended lesson looked like the person typing.
+    const why = [opts?.unattended ? 'unattended' : '', opts?.reason ?? ''].filter(Boolean).join(', ');
+    this.log(`▶ task${why ? ` (${why})` : ''}: ${maskSecrets(task)}`);
     await this.beginState(task, opts, false);
     // The container lookup is an await: a Stop or a New chat in that moment must still win.
     if (gen !== this.generation || stopSeq !== this.stopSeq) {
@@ -443,7 +447,7 @@ export class DeskfishService extends EventEmitter {
     // The interruption note goes into the first observation of this run, and only once.
     const note = await this.takeResumeNote();
     if (note) this.log('  ↻ the previous run was interrupted; she is told about it before her first look');
-    void runner.run(task, note ? { note } : {}).catch((err) => {
+    void runner.run(task, { ...(note ? { note } : {}), ...(opts?.reason ? { reason: opts.reason } : {}) }).catch((err) => {
       this.emitEvent({ type: 'status', status: 'error', message: err instanceof Error ? err.message : String(err) });
     });
   }
@@ -898,6 +902,19 @@ export class DeskfishService extends EventEmitter {
     if (this.desktop.current.state !== 'on') return undefined;
     const cfg = this.cfg;
     return new DesktopDaemonComputer(cfg.daemonUrl, { token: cfg.daemonToken || undefined });
+  }
+
+  /**
+   * A fresh frame of the tank, scaled like the ones the model sees. For a client with no live view —
+   * an MCP session judging her work. Passive: the daemon takes the picture between her actions and
+   * nothing on the screen moves because of it.
+   */
+  async desktopScreenshot(): Promise<{ dataUrl: string; width: number; height: number }> {
+    const daemon = this.daemon();
+    if (!daemon) throw new Error('The desktop is off, so there is no screen to look at. Give her a task (she turns the tank on herself) or turn it on from a Deskfish window.');
+    const shot = await daemon.screenshot();
+    const image = scalePng(shot.png, this.cfg.screenshotWidth ?? 1280);
+    return { dataUrl: `data:image/jpeg;base64,${image.jpeg.toString('base64')}`, width: image.width, height: image.height };
   }
 
   /** Release any stuck key/button on the bot's display (called by the Desktop pane on focus loss, before the user interacts, etc.). */
