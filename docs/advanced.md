@@ -247,8 +247,12 @@ claude mcp add --scope user deskfish -- deskfish mcp
 # from a source checkout
 claude mcp add --scope user deskfish -- node /path/to/deskfish/dist/cli.js mcp
 
-# the app, which brings its own Node inside Electron (Linux AppImage shown)
-claude mcp add --scope user deskfish -- env ELECTRON_RUN_AS_NODE=1 /path/to/Deskfish.AppImage   /path/to/squashfs-root/resources/deskfish/dist/cli.js mcp
+# the app, which brings its own Node inside Electron: the .deb installs under /opt/Deskfish
+claude mcp add --scope user deskfish -- env ELECTRON_RUN_AS_NODE=1 /opt/Deskfish/deskfish /opt/Deskfish/resources/deskfish/dist/cli.js mcp
+
+# the AppImage mounts itself somewhere new on every start, so unpack it once and use the copy
+./Deskfish-linux-x86_64.AppImage --appimage-extract
+claude mcp add --scope user deskfish -- env ELECTRON_RUN_AS_NODE=1 $PWD/squashfs-root/deskfish $PWD/squashfs-root/resources/deskfish/dist/cli.js mcp
 ```
 
 `claude mcp list` should then say **Connected**, and the tools appear as `mcp__deskfish__run`,
