@@ -40,7 +40,6 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - run: npm test
       - name: Version = major.minor from package.json + commit count
         id: version
         run: |
@@ -51,6 +50,12 @@ jobs:
           echo "version=$v" >> "$GITHUB_OUTPUT"
           echo "Deskfish $v"
       - run: npm run build
+      # The tests run after the build: pack.test.mts lists the tarball (npm pack --dry-run) and
+      # expects dist/cli.js in it, which exists only once the build has run; and the build runs
+      # after the version step because esbuild bakes package.json's version into the bundles.
+      # The first 0.2 release (2026-09-19, 5f2a340) failed on exactly this: tests before build on
+      # a fresh checkout, where locally dist/ is always there.
+      - run: npm test
       - run: npm run package
       # The server install: one stable name, so
       # https://github.com/0x11c11e/deskfish/releases/latest/download/deskfish.tgz is always the
