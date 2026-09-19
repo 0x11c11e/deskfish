@@ -361,7 +361,15 @@ export class DeskfishService extends EventEmitter {
    * left or when the adapter says a 401 forced it. The rotated refresh token is written before this
    * resolves, so a crash right after cannot strand the grant.
    */
-  private async bearer(force = false): Promise<string> {
+  private async bearer(force = false, baseUrl?: string): Promise<string> {
+    if (!this.cfg.auth) {
+      // The person switched to the API-key preset while this task waited at the pool's knock (the
+      // knock says they may). Same endpoint, so the conversation goes on with the key; a different
+      // endpoint is another conversation and this runner cannot follow it.
+      const key = baseUrl === undefined || this.cfg.baseUrl === baseUrl ? this.apiKey() : undefined;
+      if (key) return key;
+      throw new Error('Not signed in with Grok. Sign in in Settings, or use an xAI API key.');
+    }
     const have = this.tokens();
     if (!have) throw new Error('Not signed in with Grok. Sign in in Settings, or use an xAI API key.');
     if (!force && !needsRefresh(have)) return have.access;
@@ -641,7 +649,7 @@ export class DeskfishService extends EventEmitter {
           model: cfg.model,
           baseUrl: cfg.baseUrl || undefined,
           apiKey: apiKey || undefined,
-          ...(cfg.auth ? { bearer: (force?: boolean) => this.bearer(force) } : {}),
+          ...(cfg.auth ? { bearer: (force?: boolean) => this.bearer(force, cfg.baseUrl) } : {}),
           workspaceId: cfg.anthropicWorkspaceId || undefined,
           autonomy: fence.autonomy,
           docsIndex: docs.size ? docs.index() : undefined,

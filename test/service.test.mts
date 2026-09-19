@@ -332,6 +332,18 @@ try {
     const after = JSON.parse(fs.readFileSync(path.join(dataDir3, 'secrets.json'), 'utf8'));
     ok(JSON.parse(after.keys['deskfish.oauth.api.x.ai']).refresh === 'rt-b-fedcba9876543210', 'the rotated refresh token is on disk before the bearer is handed out');
 
+    // The knock says the person may switch to the API-key preset and hand back: the runner's bearer
+    // follows the switch on the same endpoint, and refuses to carry the key to a different one.
+    authService.patchConfig({ auth: '' });
+    await assert.rejects(() => bearer(), /Not signed in with Grok/, 'switched to the key preset with no key saved: the bearer says so');
+    n++;
+    (authService as any).secrets.set('deskfish.apiKey.api.x.ai', 'xai-switched-key-0123456789');
+    ok((await (authService as any).bearer(false, 'https://api.x.ai/v1')) === 'xai-switched-key-0123456789', 'switched to the key preset mid-task: the bearer is now the API key, same endpoint');
+    await assert.rejects(() => (authService as any).bearer(false, 'https://other.example/v1'), /Not signed in with Grok/, 'a different endpoint is another conversation: the key is not carried over');
+    n++;
+    (authService as any).secrets.set('deskfish.apiKey.api.x.ai', undefined);
+    authService.patchConfig({ auth: 'xai-oauth' });
+
     await authService.authSignOut();
     ok(authService.snapshot().keys.length === 0 && issuerCalls.includes('revoke'), 'auth.signOut: the slot is cleared and xAI is told to forget the grant');
     ok((await authService.authPoll()).state === 'expired', 'auth.poll with no sign-in running says so instead of throwing');

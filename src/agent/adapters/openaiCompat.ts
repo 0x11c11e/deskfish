@@ -177,6 +177,13 @@ export class OpenAICompatAdapter implements ModelAdapter {
       image_url: { url: `data:image/jpeg;base64,${obs.image.jpeg.toString('base64')}` },
     };
     const extras = [obs.note, ...this.queuedUser.map((t) => `User: ${t}`)].filter(Boolean).join('\n');
+    // Everything pushed below belongs to *this* call. If the call never gets an answer — the
+    // subscription's pool refused it and the loop knocks, then tries the same step again — the
+    // retry pushes it all afresh, so the failed attempt must leave no trace: no second copy of the
+    // tool results (a malformed conversation) and no lost queued user text.
+    const mark = this.messages.length;
+    const wasFirst = this.first;
+    const queued = this.queuedUser;
     this.queuedUser = [];
 
     if (this.first) {
@@ -206,7 +213,15 @@ export class OpenAICompatAdapter implements ModelAdapter {
     this.pruneImages();
     this.pruneText();
 
-    let response = await this.chat();
+    let response: any;
+    try {
+      response = await this.chat();
+    } catch (err) {
+      this.messages.length = mark;
+      this.first = wasFirst;
+      this.queuedUser = queued;
+      throw err;
+    }
     let msg = response.choices?.[0]?.message;
     if (!msg) throw new Error('provider returned no choices');
     // Cut off at the token limit with nothing said and nothing called: ask once for the rest,
@@ -421,7 +436,7 @@ export class OpenAICompatAdapter implements ModelAdapter {
       const detail = (await r.text()).slice(0, 500);
       // The subscription's pool, not the credential: the loop turns this into a knock on the glass.
       if (this.cfg.bearer && (r.status === 429 || (r.status === 403 && /run out of available resources|active grok subscription/i.test(detail)))) {
-        throw new PoolExhaustedError("Your Grok subscription's pool is used up. Say when to continue, or switch to an API key in Settings.");
+        throw new PoolExhaustedError("Your Grok subscription's pool is used up. Switch to the xAI API-key preset in Settings and hand back, or hand back once the pool has reset — the task goes on from here.");
       }
       if (r.status === 401 && this.cfg.bearer && !retriedAfter401) {
         // The access token expired mid-task (or was rotated elsewhere): one fresh one, one retry.

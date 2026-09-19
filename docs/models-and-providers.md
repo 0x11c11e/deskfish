@@ -112,8 +112,9 @@ which accounts get sign-in tokens; this one was refused"* — and an xAI API key
 
 **When the pool runs out**, xAI stops answering until the plan's window resets. Deskfish does not
 quietly fall back to an API key and charge you for the rest of the task: it knocks on the glass, the
-way it does for a login, and waits for you to say what to do. You can switch to an API key in
-Settings and say *continue*.
+way it does for a login, and waits for you to say what to do. Switch to the **xAI (Grok) — API
+key** preset in Settings and hand the desktop back, and the task goes on from where it stopped,
+now on the key; or hand back once the pool has reset.
 
 **What a task costs on it.** Nothing per token — that is the point — so the counter above the status
 row shows the tokens and the word *subscription* instead of a figure, and the journal writes
@@ -124,7 +125,8 @@ Deskfish does not show it as money.)
 
 **Signing out** (the same button, once you are signed in) tells xAI to forget the grant and deletes
 the tokens. An xAI API key you had saved before is untouched and is there again the moment you pick
-the API-key preset. You can also revoke Deskfish from your xAI account page at any time.
+the API-key preset. You can also revoke it from your xAI account page at any time: it is listed
+there as "Grok Build", and revoking it signs out every program that uses xAI's shared sign-in.
 
 **Only xAI.** Anthropic's terms forbid using a Claude Pro or Max subscription from a third-party
 tool — that is a first-party privilege of Claude Code, and Deskfish will not offer it. OpenAI

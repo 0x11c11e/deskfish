@@ -191,6 +191,7 @@ ok(!isPoolExhausted(403, 'invalid token') && !isPoolExhausted(401, 'run out of a
 /* ---------- the adapter: one fresh bearer after a 401, and the pool as a PoolExhaustedError ---------- */
 
 let handed: string[] = [];
+let bodies: string[] = [];
 let calls = 0;
 const models = http.createServer((req, res) => {
   calls++;
@@ -198,6 +199,7 @@ const models = http.createServer((req, res) => {
   req.on('data', (c) => (body += c));
   req.on('end', () => {
     handed.push(String(req.headers.authorization ?? ''));
+    bodies.push(body);
     const reply = modelScript(calls);
     res.writeHead(reply.status, { 'content-type': 'application/json' });
     res.end(JSON.stringify(reply.body));
@@ -251,6 +253,28 @@ const a4 = new OpenAICompatAdapter({ provider: 'openai-compatible', model: 'grok
 a4.start('task', { width: 1280, height: 800 });
 await assert.rejects(() => a4.step(obs), (err: unknown) => isPoolExhaustedError(err), 'adapter: a 429 on a sign-in is the pool too');
 n++;
+
+// The step the pool refused is tried again after the knock, and the adapter's history must read as
+// if the refused call never happened: one copy of the task message, then one copy of each tool
+// result — never two (a conversation xAI would refuse, or answer from a corrupted context).
+calls = 0;
+bodies = [];
+const toolTurn = { choices: [{ message: { role: 'assistant', content: '', tool_calls: [{ id: 'call_1', type: 'function', function: { name: 'computer', arguments: '{"action":"screenshot"}' } }] }, finish_reason: 'tool_calls' }], usage: { prompt_tokens: 1, completion_tokens: 1 } };
+const pool = { status: 403, body: { error: 'You have either run out of available resources or do not have an active Grok subscription' } };
+modelScript = (call) => (call === 1 ? pool : call === 2 ? { status: 200, body: toolTurn } : call === 3 ? pool : { status: 200, body: answer });
+const a6 = new OpenAICompatAdapter({ provider: 'openai-compatible', model: 'grok-4.6', baseUrl: modelsUrl, bearer: async () => 'tok' });
+a6.start('task', { width: 1280, height: 800 });
+a6.addUserMessage('hurry');
+await assert.rejects(() => a6.step(obs), isPoolExhaustedError, 'retry: the first call is refused by the pool');
+n++;
+const t2 = await a6.step(obs);
+const m2 = JSON.parse(bodies[1]).messages as { role: string; content: unknown }[];
+ok(t2.actions.length === 1 && m2.filter((m) => m.role === 'user').length === 1 && JSON.stringify(m2[m2.length - 1].content).includes('User: hurry'), `retry after the knock: one task message, and the queued user text survived (${m2.map((m) => m.role).join(',')})`);
+await assert.rejects(() => a6.step({ ...(obs as object), results: [{ ok: true }] } as never), isPoolExhaustedError, 'retry: the call after a tool turn is refused by the pool');
+n++;
+const t4 = await a6.step({ ...(obs as object), results: [{ ok: true }] } as never);
+const m4 = JSON.parse(bodies[3]).messages as { role: string; tool_call_id?: string }[];
+ok(t4.done && m4.filter((m) => m.role === 'tool').length === 1 && m4.filter((m) => m.role === 'user').length === 2, `retry after a tool turn: exactly one tool result and one screenshot per step, no duplicates (${m4.map((m) => m.role).join(',')})`);
 
 // The same 403, with an API key instead of a sign-in, stays the old error: no key path changed.
 calls = 0;
