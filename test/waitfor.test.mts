@@ -1,11 +1,14 @@
 // wait_for (standby): a computer whose frames the test controls + a scripted model. Wakes on
 // change-and-settle, waits out the time when asked, ignores small animation and changes outside
 // the region, stops at once on Stop, never counts as a repeated action for the stall detector,
-// and announces itself with a `standby` event for the chat.
+// and announces itself with a `standby` event for the chat. Since decision 109 the frame she was
+// last shown is standby's default before-frame, so a wait that begins a turn after the action
+// wakes at once too (cases 11–13), and a wait that changed nothing says so without inviting another.
 import assert from 'node:assert/strict';
 import { PNG } from 'pngjs';
 import { AgentRunner, type AgentEvent } from '../src/agent/loop';
-import { waitForAction } from '../src/agent/actions';
+import { waitForAction, WAIT_FOR_TOOL_DESCRIPTION } from '../src/agent/actions';
+import { systemPrompt } from '../src/agent/prompts';
 import { frameDiff, scalePng } from '../src/image/resize';
 import { describeAction } from '../src/computer/types';
 import type { ComputerProvider } from '../src/computer/types';
@@ -106,7 +109,7 @@ function run(frames: () => Buffer, script: Script, onExecute?: (type: string) =>
   const { runner, results } = run(() => { polls++; return frame(0, polls, polls % 2); }, (t) =>
     t === 1 ? { text: '', actions: [{ type: 'wait_for', reason: 'a reply', minutes: 0.01 }] } : { text: 'done', actions: [], done: true });
   await runner.run('t');
-  ok(results.length === 1 && /nothing changed on the screen; time is up/.test(results[0]), `small spinner and clock ignored: ${results[0]}`);
+  ok(results.length === 1 && /nothing changed on the screen\. What you waited for had most likely already happened/.test(results[0]), `small spinner and clock ignored: ${results[0]}`);
 }
 
 // 5. region: the box moves, but the watched area is elsewhere → nothing changed in the watched area
@@ -115,7 +118,7 @@ function run(frames: () => Buffer, script: Script, onExecute?: (type: string) =>
   const { runner, results } = run(() => { polls++; return frame(polls > 3 ? 2 : 0); }, (t) =>
     t === 1 ? { text: '', actions: [{ type: 'wait_for', reason: 'the status badge', minutes: 0.01, until: 'change', region: { x: 250, y: 150, w: 70, h: 50 } }] } : { text: 'done', actions: [], done: true });
   await runner.run('t');
-  ok(results.length === 1 && /nothing changed on the screen in the watched area/.test(results[0]), `region respected: ${results[0]}`);
+  ok(results.length === 1 && /nothing changed on the screen in the watched area\. What you waited for/.test(results[0]), `region respected: ${results[0]}`);
 }
 
 // 6. Stop ends a long standby at once
@@ -170,6 +173,51 @@ function run(frames: () => Buffer, script: Script, onExecute?: (type: string) =>
     t === 1 ? { text: '', actions: [{ type: 'click', x: 50, y: 50, button: 'left', count: 1 }] } : { text: 'done', actions: [], done: true });
   await runner.run('t');
   ok(shots === 2, `one observation before and one after the batch, nothing else (${shots})`);
+}
+
+// 11. lesson zero: the model calls wait_for in the turn *after* the action (one tool call per turn,
+//     which is how Grok and most models work), so there is no same-turn before-frame. The frame she
+//     was last shown is the baseline: the page finished loading while she was thinking, and the wait
+//     ends after the grace period instead of running to its deadline.
+{
+  let shots = 0;
+  const { runner, results } = run(() => { shots++; return frame(shots <= 1 ? 0 : 2); }, (t) =>
+    t === 1 ? { text: '', actions: [{ type: 'wait_for', reason: 'the results to render', minutes: 0.05, until: 'change' }] } : { text: 'done', actions: [], done: true });
+  const t0 = Date.now();
+  await runner.run('t');
+  const took = Date.now() - t0;
+  ok(results.length === 1 && /had already changed since your screenshot \(about \d+% of it\) and has held still/.test(results[0]), `last-seen frame is the baseline: ${results[0]}`);
+  ok(took < 2000, `woke after the grace period, not the 3 s deadline (${took} ms)`);
+}
+
+// 12. the screen she was shown is the screen standby sees: a genuine wait for something that never
+//     happens still runs its course, and the result no longer suggests waiting again.
+{
+  const { runner, results } = run(() => frame(0), (t) =>
+    t === 1 ? { text: '', actions: [{ type: 'wait_for', reason: 'the email to arrive', minutes: 0.01, until: 'change' }] } : { text: 'done', actions: [], done: true });
+  const t0 = Date.now();
+  await runner.run('t');
+  const took = Date.now() - t0;
+  ok(results.length === 1 && /nothing changed on the screen\. What you waited for had most likely already happened before you called wait_for, or will not happen by itself\./.test(results[0]), `unchanged screen waits it out: ${results[0]}`);
+  ok(!/wait_for again/.test(results[0]), 'the result no longer invites another standby');
+  ok(took >= 550, `waited the full 0.6 s (${took} ms)`);
+}
+
+// 13. a same-turn before-frame still wins over the last-seen one: both differ from the base frame
+//     here, and the message names the action, not the screenshot.
+{
+  let shots = 0;
+  const { runner, results } = run(() => { shots++; return frame(shots <= 1 ? 0 : shots === 2 ? 1 : 2); }, (t) =>
+    t === 1 ? { text: '', actions: [{ type: 'click', x: 50, y: 50, button: 'left', count: 1 }, { type: 'wait_for', reason: 'the page', minutes: 0.05, until: 'change' }] } : { text: 'done', actions: [], done: true });
+  await runner.run('t');
+  ok(results.length === 1 && /had already changed right after your last action/.test(results[0]), `the same-turn frame wins: ${results[0]}`);
+}
+
+// 14. the description tells her what a loaded page looks like (the other half of lesson zero)
+{
+  ok(/Look before you wait/.test(WAIT_FOR_TOOL_DESCRIPTION) && /a loaded page holds still/.test(WAIT_FOR_TOOL_DESCRIPTION), 'the tool description says a loaded page holds still');
+  ok(/Pages load in seconds/.test(WAIT_FOR_TOOL_DESCRIPTION), 'and that pages load in seconds');
+  ok(/Look before you wait: a page that is still loading shows a spinner/.test(systemPrompt('free')), 'the prompt says it too');
 }
 
 console.log(`wait_for: ${n} checks passed`);

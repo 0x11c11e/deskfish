@@ -111,6 +111,8 @@ export class AgentRunner {
   private scaledSize = { width: 1280, height: 800 };
   private started = false;
   private lastShot?: { jpegBase64: string; width: number; height: number };
+  /** A 320-px, marker-free copy of the last screenshot the model was shown: standby's default before-frame. */
+  private lastSeen?: ScaledImage;
   /** Per-run bookkeeping for the journal. */
   private current?: { task: string; reflection: boolean; steps: number; spentUsd: number; lastAssistant: string; revisions: number; journaled: boolean; handovers: number; notes: number; followUps: number; said: string[]; ledger?: string; ledgers: number };
 
@@ -254,6 +256,7 @@ export class AgentRunner {
     this.current = { task, reflection: !!runOpts.reflection, steps: 0, spentUsd: 0, lastAssistant: '', revisions: 0, journaled: false, handovers: 0, notes: 0, followUps: 0, said: [], ledgers: 0 };
     this.stopRequested = false;
     this.resumedSinceObserve = false;
+    this.lastSeen = undefined;
     this.waiting = false;
     const { computer, adapter, onEvent } = this.opts;
     // 0 (the default) means no fixed limit: like a terminal agent, the task runs until the model stops or
@@ -781,6 +784,10 @@ export class AgentRunner {
     const pos = await this.opts.computer.execute({ type: 'cursor_position' });
     const marker = pos.ok && pos.cursor ? { x: pos.cursor.x / this.scale.x, y: pos.cursor.y / this.scale.y } : undefined;
     const image = scalePng(shot.png, this.scaledWidth, 80, marker);
+    // The same frame at standby's size and without the pointer crosshair (which would itself read as a
+    // change): what she last saw, and therefore what standby compares against when the wait comes a turn
+    // later than the action that caused it.
+    this.lastSeen = scalePng(shot.png, 320, 50);
     this.lastShot = { jpegBase64: image.jpeg.toString('base64'), width: image.width, height: image.height };
     this.opts.onEvent({ type: 'screenshot', step, ...this.lastShot });
     return { image, results, note };
@@ -820,6 +827,12 @@ export class AgentRunner {
    * second), and against the first look alone that change is invisible — the wait would run to
    * the deadline for something that already happened. Measured against `before`, it counts: once
    * the screen has then held still for a short grace period, standby wakes the model.
+   *
+   * Most models issue one tool call per turn, so the action and the wait land in different turns and
+   * there is no `before`. The frame she was last shown (`lastSeen`) is then the baseline: between it
+   * and standby's first look lie the observation and the model's own thinking time — more than enough
+   * for a page to finish loading. Without this a wait for a page that was already loaded ran to its
+   * deadline every time (decision 107, lesson zero).
    */
   private async standBy(
     a: { type: 'wait_for'; reason: string; minutes: number; until: 'change' | 'time'; region?: { x: number; y: number; w: number; h: number } },
@@ -846,7 +859,9 @@ export class AgentRunner {
     const deadline = start + totalMs;
     this.opts.onEvent({ type: 'standby', reason: a.reason, minutes: totalMs / 60_000, until, endsAt: deadline });
     const base = await this.smallFrame();
-    const already = before && until === 'change' ? frameDiff(before, base, region) : 0;
+    const baseline = before ?? this.lastSeen;
+    const sinceAction = !!before;
+    const already = baseline && until === 'change' ? frameDiff(baseline, base, region) : 0;
     const graceMs = Math.min(15_000, Math.max(2 * pollMs, totalMs / 4));
     let prev = base;
     let vsBase = 0;
@@ -871,7 +886,10 @@ export class AgentRunner {
       }
       if (already >= CHANGE && vsBase < CHANGE && vsPrev < STABLE && Date.now() - start >= graceMs) {
         this.setStatus('running');
-        return { ok: true, message: `Stood by ${fmt(Date.now() - start)}: the screen${where} had already changed right after your last action (about ${Math.round(already * 100)}% of it) and has held still since. Look at the fresh screenshot and continue.` };
+        const how = sinceAction
+          ? `right after your last action (about ${Math.round(already * 100)}% of it) and has held still since`
+          : `since your screenshot (about ${Math.round(already * 100)}% of it) and has held still`;
+        return { ok: true, message: `Stood by ${fmt(Date.now() - start)}: the screen${where} had already changed ${how}. Look at the fresh screenshot and continue.` };
       }
     }
     this.setStatus('running');
@@ -882,7 +900,7 @@ export class AgentRunner {
     if (changedOnce) {
       return { ok: true, message: `Stood by ${took}: the screen${where} kept changing the whole time (an animation, or something still loading) and never settled; time is up. Look at the fresh screenshot and decide.` };
     }
-    return { ok: true, message: `Stood by ${took}: nothing changed on the screen${where}; time is up. Decide whether to keep waiting (call wait_for again), check something, or ask the user.` };
+    return { ok: true, message: `Stood by ${took}: nothing changed on the screen${where}. What you waited for had most likely already happened before you called wait_for, or will not happen by itself. Look at the screenshot and act on what it shows; do not stand by again for the same thing.` };
   }
 
   /** A small local frame for change detection; never shown to the model. */

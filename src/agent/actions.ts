@@ -170,7 +170,9 @@ export const WAIT_FOR_TOOL_DESCRIPTION =
   'in screenshot pixels watches only that area, so a clock or an animation elsewhere does not wake you. Use it instead ' +
   'of chaining wait actions for anything longer than half a minute; the user can stop it at any time. It is for what the ' +
   'page or the world does, never for your own actions: every action of yours, typing included, is complete when its ' +
-  'result comes back. Passive.';
+  'result comes back. Look before you wait: a page that is still loading shows a spinner or a skeleton; a loaded page ' +
+  'holds still, and standing by for it changes nothing. Pages load in seconds — use wait_for for things that take ' +
+  'minutes. Passive.';
 
 export const WAIT_FOR_TOOL_PARAMETERS: { type: 'object'; properties: Record<string, unknown>; required: string[]; additionalProperties: boolean } = {
   type: 'object',
