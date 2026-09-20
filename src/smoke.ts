@@ -89,7 +89,7 @@ async function main(): Promise<number> {
           console.log(
             e.jpegBase64
               ? `  📷 step ${e.step}: ${e.width}×${e.height}, ${Math.round((e.jpegBase64.length * 3) / 4 / 1024)} KB jpeg`
-              : `  📷 step ${e.step}: no new screenshot (nothing could have changed the screen)`,
+              : `  📷 step ${e.step}: no new screenshot (nothing she did could have changed the screen)`,
           );
           break;
         case 'needs_user':

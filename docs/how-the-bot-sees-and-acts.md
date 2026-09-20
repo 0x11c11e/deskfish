@@ -186,9 +186,11 @@ screens make small targets harder rather than easier.
 
 Not every step takes one. When a step's actions could not have changed the screen — a `find`, a
 `read_page`, a `zoom`, a documentation page, a memory — no screenshot is taken and none is sent;
-the agent is told that the screen is exactly as in its last one, which is still in the
-conversation. The Desktop tab is unaffected, since it is a live view of the screen rather than a
-stream of these pictures.
+the agent is told that nothing it did could have changed the screen and that its last screenshot,
+still in the conversation, stands. When it expects the screen to have moved on its own — a page that
+was still loading, a reply it was waiting for — it asks for one with the `screenshot` action, or
+stands by with `wait_for`. The Desktop tab is unaffected, since it is a live view of the screen
+rather than a stream of these pictures.
 
 Images are pruned in batches: after each prune only the three most recent stay in the
 conversation, and older ones are replaced by the note *earlier screenshot omitted*. Long text

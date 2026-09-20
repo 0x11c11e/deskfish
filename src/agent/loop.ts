@@ -418,8 +418,10 @@ export class AgentRunner {
         // Could anything in this batch have changed the screen? If not, no new screenshot is taken
         // after it — 41 of the 89 steps of a real task were a find or a read_page and carried a
         // fresh picture of a screen nobody had touched (decision 123). Decided from the action
-        // types, not from whether they succeeded: a click that failed still gets a look.
-        const touchesScreen = turn.actions.some(changesScreen);
+        // types, not from whether they succeeded: a click that failed still gets a look. An explicit
+        // `screenshot` changes nothing either, but it is a look she asked for — the action itself
+        // executes nothing (below), the frame after the batch *is* its answer — so it keeps one.
+        const touchesScreen = turn.actions.some((a) => changesScreen(a) || a.type === 'screenshot');
         // The frame from before the last real action, when a wait_for follows it in this batch: a
         // toggle that flips at once would otherwise have changed before standby takes its first look.
         let before: ScaledImage | undefined;

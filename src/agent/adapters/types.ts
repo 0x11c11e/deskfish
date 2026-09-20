@@ -40,12 +40,14 @@ export interface Observation {
 
 /**
  * What an image-less observation says in place of the screenshot. Both wires send the same
- * sentence: the screen is not stale, it is simply unchanged, and nothing about it is worth another
- * picture. (The last screenshot is still in the conversation — images are pruned to the newest
- * three — so "your last screenshot" is something she can actually look at.)
+ * sentence: nothing *she* did could have changed the screen, so the picture she has still stands.
+ * It does not claim the world held still — a page can finish loading, a reply can arrive — and the
+ * prompt tells her to ask for a screenshot or wait_for when she expects that. (The last screenshot
+ * is still in the conversation — images are pruned to the newest three — so "your last screenshot"
+ * is something she can actually look at.)
  */
 export const SCREEN_UNCHANGED_NOTE =
-  'No new screenshot: the screen is exactly as in your last screenshot — nothing you just did could have changed it.';
+  'No new screenshot: nothing you just did could have changed the screen, so your last screenshot still stands.';
 
 /** What the model wants next. */
 export interface ModelTurn {

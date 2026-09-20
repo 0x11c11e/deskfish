@@ -48,7 +48,7 @@ const active: ComputerAction[] = [
   { type: 'run_command', command: 'ls' },
   { type: 'ask_user', reason: 'a code' },
 ];
-ok(passive.every((a) => !changesScreen(a)), `${passive.length} passive actions take no new frame`);
+ok(passive.every((a) => !changesScreen(a)), `${passive.length} passive actions change nothing (screenshot among them: the loop still frames a batch that asks for one, below)`);
 ok(active.every(changesScreen), `${active.length} actions that can change the screen keep theirs (run_command opens windows; wait_for and ask_user watch the world act)`);
 
 // ---------- the loop ----------
@@ -119,6 +119,14 @@ const batch = (...actions: ComputerAction[]): ModelTurn => ({ text: '', actions,
   const h = harness((t) => (t === 1 ? batch({ type: 'find', query: 'sign in' }, { type: 'read_page', scope: 'text' }) : t === 2 ? batch({ type: 'read_docs', page: 'memory' }, { type: 'cursor_position' }) : done));
   await h.runner.run('t');
   ok(h.shotsTaken() === 1, `two passive batches after the first look cost no screenshot at all (${h.shotsTaken()} taken)`);
+}
+
+{
+  // A screenshot she asks for is a look she gets: the action changes nothing and executes nothing,
+  // the frame after the batch is its whole answer — so a batch of just that one takes a frame.
+  const h = harness((t) => (t === 1 ? batch({ type: 'find', query: 'sign in' }) : t === 2 ? batch({ type: 'screenshot' }) : done));
+  await h.runner.run('t');
+  ok(h.seen[1]?.image === false && h.seen[2]?.image === true && h.shotsTaken() === 2, `an explicit screenshot after a passive step takes one and the observation carries it (${h.shotsTaken()} taken)`);
 }
 
 {

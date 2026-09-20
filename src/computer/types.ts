@@ -188,7 +188,9 @@ export interface ComputerProvider {
  * observe rather than act. A batch of nothing but these earns no new screenshot: the screen is
  * still the one she was last shown, and sending it again costs a picture per step for nothing.
  * `run_command` counts as a change (a command can open a window), and so do `wait_for` and
- * `ask_user`, where the world or the person acts while we watch. Exhaustive on purpose: a new
+ * `ask_user`, where the world or the person acts while we watch. `screenshot` is false here — it
+ * changes nothing — but the loop still takes a frame for a batch that asks for one: the action
+ * executes nothing itself, the frame after the batch is its answer. Exhaustive on purpose: a new
  * action has to say which side it is on.
  */
 export function changesScreen(a: ComputerAction): boolean {
