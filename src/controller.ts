@@ -336,7 +336,11 @@ export class AgentController implements vscode.Disposable {
     return this.sync.last ?? this.client.snapshot?.config ?? readConfig();
   }
 
-  /** The key for a config's provider, when VS Code holds one. A slot empty here may hold a key set elsewhere; clearing is setApiKey's. */
+  /**
+   * The key for a config's provider, when VS Code holds one. A slot empty here may hold a key set
+   * elsewhere; clearing is setApiKey's. Always the *API key* slot: sign-in tokens live in the
+   * gateway's secrets file alone and never in VS Code's keychain.
+   */
   private async pushKey(cfg: DeskfishConfig): Promise<void> {
     const slot = keySlotFor(cfg.provider, cfg.baseUrl);
     if (!slot || !this.client.connected) return;
@@ -428,14 +432,18 @@ export class AgentController implements vscode.Disposable {
 
   async uiConfig(): Promise<UiConfig> {
     const cfg = this.gatewayConfig();
-    const slot = keySlotFor(cfg.provider, cfg.baseUrl);
+    const slot = keySlotFor(cfg.provider, cfg.baseUrl, cfg.auth);
+    const preset = presetFor(cfg.provider, cfg.baseUrl, cfg.auth);
     return {
       provider: cfg.provider,
       model: cfg.model,
       baseUrl: cfg.baseUrl,
       daemonUrl: cfg.daemonUrl,
       vncUrl: cfg.vncUrl,
-      hasApiKey: (!!slot && this.client.keys.includes(slot)) || !!(await this.apiKey(cfg)),
+      // A signed-in endpoint has no key to find in the keychain: the slot is the whole story.
+      hasApiKey: (!!slot && this.client.keys.includes(slot)) || (!cfg.auth && !!(await this.apiKey(cfg))),
+      ...(preset?.auth ? { signIn: preset.auth } : {}),
+      ...(this.client.signedInAs ? { signedInAs: this.client.signedInAs } : {}),
       maxSteps: cfg.maxSteps,
       desktop: this.desktop.current,
     };
@@ -593,12 +601,13 @@ export class AgentController implements vscode.Disposable {
 
   async setApiKey(): Promise<void> {
     const cfg = this.gatewayConfig();
-    const slot = keySlotFor(cfg.provider, cfg.baseUrl);
+    if (presetFor(cfg.provider, cfg.baseUrl, cfg.auth)?.auth) return this.grokSignIn();
+    const slot = keySlotFor(cfg.provider, cfg.baseUrl, cfg.auth);
     if (!slot) {
       void vscode.window.showInformationMessage('Deskfish: the demo model needs no key.');
       return;
     }
-    const where = presetFor(cfg.provider, cfg.baseUrl)?.label ?? cfg.baseUrl ?? cfg.provider;
+    const where = presetFor(cfg.provider, cfg.baseUrl, cfg.auth)?.label ?? cfg.baseUrl ?? cfg.provider;
     const value = await vscode.window.showInputBox({
       title: `API key for ${where} (${cfg.model})`,
       prompt: 'Stored in the OS keychain via VS Code SecretStorage and in the Deskfish gateway\'s secrets file, one key per provider. Leave empty to clear.',
@@ -617,10 +626,55 @@ export class AgentController implements vscode.Disposable {
     }
   }
 
+  /**
+   * "Sign in with Grok" (and "Sign out"). The gateway runs xAI's device flow and keeps the tokens;
+   * this shows the code, opens xAI's page in the person's browser, and polls until it is answered.
+   * The progress notification's Cancel stops the watching, not the sign-in at xAI.
+   */
+  async grokSignIn(): Promise<void> {
+    const cfg = this.gatewayConfig();
+    const slot = keySlotFor(cfg.provider, cfg.baseUrl, cfg.auth);
+    if (slot && this.client.keys.includes(slot)) {
+      const yes = await vscode.window.showWarningMessage('Sign out of Grok? Her next task needs a sign-in again, or an xAI API key.', { modal: true }, 'Sign out');
+      if (yes !== 'Sign out') return;
+      if ((await this.attempt('sign out of Grok', this.client.call('auth.signOut'))) === undefined) return;
+      void vscode.window.showInformationMessage('Deskfish: signed out of Grok.');
+      return;
+    }
+    const step = await this.attempt('start the Grok sign-in', this.client.call('auth.start'));
+    if (!step) return;
+    // The code is the thing the person must carry to the browser, so it is the message, and it
+    // stays on screen (modal) until they have it. "Grok Build" is what xAI's own consent screen
+    // is titled — said here so an unfamiliar name on a sign-in page is not a surprise.
+    const go = await vscode.window.showInformationMessage(
+      `Deskfish: your Grok sign-in code is ${step.userCode}`,
+      {
+        modal: true,
+        detail: `Open ${step.verificationUri}, enter the code and approve it.\n\nxAI's consent screen names this "Grok Build" — that is xAI's shared sign-in for outside apps, not an app you need.`,
+      },
+      'Open the page',
+      'I have the code',
+    );
+    if (!go) return;
+    if (go === 'Open the page') await vscode.env.openExternal(vscode.Uri.parse(step.verificationUri));
+    await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: `Waiting for you to approve the code ${step.userCode} at xAI…`, cancellable: true }, async (_p, token) => {
+      while (!token.isCancellationRequested) {
+        await new Promise((r) => setTimeout(r, 3000));
+        if (token.isCancellationRequested) return;
+        const r = await this.client.call('auth.poll').catch((err: unknown) => ({ state: 'denied' as const, detail: msg(err) }));
+        if (r.state === 'pending') continue;
+        if (r.state === 'done') void vscode.window.showInformationMessage(r.who ? `Deskfish: signed in with Grok as ${r.who}.` : 'Deskfish: signed in with Grok.');
+        else if (r.state === 'expired') void vscode.window.showWarningMessage('Deskfish: that sign-in expired before it was approved. Try again.');
+        else void vscode.window.showWarningMessage(`Deskfish: ${r.detail ?? 'the sign-in was refused at xAI.'}`);
+        return;
+      }
+    });
+  }
+
   /** The "Change" button: pick where the model comes from, then the model, then the key if one is missing. */
   async changeModel(): Promise<void> {
     const cfg = this.gatewayConfig();
-    const current = presetFor(cfg.provider, cfg.baseUrl);
+    const current = presetFor(cfg.provider, cfg.baseUrl, cfg.auth);
     const pick = await vscode.window.showQuickPick(
       PRESETS.map((p) => ({ label: p.label, description: p.id === current?.id ? `current · ${cfg.model}` : undefined, detail: p.detail, preset: p })),
       { title: 'Where does the model come from?', placeHolder: 'Pick a provider', matchOnDetail: true },
@@ -653,12 +707,16 @@ export class AgentController implements vscode.Disposable {
         model = typed.trim();
       } else model = m.label;
     }
-    // Straight to the gateway, as one change; the mirror writes the three settings.
-    const next = await this.attempt('change the model', this.client.call('model.set', { provider: preset.provider, model, baseUrl }));
+    // Straight to the gateway, as one change; the mirror writes the settings.
+    const auth = preset.auth ?? '';
+    const next = await this.attempt('change the model', this.client.call('model.set', { provider: preset.provider, model, baseUrl, auth }));
     if (!next) return;
     this.output.appendLine(`— model: ${model} via ${preset.label}${baseUrl ? ` (${baseUrl})` : ''} —`);
-    const needsKey = preset.needsKey && !isLocalEndpoint(baseUrl);
-    if (needsKey && !(await this.apiKey(next)) && !this.client.keys.includes(keySlotFor(next.provider, next.baseUrl) ?? '')) {
+    const slot = keySlotFor(next.provider, next.baseUrl, auth);
+    if (auth) {
+      if (!this.client.keys.includes(slot ?? '')) await this.grokSignIn();
+      else void vscode.window.showInformationMessage(`Deskfish: using ${model} via ${preset.label}.`);
+    } else if (preset.needsKey && !isLocalEndpoint(baseUrl) && !(await this.apiKey(next)) && !this.client.keys.includes(slot ?? '')) {
       await this.setApiKey();
     } else {
       void vscode.window.showInformationMessage(`Deskfish: using ${model} via ${preset.label}.`);

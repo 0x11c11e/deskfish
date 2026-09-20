@@ -151,6 +151,7 @@ class FakeSocket implements SocketLike {
   let connection: boolean | undefined;
   let reloads = 0;
   let keyAnswer: string | undefined = ' sk-ant-test ';
+  const signIns: { userCode: string; verificationUri: string }[] = [];
   let modelAnswer: ModelChoice | undefined;
   let docsLoader: (() => Promise<Blob>) | undefined;
   let clip: string | undefined = 'from the browser';
@@ -170,6 +171,7 @@ class FakeSocket implements SocketLike {
     confirm: async () => false,
     askKey: async () => keyAnswer,
     askModel: async () => modelAnswer,
+    signIn: async (step, poll) => { signIns.push(step); await poll(); },
     showLog: () => () => {},
     reload: () => reloads++,
   };
@@ -279,6 +281,43 @@ class FakeSocket implements SocketLike {
   s.reply('model.set', { ...DEFAULT_CONFIG, provider: 'openai-compatible', baseUrl: 'https://openrouter.ai/api/v1', model: 'anthropic/claude-sonnet-5' });
   await tick();
   ok(asked, 'no OpenRouter key yet: the key dialog follows');
+
+  // "Sign in with Grok": the same key row and the same button, but the endpoint signs in.
+  // The page never talks to xAI — it asks the gateway, shows what it says, and asks again.
+  modelAnswer = { preset: PRESETS.find((p) => p.id === 'xai-subscription')!, provider: 'openai-compatible', baseUrl: 'https://api.x.ai/v1', model: 'grok-4.6' };
+  mark = posts.length;
+  host.api('chat').postMessage({ type: 'openSettings' });
+  await tick();
+  const grokSet = s.last('model.set');
+  ok(grokSet && validate(grokSet).ok && grokSet.args.auth === 'xai-oauth', `model.set carries auth: xai-oauth, and the wire accepts it (${JSON.stringify(grokSet?.args)})`);
+  s.reply('model.set', { ...DEFAULT_CONFIG, provider: 'openai-compatible', baseUrl: 'https://api.x.ai/v1', model: 'grok-4.6', auth: 'xai-oauth' });
+  await tick();
+  const keySetsBefore = (s as any).sent.filter((m: any) => m.cmd === 'key.set').length;
+  ok(s.last('auth.start') !== undefined, 'no sign-in yet: the sign-in starts by itself, as the key dialog does for a keyed preset');
+  s.reply('auth.start', { userCode: 'ABCD-EFGH', verificationUri: 'https://accounts.x.ai/oauth2/device?user_code=ABCD-EFGH', expiresIn: 1800 });
+  await tick();
+  ok(signIns.length === 1 && signIns[0].userCode === 'ABCD-EFGH' && signIns[0].verificationUri.includes('accounts.x.ai'), 'the dialog gets the code and the page the person must open');
+  ok((s as any).sent.filter((m: any) => m.cmd === 'key.set').length === keySetsBefore, 'a signed-in preset never asks for a key: no key.set anywhere in the flow');
+  s.reply('auth.poll', { state: 'done', who: 'Solvoryn' });
+  await tick();
+  s.reply('key.status', ['deskfish.oauth.api.x.ai']);
+  await tick();
+  const signedIn = (postsFor('chat', mark).filter((m: any) => m.type === 'config').pop() as any)?.config;
+  ok(signedIn?.signIn === 'xai-oauth' && signedIn?.hasApiKey === true, `the key row becomes the sign-in row and reads as signed in (${JSON.stringify({ signIn: signedIn?.signIn, hasApiKey: signedIn?.hasApiKey })})`);
+
+  // …and the same button signs out, after a confirmation, without touching an xAI API key.
+  ui.confirm = async () => true;
+  mark = posts.length;
+  host.api('chat').postMessage({ type: 'setApiKey' });
+  await tick();
+  ok(s.last('auth.signOut') !== undefined && signIns.length === 1, 'signed in: the button signs out instead of asking for a key or starting a second sign-in');
+  s.reply('auth.signOut', null);
+  await tick();
+  s.reply('key.status', ['deskfish.apiKey.api.x.ai']);
+  await tick();
+  const signedOut = (postsFor('chat', mark).filter((m: any) => m.type === 'config').pop() as any)?.config;
+  ok(signedOut?.signIn === 'xai-oauth' && signedOut?.hasApiKey === false, 'after signing out the row says so, and the xAI API key that was there is still its own slot');
+  ui.confirm = async () => false;
 
   // docs: fetched with the token in a header
   fetchReply = () => new Response('<!doctype html><title>docs</title>', { status: 200, headers: { 'content-type': 'text/html' } });

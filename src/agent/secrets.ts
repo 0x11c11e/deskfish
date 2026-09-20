@@ -26,6 +26,13 @@ const AUTH_HEADER = /(\b(?:Bearer|Basic|Token)\s+)[A-Za-z0-9._~+/=-]{16,}/g;
 const URL_CREDENTIALS = /(\b[a-z][a-z0-9+.-]*:\/\/[^\s/:@]+:)[^\s@/]+(@)/gi;
 /** `TOKEN=…`, `--password=…`, `api_key = '…'`: shell, env and query-string style. */
 const KEY_EQUALS = /(\b(?:[A-Za-z0-9_-]*(?:token|secret|password|passwd|pwd|api[_-]?key|access[_-]?key)[A-Za-z0-9_-]*)\s*=\s*["']?)([^\s"'&;]{6,})/gi;
+/**
+ * The sign-in tokens as they are serialized into their slot (`{"access":"…","refresh":"…"}`). The
+ * access token is a JWT and is caught above; `refresh` is opaque at xAI and its field name carries
+ * none of the words below, so it gets a pattern of its own. Quoted and 16+ characters, so ordinary
+ * prose ("access: public") is left alone.
+ */
+const OAUTH_FIELDS = /(["'](?:access|refresh)["']\s*:\s*["'])([^"']{16,})(["'])/g;
 /** `"token": "…"` in JSON and `oauth_token: …` / `password: …` on a line of YAML or config. */
 const KEY_COLON = /((?:^|[\s{,])["']?(?:[A-Za-z0-9_-]*(?:token|secret|password|passwd|api[_-]?key|access[_-]?key)[A-Za-z0-9_-]*)["']?\s*:\s*["']?)([^\s"',}]{6,})/gim;
 /** "the password is …" in prose (she and the user both typed one into the chat once). */
@@ -47,6 +54,7 @@ export function maskSecrets(text: string): string {
   let out = text;
   for (const re of TOKENS) out = out.replace(re, keepPrefix);
   out = out.replace(AUTH_HEADER, '$1***');
+  out = out.replace(OAUTH_FIELDS, '$1***$3');
   out = out.replace(URL_CREDENTIALS, '$1***$2');
   out = out.replace(KEY_EQUALS, (m, k: string, v: string) => (secretish(v) ? `${k}***` : m));
   out = out.replace(KEY_COLON, (m, k: string, v: string) => (secretish(v) ? `${k}***` : m));

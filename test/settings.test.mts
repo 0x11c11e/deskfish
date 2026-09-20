@@ -43,7 +43,7 @@ const props = pkg.contributes.configuration.properties as Record<string, any>;
 {
   const schema = settingsSchema(pkg);
   const settings = Object.keys(props).filter((k) => k.startsWith('deskfish.') && !k.startsWith('deskfish.gateway.'));
-  ok(schema.length === 28 && CONFIG_KEYS.length === 28 && Object.keys(DEFAULT_CONFIG).length === 28, `28 settings (schema ${schema.length}, table ${CONFIG_KEYS.length})`);
+  ok(schema.length === 29 && CONFIG_KEYS.length === 29 && Object.keys(DEFAULT_CONFIG).length === 29, `29 settings (schema ${schema.length}, table ${CONFIG_KEYS.length})`);
   ok(JSON.stringify(schema.map((e) => e.setting).sort()) === JSON.stringify(settings.sort()), 'every deskfish.* setting of package.json except gateway.* is in the schema, and nothing else');
   ok(Object.keys(props).filter((k) => k.startsWith('deskfish.gateway.')).length === 3 && !schema.some((e) => e.setting.startsWith('deskfish.gateway.')), 'the three gateway.* settings never reach it');
   const bad: string[] = [];
@@ -63,9 +63,11 @@ const props = pkg.contributes.configuration.properties as Record<string, any>;
   ok(bad.length === 0, `every entry has the type, default, enum and words of package.json and DEFAULT_CONFIG: ${bad.join('; ') || 'all'}`);
   ok(schema.find((e) => e.key === 'temperature')?.nullable === true && schema.find((e) => e.key === 'temperature')?.maximum === 2, 'temperature: a nullable number with its range');
   ok(schema.find((e) => e.key === 'autonomy')?.enumDescriptions?.length === 2, 'enum descriptions travel (autonomy)');
-  ok(new Set(schema.map((e) => e.key)).size === 28, 'each key in exactly one group');
+  ok(new Set(schema.map((e) => e.key)).size === 29, 'each key in exactly one group');
   const group = (g: string) => schema.filter((e) => e.group === g).map((e) => e.key).join();
-  ok(group('model') === 'provider,model,baseUrl', `the model's three keys are marked model (${group('model')})`);
+  // `auth` joins them: the model picker owns it (it is how "Sign in with Grok" is remembered), so
+  // like the other three it is in the schema but never rendered as a field of its own.
+  ok(group('model') === 'provider,model,baseUrl,auth', `the model picker's four keys are marked model (${group('model')})`);
   ok(group('work') === 'autonomy,maxSteps,maxCostUsd,unattendedMaxCostUsd,effort,reflectEvery,userName', `How she works: ${group('work')}`);
   ok(group('desktop') === 'containerCli,screen,autoStart,openDesktopOnRun,screenshotWidth,settleMs,vncPassword', `Her desktop: ${group('desktop')}`);
   ok(group('advanced') === 'daemonUrl,daemonToken,vncUrl,composeFile,anthropicWorkspaceId,temperature,promptCaching,cacheTtl,ledgerEvery,ledgerTokens,scheduleGraceMinutes', `Advanced: ${group('advanced')}`);
@@ -73,7 +75,7 @@ const props = pkg.contributes.configuration.properties as Record<string, any>;
   ok(order === 'model,work,desktop,advanced', `groups in order: ${order}`);
   // The table readConfig() uses: one setting per key, and back.
   const back = Object.fromEntries(Object.entries(SETTINGS_KEYS).map(([k, s]) => [s, k]));
-  ok(Object.keys(back).length === 28 && CONFIG_KEYS.every((k) => back[SETTINGS_KEYS[k]] === k), 'SETTINGS_KEYS round-trips (no two keys share a setting)');
+  ok(Object.keys(back).length === 29 && CONFIG_KEYS.every((k) => back[SETTINGS_KEYS[k]] === k), 'SETTINGS_KEYS round-trips (no two keys share a setting)');
   ok(SETTINGS_KEYS.daemonToken === 'deskfish.desktop.token' && SETTINGS_KEYS.openDesktopOnRun === 'deskfish.desktop.openOnRun', 'the two renamed desktop settings');
   ok(['daemonUrl', 'vncUrl', 'vncPassword', 'composeFile', 'containerCli', 'screen', 'autoStart'].every((k) => SETTINGS_KEYS[k as keyof DeskfishConfig] === `deskfish.desktop.${k}`), 'the seven desktop.* settings that keep their name');
   ok(settingLabel('deskfish.desktop.openOnRun') === 'Desktop: Open On Run' && settingLabel('deskfish.maxCostUsd') === 'Max Cost Usd', 'labels as VS Code shows them');
@@ -146,7 +148,7 @@ const same = (a: DeskfishConfig, b: DeskfishConfig) => changedKeys(a, b).length 
   const grok = { provider: 'openai-compatible' as const, model: 'grok-4.6', baseUrl: 'https://api.x.ai/v1', containerCli: 'podman' as const };
   let w = world({ settings: grok });
   ok((await w.sync.connected({ config: w.gateway, configSaved: false })) === 'seeded', 'no config.json: seeded');
-  ok(w.pushes.length === 1 && Object.keys(w.pushes[0]).length === 28 && w.gateway.model === 'grok-4.6' && w.writes.length === 0 && same(w.gateway, w.settings), `one push of every setting, nothing written back (${w.pushes.length} push, ${w.writes.length} writes)`);
+  ok(w.pushes.length === 1 && Object.keys(w.pushes[0]).length === 29 && w.gateway.model === 'grok-4.6' && w.writes.length === 0 && same(w.gateway, w.settings), `one push of every setting, nothing written back (${w.pushes.length} push, ${w.writes.length} writes)`);
   ok(w.keys.includes('openai-compatible https://api.x.ai/v1'), "the seeded provider's key is pushed");
   w = world({ settings: grok });
   ok((await w.sync.connected({ config: w.gateway })) === 'seeded', 'a gateway from before configSaved is seeded as before');
@@ -266,7 +268,7 @@ try {
   const snap = await vscode.connect();
   ok(snap.configSaved === false, 'a fresh service: configSaved false (a client seeds it)');
   const schema = await vscode.call('config.schema');
-  ok(JSON.stringify(schema) === JSON.stringify(settingsSchema(pkg)) && schema.length === 28, `config.schema answers the schema from package.json (${schema.length} entries)`);
+  ok(JSON.stringify(schema) === JSON.stringify(settingsSchema(pkg)) && schema.length === 29, `config.schema answers the schema from package.json (${schema.length} entries)`);
 
   const web = newClient('web');
   await web.connect();

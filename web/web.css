@@ -42,3 +42,16 @@ body.web #toolbar {
   border-bottom: 0;
   border-top: 1px solid var(--border);
 }
+
+/* The device code in the Grok sign-in dialog: big enough to read off the screen and type elsewhere. */
+#signInDialog .code {
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: 28px;
+  letter-spacing: 2px;
+  text-align: center;
+  margin: 12px 0;
+  user-select: all;
+}
+#signInDialog a {
+  word-break: break-all;
+}

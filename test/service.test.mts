@@ -5,8 +5,10 @@
 // Stop drops what is queued; a due schedule seen while busy fires after the task; the Downloads
 // watcher's event comes out of the service; setConfig with a new model leaves a running task's
 // runner alone and the next run gets a new one; two runs submitted while the tank is still turning on
-// start one after the other, and Stop in that window keeps the task from starting. Nothing here
-// touches podman or the real desktop.
+// start one after the other, and Stop in that window keeps the task from starting; and the
+// "Sign in with Grok" commands (auth.start/poll/signOut) against a fake issuer, with the tokens
+// landing in their own slot and the `keys` event firing. Nothing here touches podman, the real
+// desktop or xAI.
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import http from 'node:http';
@@ -88,11 +90,34 @@ const model = http.createServer((req, res) => {
 await new Promise<void>((r) => model.listen(0, '127.0.0.1', r));
 const baseUrl = `http://127.0.0.1:${(model.address() as AddressInfo).port}/v1`;
 
+// ---------- fake auth.x.ai (the sign-in; never the real one) ----------
+const b64 = (o: unknown) => Buffer.from(JSON.stringify(o)).toString('base64url');
+const accessJwt = `${b64({ typ: 'at+jwt' })}.${b64({ iss: 'fake', exp: Math.floor(Date.now() / 1000) + 21600 })}.AbCdEfGhIjKlMnOpQrStUv`;
+const idJwt = `${b64({ typ: 'JWT' })}.${b64({ name: 'Solvoryn' })}.AbCdEfGhIjKlMnOpQrStUv`;
+let issuerToken: { status: number; body: unknown } = { status: 400, body: { error: 'authorization_pending' } };
+const issuerCalls: string[] = [];
+const issuer = http.createServer((req, res) => {
+  let raw = '';
+  req.on('data', (c) => (raw += c));
+  req.on('end', () => {
+    const url = req.url ?? '';
+    const send = (status: number, body: unknown) => { res.writeHead(status, { 'content-type': 'application/json' }); res.end(JSON.stringify(body)); };
+    if (url.includes('openid-configuration')) return send(200, { device_authorization_endpoint: `${issuerUrl}/oauth2/device/code`, token_endpoint: `${issuerUrl}/oauth2/token`, revocation_endpoint: `${issuerUrl}/oauth2/revoke` });
+    if (url.includes('/device/code')) { issuerCalls.push('device'); return send(200, { device_code: 'DEV', user_code: 'ABCD-EFGH', verification_uri: `${issuerUrl}/device`, verification_uri_complete: `${issuerUrl}/device?user_code=ABCD-EFGH`, expires_in: 1800, interval: 5 }); }
+    if (url.includes('/oauth2/token')) { issuerCalls.push(raw.includes('refresh_token=') ? 'refresh' : 'poll'); return send(issuerToken.status, issuerToken.body); }
+    if (url.includes('/oauth2/revoke')) { issuerCalls.push('revoke'); return send(200, {}); }
+    return send(404, {});
+  });
+});
+await new Promise<void>((r) => issuer.listen(0, '127.0.0.1', r));
+const issuerUrl = `http://127.0.0.1:${(issuer.address() as AddressInfo).port}`;
+
 // ---------- the service ----------
 const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'deskfish-service-'));
+const dataDir3 = fs.mkdtempSync(path.join(os.tmpdir(), 'deskfish-service-auth-'));
 const dataDir2 = fs.mkdtempSync(path.join(os.tmpdir(), 'deskfish-service-slow-'));
 const cfg: DeskfishConfig = {
-  provider: 'openai-compatible', autonomy: 'free', baseUrl, model: 'model-a', anthropicWorkspaceId: '', maxSteps: 0, maxCostUsd: 0,
+  provider: 'openai-compatible', autonomy: 'free', baseUrl, model: 'model-a', anthropicWorkspaceId: '', auth: '', maxSteps: 0, maxCostUsd: 0,
   reflectEvery: 0, userName: '', ledgerEvery: 0, ledgerTokens: 0, cacheTtl: '1h', effort: '', scheduleGraceMinutes: 5, promptCaching: 'off',
   temperature: null, screenshotWidth: 320, settleMs: 0, daemonUrl, daemonToken: '', vncUrl: '', vncPassword: '', composeFile: '',
   containerCli: 'auto', screen: '320x200x24', autoStart: false, openDesktopOnRun: true,
@@ -262,12 +287,77 @@ try {
   await sleep(100);
   ok(!requests.some((q) => q.text.includes('TASK-L')) && slowStatuses.some((s) => s.status === 'stopped' && /before the desktop was on/.test(s.message ?? '')) && !slow.busy, 'Stop while the tank starts: the task never starts');
   slow.dispose();
+
+  // 13. "Sign in with Grok" over the wire: the gateway owns the flow, a view only asks.
+  const authSeen: string[] = [];
+  const authService = new DeskfishService({
+    dataDir: dataDir3,
+    resourceDir: ROOT,
+    config: { ...cfg, baseUrl: 'https://api.x.ai/v1', model: 'grok-4.6', auth: 'xai-oauth' },
+    log: () => {},
+    authIssuer: issuerUrl,
+    createEngine: () => ({ isHealthy: probe, start: async () => {}, stop: async () => {}, inspectNetworkMode: async () => 'isolated' as const, networkMode: 'isolated' as const }),
+  });
+  authService.init(newSelfKey());
+  authService.on('keys', (slots: unknown) => authSeen.push((slots as string[]).join(',')));
+  try {
+    const start = await authService.authStart();
+    ok(start.userCode === 'ABCD-EFGH' && start.verificationUri.includes('ABCD-EFGH') && start.expiresIn > 1000, 'auth.start: the code, the complete URL and how long it is good for');
+    ok(authService.snapshot().keys.length === 0, 'auth.start: nothing is stored until the person approves it');
+
+    issuerToken = { status: 400, body: { error: 'authorization_pending' } };
+    ok((await authService.authPoll()).state === 'pending', 'auth.poll: still waiting while the person is in their browser');
+
+    issuerToken = { status: 200, body: { access_token: accessJwt, refresh_token: 'rt-a-0123456789abcdef', token_type: 'Bearer', expires_in: 21600, id_token: idJwt } };
+    const done = await authService.authPoll();
+    ok(done.state === 'done' && done.who === 'Solvoryn', 'auth.poll: done, with the name for "Signed in as …"');
+    ok(authSeen.includes('deskfish.oauth.api.x.ai'), 'auth.poll: the `keys` event fires on a sign-in, exactly as it does for a key');
+    const snap = authService.snapshot();
+    ok(snap.keys.includes('deskfish.oauth.api.x.ai') && !snap.keys.includes('deskfish.apiKey.api.x.ai') && snap.signedInAs === 'Solvoryn', 'the snapshot carries the sign-in slot and the name, and no API key was invented');
+    const stored = JSON.parse(fs.readFileSync(path.join(dataDir3, 'secrets.json'), 'utf8'));
+    // Nothing else in her data dir may hold them: not config.json, not the log, not a transcript.
+    const elsewhere = fs.readdirSync(dataDir3, { recursive: true, withFileTypes: true })
+      .filter((e) => e.isFile() && e.name !== 'secrets.json')
+      .filter((e) => fs.readFileSync(path.join(e.parentPath, e.name), 'utf8').includes('rt-a-0123456789abcdef'))
+      .map((e) => e.name);
+    ok(stored.keys['deskfish.oauth.api.x.ai'].includes('rt-a-0123456789abcdef') && elsewhere.length === 0, `the tokens are in secrets.json and in no other file of hers (${elsewhere.join(', ') || 'none'})`);
+    ok((fs.statSync(path.join(dataDir3, 'secrets.json')).mode & 0o077) === 0, 'secrets.json stays 0600 with tokens in it');
+
+    // The bearer the adapter would get: the stored access token, and a refresh only when it is near its end.
+    const bearer = (force?: boolean) => (authService as any).bearer(force) as Promise<string>;
+    ok((await bearer()) === accessJwt, 'the bearer is the stored access token while it has hours left');
+    issuerToken = { status: 200, body: { access_token: `${accessJwt}2`, refresh_token: 'rt-b-fedcba9876543210', token_type: 'Bearer', expires_in: 21600 } };
+    const [b1, b2] = await Promise.all([bearer(true), bearer(true)]);
+    ok(b1 === `${accessJwt}2` && b2 === b1 && issuerCalls.filter((c) => c === 'refresh').length === 1, 'two calls needing a refresh at once share one refresh, never racing xAI for the single-use token');
+    const after = JSON.parse(fs.readFileSync(path.join(dataDir3, 'secrets.json'), 'utf8'));
+    ok(JSON.parse(after.keys['deskfish.oauth.api.x.ai']).refresh === 'rt-b-fedcba9876543210', 'the rotated refresh token is on disk before the bearer is handed out');
+
+    // The knock says the person may switch to the API-key preset and hand back: the runner's bearer
+    // follows the switch on the same endpoint, and refuses to carry the key to a different one.
+    authService.patchConfig({ auth: '' });
+    await assert.rejects(() => bearer(), /Not signed in with Grok/, 'switched to the key preset with no key saved: the bearer says so');
+    n++;
+    (authService as any).secrets.set('deskfish.apiKey.api.x.ai', 'xai-switched-key-0123456789');
+    ok((await (authService as any).bearer(false, 'https://api.x.ai/v1')) === 'xai-switched-key-0123456789', 'switched to the key preset mid-task: the bearer is now the API key, same endpoint');
+    await assert.rejects(() => (authService as any).bearer(false, 'https://other.example/v1'), /Not signed in with Grok/, 'a different endpoint is another conversation: the key is not carried over');
+    n++;
+    (authService as any).secrets.set('deskfish.apiKey.api.x.ai', undefined);
+    authService.patchConfig({ auth: 'xai-oauth' });
+
+    await authService.authSignOut();
+    ok(authService.snapshot().keys.length === 0 && issuerCalls.includes('revoke'), 'auth.signOut: the slot is cleared and xAI is told to forget the grant');
+    ok((await authService.authPoll()).state === 'expired', 'auth.poll with no sign-in running says so instead of throwing');
+  } finally {
+    authService.dispose();
+  }
 } finally {
   service.dispose();
   daemon.close();
   model.close();
+  issuer.close();
   fs.rmSync(dataDir, { recursive: true, force: true });
   fs.rmSync(dataDir2, { recursive: true, force: true });
+  fs.rmSync(dataDir3, { recursive: true, force: true });
 }
 console.log(`service: ${n} checks passed`);
 process.exit(0);

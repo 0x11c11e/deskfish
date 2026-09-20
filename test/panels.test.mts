@@ -102,6 +102,9 @@ async function until(pred: () => boolean, what: string, timeoutMs = 5000): Promi
   ok(snapshotChat({ ...snap, status: 'done', chat: [], usage: undefined, screenshot: undefined }).map((m) => m.type).join() === 'newChat,desktop', 'a finished, empty chat: newChat and the desktop');
   for (const cmd of VIEW_COMMANDS) ok(validate({ id: 1, cmd }).ok || /must be|unknown argument/.test((validate({ id: 1, cmd }) as any).error), `${cmd} is a real command`);
   ok(!isViewCommand('key.set') && !isViewCommand('shutdown') && !isViewCommand('desktop.off') && !isViewCommand('run') && !isViewCommand('log.tail') && !isViewCommand(undefined), 'keys, shutdown, the desktop, runs and the log are not the view\'s to ask');
+  // The sign-in is a credential, like a key: the view posts `setApiKey` to its host and the host
+  // runs the flow. A panel that could start a sign-in, or sign out, would be a second writer.
+  ok(!isViewCommand('auth.start') && !isViewCommand('auth.poll') && !isViewCommand('auth.signOut') && !isViewCommand('model.set'), 'the Grok sign-in and model.set are the host\'s, not the view\'s');
 }
 
 // ---------- 6. pure: the three-way merge on connect ----------

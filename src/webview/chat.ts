@@ -70,6 +70,8 @@ let usage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cacheWrite1h: 0,
 let currentModel = '';
 let currentProvider = '';
 let currentBaseUrl = '';
+/** The endpoint is used with a subscription sign-in: tokens are shown, dollars are not. */
+let currentSignIn = false;
 
 const compact = (n: number): string => (n >= 1e6 ? `${(n / 1e6).toFixed(2)}M` : n >= 1e4 ? `${Math.round(n / 1e3)}k` : n.toLocaleString());
 
@@ -82,12 +84,14 @@ function renderUsage(): void {
   }
   const parts = [`${compact(total)} in`, `${compact(usage.output)} out`];
   if (usage.cacheRead) parts.push(`${Math.round((usage.cacheRead / total) * 100)}% cached`);
-  const price = priceForConfig({ provider: currentProvider, model: currentModel, baseUrl: currentBaseUrl });
+  const price = currentSignIn ? undefined : priceForConfig({ provider: currentProvider, model: currentModel, baseUrl: currentBaseUrl });
   const fmt = (usd: number) => `$${usd < 0.1 ? usd.toFixed(3) : usd.toFixed(2)}`;
-  if (usage.reportedUsd > 0) parts.push(fmt(usage.reportedUsd));
+  // Signed in: the tokens are real, the dollars are not — the run draws a pool the plan paid for.
+  if (currentSignIn) parts.push('subscription');
+  else if (usage.reportedUsd > 0) parts.push(fmt(usage.reportedUsd));
   else if (price) parts.push(`≈ ${fmt(costUsd(usage, price))}`);
   usageEl.textContent = parts.join(' · ');
-  usageEl.title = `Input ${usage.input.toLocaleString()} uncached · ${usage.cacheRead.toLocaleString()} read from cache · ${usage.cacheWrite.toLocaleString()} written to cache · output ${usage.output.toLocaleString()}${usage.reportedUsd > 0 ? ' · cost as reported by the provider' : price ? ` · estimate at list prices for ${currentModel}` : ''}`;
+  usageEl.title = `Input ${usage.input.toLocaleString()} uncached · ${usage.cacheRead.toLocaleString()} read from cache · ${usage.cacheWrite.toLocaleString()} written to cache · output ${usage.output.toLocaleString()}${currentSignIn ? ' · drawn from your Grok subscription, not billed per token' : usage.reportedUsd > 0 ? ' · cost as reported by the provider' : price ? ` · estimate at list prices for ${currentModel}` : ''}`;
 }
 let lastStep = 0;
 let maxSteps = 0;
@@ -405,6 +409,7 @@ function muted(text: string): HTMLSpanElement {
 
 function renderConfig(c: UiConfig): void {
   maxSteps = c.maxSteps > 0 ? c.maxSteps : 0;
+  currentSignIn = !!c.signIn;
   currentModel = c.model;
   currentProvider = c.provider;
   currentBaseUrl = c.baseUrl;
@@ -422,9 +427,18 @@ function renderConfig(c: UiConfig): void {
   const local = /localhost|127\.0\.0\.1/.test(c.baseUrl);
   const needsKey = c.provider !== 'mock' && !c.hasApiKey && !local;
   rowKey.classList.toggle('warn', needsKey);
-  keyText.textContent = c.provider === 'mock' ? 'Not needed' : c.hasApiKey ? (c.keyStored ?? 'Stored in your keychain') : local ? 'Not needed for a local endpoint' : 'Not set';
-  keyBtn.hidden = c.provider === 'mock';
-  keyBtn.textContent = c.hasApiKey ? 'Change' : 'Set API key';
+  if (c.signIn) {
+    // The same row, signed in instead of keyed: no key exists to show or to paste.
+    rowKey.querySelector('.rowlabel')!.textContent = 'Grok sign-in';
+    keyText.textContent = c.hasApiKey ? (c.signedInAs ? `Signed in as ${c.signedInAs}` : 'Signed in') : 'Not signed in';
+    keyBtn.hidden = false;
+    keyBtn.textContent = c.hasApiKey ? 'Sign out' : 'Sign in with Grok';
+  } else {
+    rowKey.querySelector('.rowlabel')!.textContent = 'API key';
+    keyText.textContent = c.provider === 'mock' ? 'Not needed' : c.hasApiKey ? (c.keyStored ?? 'Stored in your keychain') : local ? 'Not needed for a local endpoint' : 'Not set';
+    keyBtn.hidden = c.provider === 'mock';
+    keyBtn.textContent = c.hasApiKey ? 'Change' : 'Set API key';
+  }
   keyBtn.classList.toggle('primary', needsKey);
 
   renderDesktop(c.desktop);

@@ -87,7 +87,8 @@ try {
   ok(['history', 'schedules', 'settings', 'files', 'newChat'].every((id) => bar.includes(`<button id="${id}"`)) && (bar.match(/<button id="/g) ?? []).length === 6 && bar.includes('id="menuBtn"'), 'the title bar: History, Schedules, Settings, Her files, New chat and the … menu');
   ok(['reflect', 'export', 'import', 'deleteChats', 'log', 'docs'].every((m) => bar.includes(`data-menu="${m}"`)) && page.includes('id="confirmDialog"') && page.includes('openPanel') && page.includes('importMemory'), 'the … menu\'s six items and the page\'s confirm, wired by the inlined shim');
   const outside = page.replace(/srcdoc="[^"]*"/g, '');
-  ok(!/settingsDialog|schedulesDialog|dialog\.sheet|id="scheduleList"/.test(outside) && (outside.match(/<dialog id="/g) ?? []).length === 4, 'the page has no settings or schedules dialog of its own any more (model, key, confirm, log)');
+  ok(!/settingsDialog|schedulesDialog|dialog\.sheet|id="scheduleList"/.test(outside) && (outside.match(/<dialog id="/g) ?? []).length === 5, 'the page has no settings or schedules dialog of its own any more (model, key, sign-in, confirm, log)');
+  ok(page.includes('id="signInDialog"') && page.includes('id="signInCode"') && /Grok Build/.test(page), 'the Grok sign-in dialog is there, with the code and the name xAI\'s consent screen shows');
   ok(!/<form[^>]*>(?:(?!<\/form>)[\s\S])*type="password"/.test(page.replace(/srcdoc="[^"]*"/g, '')) && !/<script\b[^>]*\bsrc=/.test(page), 'no password field inside a form (the browser would offer to keep it as a login), no script source');
   const frames = [...page.matchAll(/<iframe id="(chat|desktop)" title="[^"]*" srcdoc="([^"]*)"><\/iframe>/g)];
   ok(frames.length === 2 && frames[0][1] === 'chat' && frames[1][1] === 'desktop', `two views as srcdoc frames, the attribute intact (${frames.map((f) => f[1]).join(', ')})`);

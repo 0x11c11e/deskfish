@@ -114,7 +114,10 @@ Desktop tab or paste there, and whatever is copied inside the tank lands on your
 while the tab is visible. Clipboard text reaches the model only if it then appears on the
 tank's screen or in a page the agent reads. The API key goes to the provider's endpoint and
 nowhere else; it is stored in the operating system's keychain and in `secrets.json` in Deskfish's data folder,
-readable only by your user account, never in settings files.
+readable only by your user account, never in settings files. If you used
+[Sign in with Grok](models-and-providers#sign-in-with-grok) instead of a key, its two tokens sit in
+that same `secrets.json` and nowhere else — not in the keychain, not in a settings file — and only
+Deskfish's own gateway ever reads or renews them. Signing out revokes them at xAI and deletes them.
 
 **Credentials in logs.** What the agent types, runs and reads goes to the model as it is, but
 Deskfish masks the credentials it recognises before anything is shown or written down: API

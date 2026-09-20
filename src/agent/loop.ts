@@ -3,7 +3,7 @@ import { scalePng } from '../image/resize';
 import { renderZoom } from '../image/zoom';
 import { renderPage } from './page';
 import { cutMiddle, renderCommand, summarizeCommand } from './command';
-import type { ModelAdapter, ModelTurn, Observation } from './adapters/types';
+import { isPoolExhaustedError, type ModelAdapter, type ModelTurn, type Observation } from './adapters/types';
 import type { DocsLibrary } from './docs';
 import { costUsd, type Price } from './pricing';
 import { frameDiff, type ScaledImage } from '../image/resize';
@@ -97,6 +97,12 @@ export interface AgentRunnerOptions {
   budgetSetting?: string;
   /** List price of the model, for the budget. */
   price?: Price;
+  /**
+   * The credential is a subscription sign-in, so a run has no dollar figure: the pool is what it
+   * spends and the plan has already been paid for. The journal says "subscription" in place of a
+   * cost and the budget fence says why it cannot act.
+   */
+  subscription?: boolean;
   onEvent: (e: AgentEvent) => void;
 }
 
@@ -351,7 +357,18 @@ export class AgentRunner {
           obs = { ...obs, note: obs.note ? `${obs.note}\n${warning}` : warning };
         }
 
-        const turn = await this.modelStep(obs);
+        let turn: ModelTurn;
+        try {
+          turn = await this.modelStep(obs);
+        } catch (err) {
+          // The subscription's pool is spent. Never a silent switch to an API key: knock on the
+          // glass, wait for the person, and try the same step again when they hand back.
+          if (!isPoolExhaustedError(err)) throw err;
+          if ((await this.handOver(step, err.message)) === undefined) return;
+          obs = await this.observe(step, obs.results);
+          step--; // the step the pool refused has not happened yet
+          continue;
+        }
         if (turn.usage) {
           lastContext = turn.usage.input + (turn.usage.cacheRead ?? 0) + (turn.usage.cacheWrite ?? 0);
           onEvent({ type: 'usage', ...turn.usage });
@@ -589,7 +606,7 @@ export class AgentRunner {
     const outcomeText = outcome === 'done' ? 'done' : outcome === 'stopped' ? 'stopped by the user' : outcome === 'limit' ? 'stopped at the limit' : 'ended with an error';
     const salience = salienceOf({ steps: cur.steps, costUsd: cur.spentUsd, outcome: outcomeText, handovers: cur.handovers, notes: cur.notes, followUps: cur.followUps });
     const said = cur.said.length ? ` — You told me: ${cur.said.map((s) => `"${s.replace(/\s+/g, ' ').trim().slice(0, 120)}"`).join(' | ')}` : '';
-    journal.appendTask({ task: cur.task, outcome: outcomeText, steps: cur.steps, costUsd: cur.spentUsd, reason: cur.reason, summary: maskSecrets((cur.lastAssistant || '') + said), salience });
+    journal.appendTask({ task: cur.task, outcome: outcomeText, steps: cur.steps, costUsd: cur.spentUsd, subscription: this.opts.subscription, reason: cur.reason, summary: maskSecrets((cur.lastAssistant || '') + said), salience });
     const c = journal.taskFinished(salience);
     const every = this.opts.reflectEvery ?? 0;
     const due = every > 0 && !!this.opts.self && (c.tasks >= every || c.salience >= SALIENCE_THRESHOLD);

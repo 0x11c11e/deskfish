@@ -43,7 +43,7 @@ ground:
 
 | Service | Base URL | Example model | Key |
 | --- | --- | --- | --- |
-| xAI | `https://api.x.ai/v1` | `grok-4` | xAI key |
+| xAI | `https://api.x.ai/v1` | `grok-4.6` | xAI key — or your SuperGrok plan, see [Sign in with Grok](#sign-in-with-grok) |
 | Moonshot AI (Kimi) | `https://api.moonshot.ai/v1` | `kimi-k3` | Moonshot key. Moonshot AI is in Beijing: your key, your payment and what is on screen go to their servers. Via OpenRouter (`moonshotai/kimi-k3`) your key and payment stay with OpenRouter, but what is on screen still goes to whichever host OpenRouter routes the model to |
 | OpenRouter | `https://openrouter.ai/api/v1` | any vision + tools model | OpenRouter key |
 | Ollama (local) | `http://localhost:11434/v1` | `llama3.2-vision` | none |
@@ -91,6 +91,48 @@ endpoint that rejects unknown fields, `off`.
 > The base URL is the part *before* `/chat/completions`. For most services that ends in
 > `/v1`.
 
+## Sign in with Grok
+
+If you already pay for **SuperGrok**, Deskfish can work on the plan you have instead of billing an
+xAI API key on top of it. In the model picker choose **xAI (Grok) — sign in with your SuperGrok**,
+press **Sign in with Grok**, and a code appears. Open the page it shows, type the code, approve it,
+and the sign-in is done; the next task draws the plan's pool.
+
+> [!NOTE]
+> **The consent screen says "Grok Build".** That is xAI's own shared sign-in for outside programs —
+> the same one Hermes Agent, Kilo Code and OpenClaw use — not a separate app you have to install.
+> Deskfish is not registered with xAI under its own name, because xAI publishes no way to do that.
+
+**Which plan.** SuperGrok (from grok.com), including SuperGrok Heavy. X Premium+ has been reported
+to work for some people and not others.
+
+**xAI decides which accounts get sign-in tokens.** It keeps its own list, and an account with a live
+subscription can still be refused. If yours is, Deskfish says so in one sentence — *"xAI decides
+which accounts get sign-in tokens; this one was refused"* — and an xAI API key remains the way in.
+
+**When the pool runs out**, xAI stops answering until the plan's window resets. Deskfish does not
+quietly fall back to an API key and charge you for the rest of the task: it knocks on the glass, the
+way it does for a login, and waits for you to say what to do. Switch to the **xAI (Grok) — API
+key** preset in Settings and hand the desktop back, and the task goes on from where it stopped,
+now on the key; or hand back once the pool has reset.
+
+**What a task costs on it.** Nothing per token — that is the point — so the counter above the status
+row shows the tokens and the word *subscription* instead of a figure, and the journal writes
+`subscription` where it would write a price. For the same reason `deskfish.maxCostUsd` has nothing
+to act on while you are signed in; the pool running out is the limit. (xAI does return a cost
+number of its own on every request, but it does not agree with xAI's published per-token prices, so
+Deskfish does not show it as money.)
+
+**Signing out** (the same button, once you are signed in) tells xAI to forget the grant and deletes
+the tokens. An xAI API key you had saved before is untouched and is there again the moment you pick
+the API-key preset. You can also revoke it from your xAI account page at any time: it is listed
+there as "Grok Build", and revoking it signs out every program that uses xAI's shared sign-in.
+
+**Only xAI.** Anthropic's terms forbid using a Claude Pro or Max subscription from a third-party
+tool — that is a first-party privilege of Claude Code, and Deskfish will not offer it. OpenAI
+documents its ChatGPT sign-in for Codex alone. So the Anthropic and OpenRouter paths here are, and
+stay, API keys.
+
 ## The demo model
 
 `deskfish.provider = mock`. A scripted model that needs no key and no internet: it opens
@@ -104,10 +146,14 @@ real model.
 The API key is stored in your operating system's keychain through VS Code's secret
 storage and in `secrets.json` in Deskfish's data folder (readable only by your user account),
 never in a settings file, and it is sent only to the endpoint you configured.
+The tokens from [Sign in with Grok](#sign-in-with-grok) live in that same `secrets.json` and nowhere
+else — not in the keychain, not in a settings file — and Deskfish renews them in the background.
 Enter it with **Deskfish: Set LLM API Key** or the **Change** button next to *API key*;
 leave the box empty to clear it. Keys are kept one per provider (Anthropic, and one per
 endpoint host such as openrouter.ai or api.x.ai), so switching providers does not lose the
-other key; the model picker asks for a key only when the chosen provider has none.
+other key; the model picker asks for a key only when the chosen provider has none. A signed-in
+endpoint has a slot of its own, so an xAI API key and a Grok sign-in can both be stored and neither
+disturbs the other.
 
 ## What a task costs
 

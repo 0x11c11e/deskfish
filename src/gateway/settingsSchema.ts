@@ -13,6 +13,7 @@ export const SETTINGS_KEYS: Record<keyof DeskfishConfig, string> = {
   provider: 'deskfish.provider',
   model: 'deskfish.model',
   baseUrl: 'deskfish.baseUrl',
+  auth: 'deskfish.auth',
   autonomy: 'deskfish.autonomy',
   maxSteps: 'deskfish.maxSteps',
   maxCostUsd: 'deskfish.maxCostUsd',
@@ -47,7 +48,7 @@ export const CONFIG_KEYS = Object.keys(SETTINGS_KEYS) as (keyof DeskfishConfig)[
 export type SettingsGroup = 'model' | 'work' | 'desktop' | 'advanced';
 
 const GROUPS: [SettingsGroup, (keyof DeskfishConfig)[]][] = [
-  ['model', ['provider', 'model', 'baseUrl']],
+  ['model', ['provider', 'model', 'baseUrl', 'auth']],
   ['work', ['autonomy', 'maxSteps', 'maxCostUsd', 'unattendedMaxCostUsd', 'effort', 'reflectEvery', 'userName']],
   ['desktop', ['containerCli', 'screen', 'autoStart', 'openDesktopOnRun', 'screenshotWidth', 'settleMs', 'vncPassword']],
   ['advanced', ['daemonUrl', 'daemonToken', 'vncUrl', 'composeFile', 'anthropicWorkspaceId', 'temperature', 'promptCaching', 'cacheTtl', 'ledgerEvery', 'ledgerTokens', 'scheduleGraceMinutes']],
