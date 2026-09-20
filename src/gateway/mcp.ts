@@ -5,6 +5,7 @@ import type { ReplayItem } from '../agent/chats';
 import type { AgentEvent } from '../agent/loop';
 import { describeAction } from '../computer/types';
 import { costUsd, priceForConfig } from '../agent/pricing';
+import { driftLine } from '../agent/prompts';
 import { GatewayClient } from './client';
 import type { ChatInfo, Snapshot } from './protocol';
 import { VERSION } from './version';
@@ -104,7 +105,7 @@ class ItemLog {
         this.push({ kind: 'note', text: `📒 Ledger after ${e.step} steps: ${e.text.replace(/\s*\n+\s*/g, ' / ')}` });
         break;
       case 'drift':
-        for (const s of e.shifts) this.push({ kind: 'note', text: `Her answer changed — "${s.question}"${s.note ? ` ${s.note}` : ''} Before: ${s.before} Now: ${s.after}` });
+        for (const s of e.shifts) this.push({ kind: 'note', text: driftLine(s) });
         break;
       case 'charter_objection':
         for (const l of e.lines) this.push({ kind: 'note', text: `She disagrees with her charter: ${l}` });

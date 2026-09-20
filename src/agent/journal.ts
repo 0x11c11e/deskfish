@@ -61,6 +61,22 @@ export interface JournalState {
   readings: number;
   /** The bot's answers to the fixed drift questions, one entry per reflection (newest last). */
   drift: { at: string; answers: string[] }[];
+  /**
+   * One slot per drift question. A question whose answer was judged CHANGED waits here for the
+   * next reflection to confirm it before anyone is told (decision 118); `before` is the last
+   * answer that still carried the commitment, and `at` is when it was written. `null` = nothing
+   * pending. Absent in a state file written before this existed, which reads as three nulls.
+   */
+  driftCandidates: ({ before: string; at: string } | null)[];
+}
+
+/** Always three slots, whatever the file holds. */
+function candidateSlots(v: unknown): ({ before: string; at: string } | null)[] {
+  const a = Array.isArray(v) ? v : [];
+  return [0, 1, 2].map((i) => {
+    const c = a[i] as { before?: unknown; at?: unknown } | null | undefined;
+    return c && typeof c.before === 'string' && typeof c.at === 'string' ? { before: c.before, at: c.at } : null;
+  });
 }
 
 const HEADER = `# Deskfish journal
@@ -150,9 +166,9 @@ export class JournalStore {
   state(): JournalState {
     try {
       const s = JSON.parse(fs.readFileSync(this.stateFile, 'utf8')) as Partial<JournalState>;
-      return { tasksSinceReflection: s.tasksSinceReflection ?? 0, salienceSinceReflection: s.salienceSinceReflection ?? 0, lastReflectionAt: s.lastReflectionAt, reflectedLines: s.reflectedLines ?? 0, pending: s.pending ?? [], noticedTamper: s.noticedTamper, readings: s.readings ?? 0, drift: s.drift ?? [] };
+      return { tasksSinceReflection: s.tasksSinceReflection ?? 0, salienceSinceReflection: s.salienceSinceReflection ?? 0, lastReflectionAt: s.lastReflectionAt, reflectedLines: s.reflectedLines ?? 0, pending: s.pending ?? [], noticedTamper: s.noticedTamper, readings: s.readings ?? 0, drift: s.drift ?? [], driftCandidates: candidateSlots(s.driftCandidates) };
     } catch {
-      return { tasksSinceReflection: 0, salienceSinceReflection: 0, reflectedLines: 0, pending: [], readings: 0, drift: [] };
+      return { tasksSinceReflection: 0, salienceSinceReflection: 0, reflectedLines: 0, pending: [], readings: 0, drift: [], driftCandidates: candidateSlots(undefined) };
     }
   }
 
@@ -190,11 +206,15 @@ export class JournalStore {
     this.writeState(s);
   }
 
-  /** Record this reflection's drift answers (keeps the last 30). */
-  recordDrift(answers: string[]): void {
+  /**
+   * Record this reflection's drift answers (keeps the last 30), and which questions are waiting
+   * for the next reflection to confirm a change (three slots; omitted means none).
+   */
+  recordDrift(answers: string[], candidates?: ({ before: string; at: string } | null)[]): void {
     const s = this.state();
     s.drift.push({ at: stamp(), answers });
     if (s.drift.length > 30) s.drift.splice(0, s.drift.length - 30);
+    s.driftCandidates = candidateSlots(candidates);
     this.writeState(s);
   }
 
@@ -211,7 +231,7 @@ export class JournalStore {
 
   importText(text: string, state?: Partial<JournalState>): void {
     this.writeRaw(text.trim() ? text : HEADER);
-    if (state) this.writeState({ tasksSinceReflection: state.tasksSinceReflection ?? 0, salienceSinceReflection: state.salienceSinceReflection ?? 0, lastReflectionAt: state.lastReflectionAt, reflectedLines: state.reflectedLines ?? 0, pending: state.pending ?? [], noticedTamper: undefined, readings: state.readings ?? 0, drift: state.drift ?? [] });
+    if (state) this.writeState({ tasksSinceReflection: state.tasksSinceReflection ?? 0, salienceSinceReflection: state.salienceSinceReflection ?? 0, lastReflectionAt: state.lastReflectionAt, reflectedLines: state.reflectedLines ?? 0, pending: state.pending ?? [], noticedTamper: undefined, readings: state.readings ?? 0, drift: state.drift ?? [], driftCandidates: candidateSlots(state.driftCandidates) });
   }
 
   raw(): string {

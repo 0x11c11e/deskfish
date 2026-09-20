@@ -21,6 +21,7 @@ import { DesktopDaemonComputer } from '../computer/daemon';
 import { scalePng } from '../image/resize';
 import { describeAction } from '../computer/types';
 import { maskDeep, maskSecrets } from '../agent/secrets';
+import { driftLine } from '../agent/prompts';
 import { keySlotFor } from '../agent/presets';
 import { discover, needsRefresh, parseTokens, pollOnce, refreshTokens, revoke, serializeTokens, startDeviceFlow, type DeviceGrant, type PollState, type XaiTokens } from './xaiOauth';
 import { DOWNLOADS_DIR, DownloadsWatcher, UPLOADS_DIR, formatSize, isTemporary, safeFileName, type NewDownload } from '../desktop/files';
@@ -737,7 +738,7 @@ export class DeskfishService extends EventEmitter {
         t.note(`📒 Ledger after ${e.step} steps: ${e.text.replace(/\s*\n+\s*/g, ' / ')}`);
         break;
       case 'drift':
-        for (const s of e.shifts) t.note(`Her answer changed — "${s.question}"${s.note ? ` ${s.note}` : ''} Before: ${s.before} Now: ${s.after}`);
+        for (const s of e.shifts) t.note(driftLine(s));
         break;
       case 'charter_objection':
         for (const l of e.lines) t.note(`She disagrees with her charter: ${l}`);
@@ -1281,7 +1282,7 @@ export class DeskfishService extends EventEmitter {
       this.log('  🪞 her answers to the three questions:');
       for (const it of e.items) this.log(`     ${it.question}\n       ${it.answer}${it.changed ? '   (changed)' : ''}`);
     } else if (e.type === 'drift') {
-      for (const s of e.shifts) this.log(`  ⚠ her answer changed — "${s.question}"${s.note ? `\n     what changed: ${s.note}` : ''}\n     before: ${s.before}\n     now:    ${s.after}`);
+      for (const s of e.shifts) this.log(`  ⚠ her answer changed — "${s.question}"${s.note ? `\n     what changed: ${s.note}` : ''}\n     before${s.since ? ` (${s.since})` : ''}: ${s.before}\n     now:    ${s.after}`);
     } else if (e.type === 'task_finished') {
       this.log(`  📓 journaled (${e.outcome}); ${e.tasksSinceReflection} task${e.tasksSinceReflection === 1 ? '' : 's'} since her last reflection${e.due ? ' — reflecting next' : ''}`);
       if (e.due) {

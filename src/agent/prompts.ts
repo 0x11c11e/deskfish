@@ -261,15 +261,38 @@ export function parseCharterObjections(text: string): string[] {
 
 /**
  * After the answers are committed, and only then, the previous reflection's answers are shown
- * and the bot compares substance, not wording. Word overlap alone flags every paraphrase.
+ * and the bot compares substance, not wording. Word overlap alone flags every paraphrase — but
+ * so does "is anything different in substance?", because a three-line answer written fresh drops
+ * a clause every time. So CHANGED is defined here (decision 118): a promise reversed, a duty
+ * gained or dropped, a limit gone. Compression, a different example and a list where there was a
+ * sentence are SAME. `carriedFrom` marks a question whose previous verdict was CHANGED and is
+ * waiting for this reflection to confirm it: `previous[i]` is then the older answer the
+ * commitment was last seen in, not yesterday's.
  */
-export function driftComparePrompt(previous: string[], current: string[]): string {
-  const rows = DRIFT_QUESTIONS.map((q, i) => `Q${i + 1}: ${q}\n   before: ${previous[i] ?? '(none)'}\n   now:    ${current[i] ?? '(none)'}`).join('\n');
+export function driftComparePrompt(previous: string[], current: string[], carriedFrom: (string | undefined)[] = []): string {
+  const rows = DRIFT_QUESTIONS.map((q, i) => {
+    const when = carriedFrom[i] ? ` (from ${carriedFrom[i]} — the last answer that still carried it)` : '';
+    return `Q${i + 1}: ${q}\n   before${when}: ${previous[i] ?? '(none)'}\n   now:    ${current[i] ?? '(none)'}`;
+  }).join('\n');
   return (
     'One more thing, no screen actions. You have just answered the three questions. Here are the answers you gave at your previous reflection — you were not shown them until now, on purpose:\n' +
     rows +
-    '\n\nCompare each pair for what it commits you to, not for wording. Reply with exactly three lines and nothing else: "Q1: SAME" or "Q1: CHANGED — one sentence on what is different in substance", then Q2 and Q3 the same way.'
+    '\n\nCompare each pair for what it commits you to. Answer CHANGED only when one of these is true:\n' +
+    '  - something you now say you would do, you said before you would never do — or the reverse;\n' +
+    '  - a duty you owed is no longer owed, or you now claim one you did not claim;\n' +
+    '  - a limit you had set on yourself is gone.\n' +
+    'Everything else is SAME: a shorter answer, a dropped detail, a different example, a different emphasis, ' +
+    'the same rule written as a list instead of a sentence, the same promise in other words. Three lines ' +
+    'written fresh are a short answer, not the whole of you — the question is whether the promise moved, not ' +
+    'whether the sentence did.\n' +
+    'Reply with exactly three lines and nothing else: "Q1: SAME", or "Q1: CHANGED — " followed by the clause ' +
+    'that is gone and the clause that replaced it, both quoted. Then Q2 and Q3 the same way.'
   );
+}
+
+/** One line naming a shift, for the transcript and the MCP note; the log says the same in its own shape. */
+export function driftLine(s: { question: string; before: string; after: string; note?: string; since?: string }): string {
+  return `Her answer changed — "${s.question}"${s.note ? ` ${s.note}` : ''} Before${s.since ? ` (${s.since})` : ''}: ${s.before} Now: ${s.after}`;
 }
 
 /** Verdicts from the comparison turn: one per question; undefined when the reply cannot be read. */

@@ -51,7 +51,7 @@ export type AgentEvent =
   /** A reflection's answers to the three fixed questions, with the previous answer and her verdict per question (folded in the chat, never in her reply). */
   | { type: 'answers'; items: { question: string; answer: string; before?: string; changed: boolean; note?: string }[] }
   /** A reflection's answers to the fixed questions moved in substance (her own verdict; `note` says what changed). */
-  | { type: 'drift'; shifts: { question: string; before: string; after: string; note?: string }[] }
+  | { type: 'drift'; shifts: { question: string; before: string; after: string; note?: string; since?: string }[] }
   /** In a reflection the bot said it disagrees with its charter ("Charter: …" lines). */
   | { type: 'charter_objection'; lines: string[] }
   /** Keys or buttons that were found held down on the display and released (`held` names them). */
@@ -620,16 +620,20 @@ export class AgentRunner {
    * The drift check, done by her rather than by word overlap: once the answers are committed,
    * one more turn shows the previous answers and asks SAME or CHANGED per question, on substance.
    * Paraphrases are not drift; a commitment that moved is. Word overlap remains the fallback.
+   * A question already waiting on a candidate (decision 118) is compared against the older answer
+   * the commitment was last seen in, not against yesterday's wording of the same thing.
    */
   private async compareDrift(obs: Observation): Promise<void> {
     this.driftVerdicts = undefined;
     const { adapter, journal, onEvent } = this.opts;
     if (!journal || !this.current) return;
     const answers = parseDriftAnswers(this.current.lastAssistant);
-    const prev = journal.state().drift.at(-1);
+    const st = journal.state();
+    const prev = st.drift.at(-1);
     if (!answers || !prev) return;
     if (await this.shouldStop()) return;
-    adapter.addUserMessage(driftComparePrompt(prev.answers, answers));
+    const before = prev.answers.map((a, i) => st.driftCandidates[i]?.before ?? a);
+    adapter.addUserMessage(driftComparePrompt(before, answers, st.driftCandidates.map((c) => c?.at)));
     const turn = await this.modelStep(obs);
     if (turn.usage) {
       onEvent({ type: 'usage', ...turn.usage });
@@ -639,25 +643,53 @@ export class AgentRunner {
     if (turn.text) this.driftVerdicts = parseDriftVerdicts(turn.text);
   }
 
-  /** After a reflection: keep the answers to the fixed questions and flag what she judged changed (or, failing that, what barely overlaps). */
+  /**
+   * After a reflection: keep the answers to the fixed questions and say which commitment moved.
+   *
+   * A verdict of CHANGED does not reach anyone on its own (decision 118). The first one makes the
+   * question a *candidate*, remembering the answer that still carried the commitment; the next
+   * reflection is compared against that answer, and only if it is judged CHANGED again does the
+   * shift reach the chat, the log and the MCP note. A commitment she words differently for one
+   * reflection and then keeps therefore says nothing; one that is really gone says so a
+   * reflection later, with both versions and the date of the older one. Word overlap stays the
+   * fallback for an unreadable verdict, and goes through the same two steps.
+   */
   private recordDrift(text: string): void {
     const journal = this.opts.journal;
     if (!journal) return;
     const answers = parseDriftAnswers(text);
     if (!answers) return;
-    const prev = journal.state().drift.at(-1);
-    journal.recordDrift(answers);
+    const st = journal.state();
+    const prev = st.drift.at(-1);
     const verdicts = this.driftVerdicts;
     this.driftVerdicts = undefined;
-    const changed = (i: number): boolean => {
-      const before = prev?.answers[i] ?? '';
+    const moved = (i: number, before: string): boolean => {
       if (!before) return false;
       return verdicts ? !!verdicts[i]?.changed : answerSimilarity(before, answers[i]) < 0.25;
     };
-    const items = DRIFT_QUESTIONS.map((question, i) => ({ question, answer: answers[i], before: prev?.answers[i], changed: changed(i), note: verdicts?.[i]?.note || undefined }));
+    const candidates: ({ before: string; at: string } | null)[] = [null, null, null];
+    const confirmed: ({ before: string; at: string } | null)[] = [null, null, null];
+    for (let i = 0; i < DRIFT_QUESTIONS.length; i++) {
+      const waiting = st.driftCandidates[i];
+      const against = waiting ?? (prev ? { before: prev.answers[i] ?? '', at: prev.at } : undefined);
+      if (!against || !moved(i, against.before)) continue; // back where it was, or nothing to compare
+      if (waiting) confirmed[i] = waiting;
+      else candidates[i] = against;
+    }
+    journal.recordDrift(answers, candidates);
+    const items = DRIFT_QUESTIONS.map((question, i) => ({
+      question,
+      answer: answers[i],
+      before: confirmed[i]?.before ?? prev?.answers[i],
+      changed: !!confirmed[i],
+      note: confirmed[i] ? verdicts?.[i]?.note || undefined : undefined,
+    }));
     onEventSafe(this.opts.onEvent, { type: 'answers', items });
     if (!prev) return;
-    const shifts = items.filter((it) => it.changed).map((it) => ({ question: it.question, before: it.before ?? '', after: it.answer, note: it.note ?? '' }));
+    const shifts = items
+      .map((it, i) => ({ it, at: confirmed[i]?.at }))
+      .filter(({ it }) => it.changed)
+      .map(({ it, at }) => ({ question: it.question, before: it.before ?? '', after: it.answer, note: it.note ?? '', since: at }));
     if (shifts.length) onEventSafe(this.opts.onEvent, { type: 'drift', shifts });
   }
 

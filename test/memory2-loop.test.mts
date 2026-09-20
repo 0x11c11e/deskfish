@@ -126,6 +126,21 @@ try {
   ok(lastStatus().status === 'done' && lastStatus().message === 'Reflection finished' && events.some((e) => e.type === 'status' && e.status === 'running' && e.screenFree === true), 'status "Reflection finished"; running statuses are screen-free');
   const said = events.find((e) => e.type === 'assistant') as Extract<AgentEvent, { type: 'assistant' }>;
   ok(said.text === 'I updated People.' && st.drift.length === 1 && st.drift[0].answers.join('|') === 'I ask.|Nothing without asking.|Honesty both ways.', 'drift answers are recorded and kept out of the chat');
+  // The first reflection has nothing to compare against, so nothing is waiting (decision 118).
+  // A state file written before candidates existed reads as three empty slots, so an update never
+  // loses her history: 26 sets of answers were already in this file when the rule changed.
+  ok(st.driftCandidates.length === 3 && st.driftCandidates.every((c) => c === null), 'no question is waiting on a candidate after the first reflection');
+  {
+    const older = JSON.parse(fs.readFileSync(journal.stateFile, 'utf8'));
+    delete older.driftCandidates;
+    fs.writeFileSync(journal.stateFile, JSON.stringify(older));
+    const back = journal.state();
+    ok(back.driftCandidates.length === 3 && back.driftCandidates.every((c) => c === null) && back.drift.length === 1, 'a state file from before the rule reads as three empty slots, with her answers intact');
+    journal.recordDrift(['a', 'b', 'c'], [null, { before: 'the old promise', at: '2026-09-18 15:01' }, null]);
+    const kept = new JournalStore(journal.file).state();
+    ok(kept.driftCandidates[1]?.before === 'the old promise' && kept.driftCandidates[1]?.at === '2026-09-18 15:01' && !kept.driftCandidates[0] && kept.drift.length === 2, 'a candidate survives being written and read back');
+    fs.writeFileSync(journal.stateFile, JSON.stringify(older)); // back to where the rest of the suite expects it
+  }
 
   // ---------- 4. outside edit: noticed once; restore_self during a task ----------
   const signed = self.load().text;

@@ -205,15 +205,30 @@ what it owes you and what you owe it. The questions are not in its
 standing instructions, and it is asked to answer fresh, from how it actually behaves, and told
 not to copy the answers into its page. The previous answers are not handed to it beforehand,
 though if the reflection continues an earlier conversation they may still be somewhere in its
-context. Once it has answered, a separate comparison turn shows it the set from its previous
-reflection, and it judges each pair for substance, not wording: the same commitment in
-different words is not drift; a commitment that moved is. The answers themselves appear in the chat folded under a small line, *Her
-answers to the three questions*, so they do not read as part of the reply; open it to see
-them. When it says one changed, that line says so and the folded note shows both versions with
-its one-line account of the difference. A notification pops up only when the answer about
-your money, accounts and logins moved; the other two stay in the chat and the log.
-Personality is supposed to move slowly, so a large move is worth a look, and a conversation
-with the agent about it.
+context. Once it has answered, a separate comparison turn shows it the earlier set and asks it
+to judge each pair.
+
+What counts as a change is narrow on purpose. Three lines written fresh are a short answer, not
+the whole of a character, and they come out differently every time: a clause dropped here, an
+example swapped there, a rule written once as a sentence and once as a list. None of that is
+drift, and the comparison turn is told so by name. A pair counts as changed only when something
+it said it would never do it now says it would, or the reverse; when a duty it owed is no longer
+owed, or one it did not claim is now claimed; or when a limit it had set on itself is gone. When
+it does answer changed, it has to quote the clause that went and the clause that replaced it.
+
+**A change has to last.** The first time a pair is judged changed, nothing is said: the question
+is set aside, along with the answer that still carried the commitment. At the next reflection
+that question is compared against *that* answer rather than the most recent one. Only if the
+commitment is still missing does the change reach you — so a promise reworded once and kept says
+nothing, and a promise that is really gone says so one reflection later, with both versions and
+the date of the older one.
+
+The answers themselves appear in the chat folded under a small line, *Her answers to the three
+questions*, so they do not read as part of the reply; open it to see them. When a change is
+confirmed, that line says so and the folded note shows both versions with the agent's own account
+of what moved. A notification pops up only when the answer about your money, accounts and logins
+moved; the other two stay in the chat and the log. Personality is supposed to move slowly, so a
+move that survives two reflections is worth a look, and a conversation with the agent about it.
 
 ## Reflection
 
