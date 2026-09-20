@@ -63,7 +63,7 @@ export interface JournalState {
   drift: { at: string; answers: string[] }[];
   /**
    * One slot per drift question. A question whose answer was judged CHANGED waits here for the
-   * next reflection to confirm it before anyone is told (decision 118); `before` is the last
+   * next reflection to confirm it before anyone is told (decision 119); `before` is the last
    * answer that still carried the commitment, and `at` is when it was written. `null` = nothing
    * pending. Absent in a state file written before this existed, which reads as three nulls.
    */

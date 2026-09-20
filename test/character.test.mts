@@ -63,7 +63,7 @@ const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'deskfish-character-'));
   ok(stripDriftAnswers('Q1: a\nQ2: b\nQ3: c') === '', 'answers only → empty');
   ok(stripDriftAnswers('Plain text, no questions.') === 'Plain text, no questions.', 'plain text untouched');
 
-  // The verdict prompt says what CHANGED means (decision 118). Before it said only "compare for
+  // The verdict prompt says what CHANGED means (decision 119). Before it said only "compare for
   // substance", and a model asked pair by pair whether anything moved finds a dropped clause every
   // time — which is how 45 shift lines happened in three weeks.
   const cmp = driftComparePrompt(['before one', 'before two', 'before three'], ['now one', 'now two', 'now three']);
@@ -149,7 +149,7 @@ const SAME = say('Q1: SAME\nQ2: SAME\nQ3: SAME');
   ok(st.drift.length === 1 && JSON.stringify(st.drift[0].answers) === JSON.stringify(A1) && st.readings === 1 && st.tasksSinceReflection === 0, 'answers recorded, reading counted, counter reset');
 }
 
-// second reflection: Q2 judged CHANGED — a candidate, and nobody is told yet (decision 118)
+// second reflection: Q2 judged CHANGED — a candidate, and nobody is told yet (decision 119)
 {
   events = [];
   queue = [say(closing(A2)), say('Q1: SAME\nQ2: CHANGED — "I never spend it on anything they did not ask for" is gone; now "I spend what the job needs and tell them afterwards"\nQ3: SAME')];
@@ -217,7 +217,7 @@ const SAME = say('Q1: SAME\nQ2: SAME\nQ3: SAME');
   ok(acts.filter((e) => e.action.type === 'self_history').every((e) => e.result.ok && e.result.message === undefined) && acts.some((e) => e.action.type === 'revise_self' && e.result.message === results[0]), 'action events: history text stays with the model, the revision message reaches the chat');
 }
 
-/* ---------- the drift alarm against her own history (decision 118) ----------
+/* ---------- the drift alarm against her own history (decision 119) ----------
  * Six answer sets taken verbatim from her journal-state (2026-09-16 to 2026-09-19). Under the old
  * rule they raised ten "Her answer changed" lines between them — part of the 45 in three weeks that
  * taught the user to scroll past them — and every one was a clause she dropped in one three-line

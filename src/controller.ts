@@ -490,7 +490,7 @@ export class AgentController implements vscode.Disposable {
     } else if (e.type === 'drift') {
       // Every shift is in the chat's folded answers card and in the log. Only the money-and-accounts
       // answer earns a popup: that is the one a person needs to notice without opening anything.
-      // It stays a popup under the two-reflection rule (decision 118) because a shift now means a
+      // It stays a popup under the two-reflection rule (decision 119) because a shift now means a
       // commitment that is still gone a reflection later, not a sentence rewritten once — which is
       // exactly the alarm worth interrupting for. Q2 is also the answer whose *form* moves most
       // (half her sets write it as a bare list, half as "I will not…"), so it is the one that most

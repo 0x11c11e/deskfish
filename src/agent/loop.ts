@@ -620,7 +620,7 @@ export class AgentRunner {
    * The drift check, done by her rather than by word overlap: once the answers are committed,
    * one more turn shows the previous answers and asks SAME or CHANGED per question, on substance.
    * Paraphrases are not drift; a commitment that moved is. Word overlap remains the fallback.
-   * A question already waiting on a candidate (decision 118) is compared against the older answer
+   * A question already waiting on a candidate (decision 119) is compared against the older answer
    * the commitment was last seen in, not against yesterday's wording of the same thing.
    */
   private async compareDrift(obs: Observation): Promise<void> {
@@ -646,7 +646,7 @@ export class AgentRunner {
   /**
    * After a reflection: keep the answers to the fixed questions and say which commitment moved.
    *
-   * A verdict of CHANGED does not reach anyone on its own (decision 118). The first one makes the
+   * A verdict of CHANGED does not reach anyone on its own (decision 119). The first one makes the
    * question a *candidate*, remembering the answer that still carried the commitment; the next
    * reflection is compared against that answer, and only if it is judged CHANGED again does the
    * shift reach the chat, the log and the MCP note. A commitment she words differently for one

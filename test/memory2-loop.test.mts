@@ -126,7 +126,7 @@ try {
   ok(lastStatus().status === 'done' && lastStatus().message === 'Reflection finished' && events.some((e) => e.type === 'status' && e.status === 'running' && e.screenFree === true), 'status "Reflection finished"; running statuses are screen-free');
   const said = events.find((e) => e.type === 'assistant') as Extract<AgentEvent, { type: 'assistant' }>;
   ok(said.text === 'I updated People.' && st.drift.length === 1 && st.drift[0].answers.join('|') === 'I ask.|Nothing without asking.|Honesty both ways.', 'drift answers are recorded and kept out of the chat');
-  // The first reflection has nothing to compare against, so nothing is waiting (decision 118).
+  // The first reflection has nothing to compare against, so nothing is waiting (decision 119).
   // A state file written before candidates existed reads as three empty slots, so an update never
   // loses her history: 26 sets of answers were already in this file when the rule changed.
   ok(st.driftCandidates.length === 3 && st.driftCandidates.every((c) => c === null), 'no question is waiting on a candidate after the first reflection');

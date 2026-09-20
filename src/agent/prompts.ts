@@ -263,7 +263,7 @@ export function parseCharterObjections(text: string): string[] {
  * After the answers are committed, and only then, the previous reflection's answers are shown
  * and the bot compares substance, not wording. Word overlap alone flags every paraphrase — but
  * so does "is anything different in substance?", because a three-line answer written fresh drops
- * a clause every time. So CHANGED is defined here (decision 118): a promise reversed, a duty
+ * a clause every time. So CHANGED is defined here (decision 119): a promise reversed, a duty
  * gained or dropped, a limit gone. Compression, a different example and a list where there was a
  * sentence are SAME. `carriedFrom` marks a question whose previous verdict was CHANGED and is
  * waiting for this reflection to confirm it: `previous[i]` is then the older answer the
