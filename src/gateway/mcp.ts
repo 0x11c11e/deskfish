@@ -4,6 +4,7 @@ import { z } from 'zod';
 import type { ReplayItem } from '../agent/chats';
 import type { AgentEvent } from '../agent/loop';
 import { describeAction } from '../computer/types';
+import { endFragment } from '../agent/journal';
 import { costUsd, priceForConfig } from '../agent/pricing';
 import { driftLine } from '../agent/prompts';
 import { GatewayClient } from './client';
@@ -58,7 +59,7 @@ const SAID_CUT = 1000;
  * gateway pushes exactly as the service builds a transcript. Text only — an image belongs to
  * `screenshot`, not to a replay.
  */
-class ItemLog {
+export class ItemLog {
   items: ReplayItem[] = [];
   /** A reconnect replaced the list; the next `wait` says so and starts again from 0. */
   resynced = false;
@@ -86,20 +87,23 @@ class ItemLog {
         break;
       case 'action': {
         const a = e.action.type;
+        // The runner's own words for the step travel with the event; this process may be older than
+        // the build that added the action (decision 127), and then its describeAction has no case for it.
+        const what = e.describe ?? describeAction(e.action);
         if (a === 'wait_for') {
-          this.push({ kind: 'note', text: e.result.ok ? `⏳ ${(e.result.message ?? 'Stood by').split(/[;.] /)[0]} (${describeAction(e.action)})` : `⏳ Standby failed: ${e.result.error ?? ''}` });
+          this.push({ kind: 'note', text: e.result.ok ? `⏳ ${(e.result.message ?? 'Stood by').split(/[;.] /)[0]} (${what})` : `⏳ Standby failed: ${e.result.error ?? ''}` });
           break;
         }
         const memoryish = a === 'remember' || a === 'forget' || a === 'revise_self' || a === 'restore_self' || a === 'note' || a === 'save_playbook' || a === 'archive_story';
-        if (memoryish) this.push({ kind: 'note', text: e.result.ok ? (e.result.message ?? describeAction(e.action)) : `${describeAction(e.action)} — not done: ${e.result.error ?? ''}` });
-        else this.push({ kind: 'actions', step: e.step, actions: [{ text: describeAction(e.action), failed: !e.result.ok }] });
+        if (memoryish) this.push({ kind: 'note', text: e.result.ok ? (e.result.message ?? what) : `${what} — not done: ${e.result.error ?? ''}` });
+        else this.push({ kind: 'actions', step: e.step, actions: [{ text: what, failed: !e.result.ok }] });
         break;
       }
       case 'needs_user':
         this.push({ kind: 'needs_user', text: e.reason });
         break;
       case 'status':
-        if (e.status === 'done' || e.status === 'stopped' || e.status === 'error') this.push({ kind: 'status', text: `${e.status}${e.message ? ` — ${e.message}` : ''}` });
+        if (e.status === 'done' || e.status === 'stopped' || e.status === 'error') this.push({ kind: 'status', text: `${e.status}${e.message ? ` — ${e.message}` : ''}${endFragment(e.end)}` });
         break;
       case 'ledger':
         this.push({ kind: 'note', text: `📒 Ledger after ${e.step} steps: ${e.text.replace(/\s*\n+\s*/g, ' / ')}` });
@@ -443,7 +447,7 @@ export function buildMcpServer(client: GatewayClient): McpServer {
     'status',
     {
       title: 'What she is doing, and what it has cost',
-      description: 'Status, the current task, the step she is on, cost and tokens so far (the cost is the provider\'s own figure, or an estimate at list price marked costEstimated; absent when neither is known, and replaced by billing: "subscription" when she runs on a signed-in plan, where tokens are spent but no money is), her model and provider, whether the tank is on, how many tasks are queued, and a knock if she is waiting for a person.',
+      description: 'Status, the current task, the step she is on, cost and tokens so far in the running task (the cost is the provider\'s own figure, or an estimate at list price marked costEstimated; absent when neither is known, and replaced by billing: "subscription" when she runs on a signed-in plan, where tokens are spent but no money is), her model and provider, whether the tank is on, how many tasks are queued, and a knock if she is waiting for a person. The counts are live: a finished task\'s steps and tokens are on its journal line and at the end of its transcript.',
       inputSchema: {},
       annotations: { title: 'What she is doing', readOnlyHint: true, openWorldHint: false },
     },

@@ -20,7 +20,9 @@ import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 import { DeskfishService } from '../src/gateway/service';
 import { GatewayServer } from '../src/gateway/server';
 import type { DeskfishConfig } from '../src/gateway/config';
-import { costOf } from '../src/gateway/mcp';
+import { costOf, ItemLog } from '../src/gateway/mcp';
+import type { AgentEvent } from '../src/agent/loop';
+import type { ComputerAction } from '../src/computer/types';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 let n = 0;
@@ -113,6 +115,22 @@ const transport = new StdioClientTransport({ ...spawnArgs(), stderr: 'pipe' });
 try {
   await client.connect(transport);
 
+  // ---------- 0. a step's words travel with the event ----------
+  // A door process older than the build that added an action has no describeAction case for it —
+  // click_element steps showed as items with no text in lesson 4 (decision 127). The runner's own
+  // description rides on the event and the log prefers it; a known action without one still renders.
+  {
+    const log = new ItemLog();
+    const future = { type: 'some_future_action', query: 'x' } as unknown as ComputerAction;
+    log.absorb({ type: 'action', step: 3, action: future, result: { ok: true }, describe: 'do the future thing "x"' } as AgentEvent);
+    log.absorb({ type: 'action', step: 3, action: { type: 'find', query: 'y' }, result: { ok: false, error: 'no' } });
+    log.absorb({ type: 'status', status: 'done', message: 'Task finished', end: { steps: 16, tokens: { input: 61_000, output: 3_000, cacheRead: 410_000, cacheWrite: 5_000 } } });
+    const step = log.items[0];
+    ok(step?.kind === 'actions' && step.step === 3 && step.actions[0].text === 'do the future thing "x"' && !step.actions[0].failed, `an action this client does not know still has its words: ${JSON.stringify(step)}`);
+    ok(step?.kind === 'actions' && step.actions[1].text === 'find on the page: "y"' && step.actions[1].failed, 'an action it knows, without the field, renders as before');
+    ok(log.items[1]?.kind === 'status' && log.items[1].text === 'done — Task finished · 16 steps · 471k tokens (61k fresh)', `the end item carries the task's counts: ${JSON.stringify(log.items[1])}`);
+  }
+
   // ---------- 1. the tool surface ----------
   const EXPECTED = ['run', 'say', 'wait', 'status', 'transcript', 'screenshot', 'stop', 'new_chat', 'chats', 'self', 'journal', 'playbooks', 'memory', 'reflect'];
   const tools = (await client.listTools()).tools;
@@ -156,11 +174,17 @@ try {
   ok(seen.some((i) => i.kind === 'user' && i.text.includes('what is on the screen')), 'the items carry the task');
   ok(seen.some((i) => i.kind === 'assistant' && i.text.includes('All done here')), 'and her reply');
   ok(seen.some((i) => i.kind === 'status' && i.text.startsWith('done')), 'and how it ended');
+  // The fake model reports 10 prompt tokens a turn: the end item and the journal line keep the task's
+  // counts, which `status` loses the moment she is idle (decision 127).
+  const endItem = seen.find((i) => i.kind === 'status' && i.text.startsWith('done'));
+  ok(/^done — Task finished · \d+ steps? · \d+ tokens \(\d+ fresh\)$/.test(endItem?.text ?? ''), `the end item carries the steps and the tokens: ${endItem?.text}`);
+  ok(seen.filter((i) => i.kind === 'actions').every((i: any) => i.actions.every((a: any) => typeof a.text === 'string' && a.text.length > 0)), 'every step item has its words');
   ok(!JSON.stringify(seen).includes('jpegBase64') && !JSON.stringify(seen).includes('data:image'), 'items are text only — never an image');
 
   // ---------- 5. the run carries its reason into the log and the journal ----------
   ok(logLines.some((l) => l.startsWith('▶ task (lesson)')), `the log says what put the task there: ${logLines.find((l) => l.startsWith('▶ task')) ?? '(none)'}`);
   ok(/^- \[[^\]]+\] done · \d+ steps? .*· lesson/m.test(fs.readFileSync(path.join(dataDir, 'journal.md'), 'utf8')), 'the journal line names the reason');
+  ok(/^- \[[^\]]+\] done · \d+ steps? · \$[\d.]+ · \d+ tokens \(\d+ fresh\) · lesson/m.test(fs.readFileSync(path.join(dataDir, 'journal.md'), 'utf8')), `the journal line keeps the task's tokens after the cost: ${fs.readFileSync(path.join(dataDir, 'journal.md'), 'utf8').split('\n').find((l) => l.includes('lesson'))}`);
 
   // ---------- 6. status and transcript ----------
   const st = asJson(await client.callTool({ name: 'status', arguments: {} }));

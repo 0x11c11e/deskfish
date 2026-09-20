@@ -66,6 +66,18 @@ export type ComputerAction =
    */
   | { type: 'click_element'; query: string; hit?: string }
   /**
+   * The page scrolls the best hit for `query` into the middle of its viewport itself (no mouse
+   * wheel, no guessing how far); a weak hit scrolls nothing and the result says why. Changes the
+   * screen. `hit` is filled in by the loop after a scroll, for the transcript line.
+   */
+  | { type: 'scroll_to'; query: string; hit?: string }
+  /**
+   * Choose an option of a native <select> on the page by its text — the page gets input and change
+   * events as from a person. Native dropdowns only: a custom menu is buttons, for click_element.
+   * Changes the screen. `hit` as for scroll_to.
+   */
+  | { type: 'select_option'; query: string; option: string; hit?: string }
+  /**
    * Run a shell command in the tank (bash, as the bot user, stdin closed) and get its output back
    * as text. The daemon runs it outside its input queue; the loop renders the result for the
    * model. Passive for the screen: no settle, no stall bookkeeping.
@@ -133,6 +145,13 @@ export interface PageInfo {
   total?: number;
   /** Elements not listed: further visible ones over the limit, and off-screen ones below / above. */
   more?: { visible: number; below: number; above: number };
+  /** For scroll_to: whether the page scrolled (false: the hit was weak or missing; `elements` are the candidates). */
+  scrolled?: boolean;
+  /** For select_option: whether an option was chosen; when not, why, and the options the dropdown has (up to 20 of `optionCount`). */
+  selected?: boolean;
+  reason?: 'no-select' | 'no-option';
+  options?: string[];
+  optionCount?: number;
 }
 
 /** What run_command returns, as the daemon reports it. */
@@ -215,6 +234,8 @@ export function changesScreen(a: ComputerAction): boolean {
     case 'mouse_move':
     case 'click':
     case 'click_element':
+    case 'scroll_to':
+    case 'select_option':
     case 'drag':
     case 'type':
     case 'key':
@@ -268,6 +289,10 @@ export function describeAction(a: ComputerAction): string {
       return a.scope === 'text' ? 'read the page text' : 'read the page';
     case 'click_element':
       return `click ${JSON.stringify(a.query)}${a.hit ? ` → ${a.hit}` : ''}`;
+    case 'scroll_to':
+      return `scroll to ${JSON.stringify(a.query)}${a.hit ? ` → ${a.hit}` : ''}`;
+    case 'select_option':
+      return `select ${JSON.stringify(a.option)} in ${JSON.stringify(a.query)}${a.hit ? ` → ${a.hit}` : ''}`;
     case 'run_command':
       return `run: ${a.command.length > 60 ? a.command.slice(0, 57) + '…' : a.command}`;
     case 'remember':

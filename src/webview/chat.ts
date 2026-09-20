@@ -695,25 +695,28 @@ function onEvent(e: AgentEvent): void {
       }
       // Tool errors are phrased for her ("keep a playbook under 2500 — the steps that matter"); show the user only the reason.
       const reason = (err?: string) => (err ?? 'unknown reason').split(/;|—/)[0].trim();
+      // The runner's own words for the step ride on the event; a page older than the gateway's build
+      // (the app, a browser tab left open) then still names an action it has no case for.
+      const what = e.describe ?? describeAction(e.action);
       if (e.action.type === 'remember' || e.action.type === 'forget') {
         const text = e.action.type === 'remember' ? e.action.text : e.action.query;
         appendMemory(e.result.ok ? (e.result.message ?? text) : `Not ${e.action.type === 'remember' ? 'remembered' : 'forgotten'}: ${reason(e.result.error)}`, e.action.type === 'remember' ? 'fact' : 'forgotten', !e.result.ok);
         break;
       }
       if (e.action.type === 'save_playbook') {
-        appendMemory(e.result.ok ? (e.result.message ?? describeAction(e.action)) : `Playbook not saved (${reason(e.result.error)}); she can try again shorter`, 'playbook', !e.result.ok);
+        appendMemory(e.result.ok ? (e.result.message ?? what) : `Playbook not saved (${reason(e.result.error)}); she can try again shorter`, 'playbook', !e.result.ok);
         break;
       }
       if (e.action.type === 'revise_self' || e.action.type === 'restore_self' || e.action.type === 'note' || e.action.type === 'archive_story') {
-        const what = e.action.type === 'note' ? `Note to self: ${e.action.text}` : e.result.message ?? describeAction(e.action);
+        const said = e.action.type === 'note' ? `Note to self: ${e.action.text}` : e.result.message ?? what;
         // Mid-task a self revision is only a proposal for her next reflection; in a reflection it is applied.
         const kind: MemoryKind = e.action.type === 'note' ? 'note' : reflection ? 'self' : 'proposal';
-        appendMemory(e.result.ok ? what : `Could not ${describeAction(e.action)} (${reason(e.result.error)})`, kind, !e.result.ok, true);
+        appendMemory(e.result.ok ? said : `Could not ${what} (${reason(e.result.error)})`, kind, !e.result.ok, true);
         break;
       }
       const el = document.createElement('div');
       el.className = `action${e.result.ok ? '' : ' failed'}`;
-      el.textContent = `${describeAction(e.action)}${e.result.ok ? '' : ` — ${e.result.error}`}`;
+      el.textContent = `${what}${e.result.ok ? '' : ` — ${e.result.error}`}`;
       el.title = `step ${e.step}: ${el.textContent}`;
       if (e.action.type === 'run_command' && e.result.ok && e.result.command) {
         // As a terminal agent shows it: the command and its verdict on the line, the output folded under it.

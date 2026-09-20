@@ -1,7 +1,7 @@
 import type { ActionResult, ComputerAction, ComputerProvider } from '../computer/types';
 import { scalePng } from '../image/resize';
 import { renderZoom } from '../image/zoom';
-import { clickable, renderClick, renderElement, renderPage } from './page';
+import { clickable, renderClick, renderElement, renderPage, renderScroll, renderSelect } from './page';
 import { cutMiddle, renderCommand, summarizeCommand } from './command';
 import { isPoolExhaustedError, type ModelAdapter, type ModelTurn, type Observation } from './adapters/types';
 import type { DocsLibrary } from './docs';
@@ -16,7 +16,7 @@ import { DRIFT_QUESTIONS, answerSimilarity, continuationTask, driftComparePrompt
 import type { Library } from './library';
 import type { ChatStore } from './chats';
 import type { PlaybookStore } from './playbook';
-import { SALIENCE_THRESHOLD, salienceOf } from './journal';
+import { SALIENCE_THRESHOLD, salienceOf, type TaskEnd, type TokenCounts } from './journal';
 import * as crypto from 'node:crypto';
 
 /**
@@ -41,10 +41,20 @@ const CLICK_ELEMENT_CANDIDATES = 5;
 export type AgentStatus = 'idle' | 'running' | 'paused' | 'done' | 'stopped' | 'error';
 
 export type AgentEvent =
-  /** `screenFree`: the run never touches the screen (a reflection), so the live view stays the person's. */
-  | { type: 'status'; status: AgentStatus; message?: string; screenFree?: boolean }
+  /**
+   * `screenFree`: the run never touches the screen (a reflection), so the live view stays the
+   * person's. `end`: on a task's done / stopped / error, its step count and token counts, for the
+   * transcript's end line and a client's status item.
+   */
+  | { type: 'status'; status: AgentStatus; message?: string; screenFree?: boolean; end?: TaskEnd }
   | { type: 'assistant'; text: string }
-  | { type: 'action'; step: number; action: ComputerAction; result: ActionResult }
+  /**
+   * `describe` is the step's one-line text (`describeAction` of the action, after the loop filled
+   * in what a click_element hit), set by the runner on every action event. A consumer prefers it,
+   * so a client older than the build that added an action still shows the step in words rather
+   * than as an item with no text (decision 127).
+   */
+  | { type: 'action'; step: number; action: ComputerAction; result: ActionResult; describe?: string }
   /**
    * A step's observation. `fresh: false` means no new frame was taken — the batch could not have
    * changed the screen — and then `jpegBase64` is empty: the last frame still stands, so a view
@@ -129,14 +139,16 @@ export class AgentRunner {
   /** A 320-px, marker-free copy of the last screenshot the model was shown: standby's default before-frame. */
   private lastSeen?: ScaledImage;
   /** Per-run bookkeeping for the journal. */
-  private current?: { task: string; reflection: boolean; reason?: string; steps: number; spentUsd: number; lastAssistant: string; revisions: number; journaled: boolean; handovers: number; notes: number; followUps: number; said: string[]; ledger?: string; ledgers: number };
+  private current?: { task: string; reflection: boolean; reason?: string; steps: number; spentUsd: number; tokens: TokenCounts; lastAssistant: string; revisions: number; journaled: boolean; handovers: number; notes: number; followUps: number; said: string[]; ledger?: string; ledgers: number };
 
   private readonly opts: AgentRunnerOptions;
 
   constructor(opts: AgentRunnerOptions) {
     // Every event is masked on the way out: the chat, the output log and the transcript never see a
-    // credential the model typed, ran or read. The model's own copy is the only real one.
-    this.opts = { ...opts, onEvent: (e) => opts.onEvent(maskDeep(e)) };
+    // credential the model typed, ran or read. The model's own copy is the only real one. An action
+    // event also carries its one-line description, so every consumer prints the same words and an
+    // older client still has them for an action it does not know.
+    this.opts = { ...opts, onEvent: (e) => opts.onEvent(maskDeep(e.type === 'action' ? { ...e, describe: describeAction(e.action) } : e)) };
   }
 
   get currentStatus(): AgentStatus {
@@ -268,7 +280,7 @@ export class AgentRunner {
    */
   async run(task: string, runOpts: { reflection?: boolean; note?: string; reason?: string } = {}): Promise<void> {
     if (this.isActive) throw new Error('agent is already running');
-    this.current = { task, reflection: !!runOpts.reflection, reason: runOpts.reason, steps: 0, spentUsd: 0, lastAssistant: '', revisions: 0, journaled: false, handovers: 0, notes: 0, followUps: 0, said: [], ledgers: 0 };
+    this.current = { task, reflection: !!runOpts.reflection, reason: runOpts.reason, steps: 0, spentUsd: 0, tokens: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, lastAssistant: '', revisions: 0, journaled: false, handovers: 0, notes: 0, followUps: 0, said: [], ledgers: 0 };
     this.stopRequested = false;
     this.resumedSinceObserve = false;
     this.lastSeen = undefined;
@@ -353,6 +365,7 @@ export class AgentRunner {
             if (condensed.usage.costUsd !== undefined) spentUsd += condensed.usage.costUsd;
             else if (this.opts.price) spentUsd += costUsd(condensed.usage, this.opts.price);
             if (this.current) this.current.spentUsd = spentUsd;
+            this.addTokens(condensed.usage);
           }
         }
         // Long tasks push the system prompt far from the model's attention: re-anchor the voice now and then.
@@ -384,6 +397,7 @@ export class AgentRunner {
           if (turn.usage.costUsd !== undefined) spentUsd += turn.usage.costUsd;
           else if (this.opts.price) spentUsd += costUsd(turn.usage, this.opts.price);
           if (this.current) this.current.spentUsd = spentUsd;
+          this.addTokens(turn.usage);
         }
         if (turn.text) {
           // In a reflection the closing "Q1:"–"Q3:" lines are for the drift monitor, not for the chat.
@@ -470,6 +484,22 @@ export class AgentRunner {
               result: { ok: hit.result.ok, error: hit.result.error?.split('\n')[0] },
             });
             if (hit.clicked) acted = true;
+            continue;
+          }
+
+          if (action.type === 'scroll_to' || action.type === 'select_option') {
+            // The page does it (scrolls the hit into view, sets the dropdown) and answers with the
+            // element as it is now; a weak or missing hit does nothing and comes back as ok: false
+            // in find's words. Same shape as click_element: the chip gets the first line.
+            const hit = await this.pageAction(action);
+            results.push(hit.result);
+            onEvent({
+              type: 'action',
+              step,
+              action: hit.done ? { ...action, hit: hit.done } : action,
+              result: { ok: hit.result.ok, error: hit.result.error?.split('\n')[0] },
+            });
+            if (hit.done) acted = true;
             continue;
           }
 
@@ -642,7 +672,7 @@ export class AgentRunner {
     const outcomeText = outcome === 'done' ? 'done' : outcome === 'stopped' ? 'stopped by the user' : outcome === 'limit' ? 'stopped at the limit' : 'ended with an error';
     const salience = salienceOf({ steps: cur.steps, costUsd: cur.spentUsd, outcome: outcomeText, handovers: cur.handovers, notes: cur.notes, followUps: cur.followUps });
     const said = cur.said.length ? ` — You told me: ${cur.said.map((s) => `"${s.replace(/\s+/g, ' ').trim().slice(0, 120)}"`).join(' | ')}` : '';
-    journal.appendTask({ task: cur.task, outcome: outcomeText, steps: cur.steps, costUsd: cur.spentUsd, subscription: this.opts.subscription, reason: cur.reason, summary: maskSecrets((cur.lastAssistant || '') + said), salience });
+    journal.appendTask({ task: cur.task, outcome: outcomeText, steps: cur.steps, costUsd: cur.spentUsd, tokens: { ...cur.tokens }, subscription: this.opts.subscription, reason: cur.reason, summary: maskSecrets((cur.lastAssistant || '') + said), salience });
     const c = journal.taskFinished(salience);
     const every = this.opts.reflectEvery ?? 0;
     const due = every > 0 && !!this.opts.self && (c.tasks >= every || c.salience >= SALIENCE_THRESHOLD);
@@ -1035,6 +1065,22 @@ export class AgentRunner {
     return { result: { ok: true, message: renderClick(page, this.scale, action.query, best) }, clicked: renderElement(best, this.scale) };
   }
 
+  /**
+   * scroll_to and select_option: the bridge acts in the page and reports the element as it is now.
+   * `done` is the element's words for the transcript line when the page did it; otherwise the
+   * result is `ok: false` carrying the reason and find's candidates, and nothing happened.
+   */
+  private async pageAction(action: { type: 'scroll_to'; query: string } | { type: 'select_option'; query: string; option: string }): Promise<{ result: ActionResult; done?: string }> {
+    const raw = await this.opts.computer.execute(action);
+    if (!raw.ok || !raw.page) return { result: { ok: false, error: raw.error ?? 'the page could not be read' } };
+    const page = raw.page;
+    const text = action.type === 'scroll_to' ? renderScroll(page, this.scale, action.query) : renderSelect(page, this.scale, action.query, action.option);
+    const did = action.type === 'scroll_to' ? page.scrolled : page.selected;
+    const it = page.elements[0];
+    if (!did || !it) return { result: { ok: false, error: text } };
+    return { result: { ok: true, message: text }, done: renderElement(it, this.scale) };
+  }
+
   /** Execute a read_docs action: hand the model a page of its own documentation (or the index). */
   private readDocs(page: string): ActionResult {
     const docs = this.opts.docs;
@@ -1069,10 +1115,24 @@ export class AgentRunner {
     }
   }
 
+  /** The task's own token counts, kept for its journal line and the transcript's end line: the live total is gone the moment she is idle. */
+  private addTokens(u: { input: number; output: number; cacheRead?: number; cacheWrite?: number }): void {
+    const t = this.current?.tokens;
+    if (!t) return;
+    t.input += u.input;
+    t.output += u.output;
+    t.cacheRead += u.cacheRead ?? 0;
+    t.cacheWrite += u.cacheWrite ?? 0;
+  }
+
   private setStatus(status: AgentStatus, message?: string): void {
     this.status = status;
-    const screenFree = (status === 'running' || status === 'paused') && !!this.current?.reflection;
-    this.opts.onEvent(screenFree ? { type: 'status', status, message, screenFree } : { type: 'status', status, message });
+    const cur = this.current;
+    const screenFree = (status === 'running' || status === 'paused') && !!cur?.reflection;
+    // A task's end carries its counts, so the transcript's end line and a client's status item keep
+    // what `status` shows only while she runs (decision 127). A reflection's end carries nothing.
+    const end = (status === 'done' || status === 'stopped' || status === 'error') && cur && !cur.reflection ? { steps: cur.steps, tokens: { ...cur.tokens } } : undefined;
+    this.opts.onEvent({ type: 'status', status, message, ...(screenFree ? { screenFree } : {}), ...(end ? { end } : {}) });
   }
 
   /** True while a reflection runs: the model is alone with its notes and the desktop is not in use. */

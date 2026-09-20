@@ -30,6 +30,14 @@ import {
   READ_PAGE_TOOL_DESCRIPTION,
   READ_PAGE_TOOL_PARAMETERS,
   readPageAction,
+  SCROLL_TO_TOOL_NAME,
+  SCROLL_TO_TOOL_DESCRIPTION,
+  SCROLL_TO_TOOL_PARAMETERS,
+  scrollToAction,
+  SELECT_OPTION_TOOL_NAME,
+  SELECT_OPTION_TOOL_DESCRIPTION,
+  SELECT_OPTION_TOOL_PARAMETERS,
+  selectOptionAction,
   READ_DOCS_TOOL_PARAMETERS,
   REMEMBER_TOOL_DESCRIPTION,
   REMEMBER_TOOL_NAME,
@@ -257,6 +265,8 @@ export class OpenAICompatAdapter implements ModelAdapter {
         else if (call.function?.name === FIND_TOOL_NAME) actions.push(findAction(args));
         else if (call.function?.name === CLICK_ELEMENT_TOOL_NAME) actions.push(clickElementAction(args));
         else if (call.function?.name === READ_PAGE_TOOL_NAME) actions.push(readPageAction(args));
+        else if (call.function?.name === SCROLL_TO_TOOL_NAME) actions.push(scrollToAction(args));
+        else if (call.function?.name === SELECT_OPTION_TOOL_NAME) actions.push(selectOptionAction(args));
         else if (call.function?.name === WAIT_FOR_TOOL_NAME) actions.push(waitForAction(args));
         else if (call.function?.name === RUN_COMMAND_TOOL_NAME) actions.push(runCommandAction(args));
         else if (call.function?.name === REMEMBER_TOOL_NAME) actions.push(rememberAction(args));
@@ -394,6 +404,8 @@ export class OpenAICompatAdapter implements ModelAdapter {
         { type: 'function', function: { name: FIND_TOOL_NAME, description: FIND_TOOL_DESCRIPTION, parameters: FIND_TOOL_PARAMETERS } },
         { type: 'function', function: { name: READ_PAGE_TOOL_NAME, description: READ_PAGE_TOOL_DESCRIPTION, parameters: READ_PAGE_TOOL_PARAMETERS } },
         { type: 'function', function: { name: CLICK_ELEMENT_TOOL_NAME, description: CLICK_ELEMENT_TOOL_DESCRIPTION, parameters: CLICK_ELEMENT_TOOL_PARAMETERS } },
+        { type: 'function', function: { name: SCROLL_TO_TOOL_NAME, description: SCROLL_TO_TOOL_DESCRIPTION, parameters: SCROLL_TO_TOOL_PARAMETERS } },
+        { type: 'function', function: { name: SELECT_OPTION_TOOL_NAME, description: SELECT_OPTION_TOOL_DESCRIPTION, parameters: SELECT_OPTION_TOOL_PARAMETERS } },
         { type: 'function', function: { name: WAIT_FOR_TOOL_NAME, description: WAIT_FOR_TOOL_DESCRIPTION, parameters: WAIT_FOR_TOOL_PARAMETERS } },
         { type: 'function', function: { name: RUN_COMMAND_TOOL_NAME, description: RUN_COMMAND_TOOL_DESCRIPTION, parameters: RUN_COMMAND_TOOL_PARAMETERS } },
         ...(this.cfg.docsIndex

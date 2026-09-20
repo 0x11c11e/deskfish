@@ -1,4 +1,5 @@
-// JournalStore: the task-line format (steps, cost, summary trimmed to MAX_SUMMARY), notes, "Recently"
+// JournalStore: the task-line format (steps, cost, the tokens read and how many were fresh, summary
+// trimmed to MAX_SUMMARY), the transcript's end fragment (endFragment), notes, "Recently"
 // = the last 5 entries, recall scoring (every matching term counts; short queries and no-hit are
 // errors), the reflection bookkeeping (counter / pending / reflected() reset), newSinceReflection,
 // and re-parsing the file from disk.
@@ -6,7 +7,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { JournalStore, MAX_SUMMARY, MAX_TASK_LINE, RECENT_ENTRIES, stamp } from '../src/agent/journal';
+import { endFragment, JournalStore, MAX_SUMMARY, MAX_TASK_LINE, RECENT_ENTRIES, shortCount, stamp, tokensFragment } from '../src/agent/journal';
 
 let n = 0;
 const ok = (c: unknown, m: string) => { assert.ok(c, m); n++; };
@@ -73,6 +74,23 @@ try {
   ok(fresh.ensureFile() === fresh.file && fresh.raw().startsWith('# Deskfish journal') && fresh.list().length === 0, 'ensureFile writes the header only');
   fresh.importText(j.raw(), { tasksSinceReflection: 4, reflectedLines: 2 });
   ok(fresh.list().length === j.list().length && fresh.state().tasksSinceReflection === 4 && fresh.state().reflectedLines === 2 && fresh.state().pending.length === 0, 'importText restores the text and the state');
+
+  // ---------- a task's tokens on its line ----------
+  // `status` shows the counts only while she runs (decision 127): the journal line keeps what a
+  // comparison between builds needs — what the task read in all, and how much of it was fresh.
+  const jt = new JournalStore(path.join(dir, 'tokens', 'journal.md'));
+  const t1 = jt.appendTask({ task: 'Count', outcome: 'done', steps: 16, costUsd: 0.4, tokens: { input: 61_000, output: 3_000, cacheRead: 410_000, cacheWrite: 5_000 } });
+  ok(t1.text === 'done · 16 steps · $0.40 · 471k tokens (61k fresh) — Task: Count', `the tokens read and how many were fresh, after the cost: ${t1.text}`);
+  const t2 = jt.appendTask({ task: 'Small', outcome: 'done', steps: 1, tokens: { input: 812, output: 40, cacheRead: 0, cacheWrite: 0 } });
+  ok(t2.text === 'done · 1 step · 812 tokens (812 fresh) — Task: Small', `below a thousand, the plain number: ${t2.text}`);
+  const t3 = jt.appendTask({ task: 'Zero', outcome: 'done', steps: 2, tokens: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 } });
+  ok(t3.text === 'done · 2 steps — Task: Zero', 'a task whose provider reported nothing keeps the old line, byte for byte');
+  const t4 = jt.appendTask({ task: 'Sub', outcome: 'done', steps: 3, subscription: true, reason: 'lesson', salience: 2, tokens: { input: 9_500, output: 1, cacheRead: 2_430_000, cacheWrite: 0 } });
+  ok(t4.text === 'done · 3 steps · subscription · 2.4M tokens (9.5k fresh) · lesson · ★★ — Task: Sub', `the fragment sits between the cost word and the reason: ${t4.text}`);
+  ok(shortCount(2_440_000) === '2.4M' && shortCount(9_500) === '9.5k' && shortCount(12_345) === '12k' && shortCount(10_000_000) === '10M' && shortCount(999) === '999' && shortCount(1_000) === '1k', 'k and M, with one decimal below 10');
+  ok(tokensFragment({ input: 422_000, output: 1, cacheRead: 2_017_000, cacheWrite: 0 }) === ' · 2.4M tokens (422k fresh)' && tokensFragment(undefined) === '', 'the TransUnion line: 2.44M read, 422k fresh; nothing when nothing is known');
+  ok(endFragment({ steps: 16, tokens: { input: 61_000, output: 0, cacheRead: 410_000, cacheWrite: 0 } }) === ' · 16 steps · 471k tokens (61k fresh)' && endFragment({ steps: 1 }) === ' · 1 step' && endFragment(undefined) === '', "the transcript's end fragment: the steps always, the tokens when known");
+  ok(jt.list().length === 4 && new JournalStore(jt.file).list()[0].text === t1.text, 'the lines with counts re-parse from disk like any other');
 } finally {
   fs.rmSync(dir, { recursive: true, force: true });
 }

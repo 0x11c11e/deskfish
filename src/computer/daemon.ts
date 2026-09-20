@@ -128,6 +128,16 @@ export class DesktopDaemonComputer implements ComputerProvider {
           return { ok: true, page: r.data as ActionResult['page'] };
         }
 
+        case 'scroll_to': {
+          const r = await this.call({ action: 'page_scroll_to', query: action.query });
+          return { ok: true, page: r.data as ActionResult['page'] };
+        }
+
+        case 'select_option': {
+          const r = await this.call({ action: 'page_select', query: action.query, option: action.option });
+          return { ok: true, page: r.data as ActionResult['page'] };
+        }
+
         case 'run_command': {
           // The daemon enforces the command's own timeout; the request gets a margin on top of it,
           // and Stop aborts the request, which makes the daemon kill the process.

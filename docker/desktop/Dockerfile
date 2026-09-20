@@ -9,8 +9,10 @@
 #   xdotool + scrot                       hands + eyes
 #   daemon.mjs (Node)                     the control API on :9990  (+ /websockify proxy for noVNC; run_command runs
 #                                         shell commands for the agent without the screen)
-#   bridge/ (WebExtension)                the page bridge: lets the agent read the Firefox page and
-#                                         find elements by name (find / read_page tools)
+#   bridge/ (WebExtension)                the page bridge: lets the agent read the Firefox page, find
+#                                         elements by name, scroll one into view and set a native
+#                                         dropdown (find / read_page / click_element / scroll_to /
+#                                         select_option tools)
 #
 # No systemd, no desktop environment, no root inside, no privileged mode needed.
 FROM debian:bookworm-slim

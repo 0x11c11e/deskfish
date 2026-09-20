@@ -118,5 +118,12 @@
     return scored.slice(0, limit || 8).map((x) => ({ ...x.el, score: x.s }));
   }
 
-  root.DeskfishScore = { normalize, tokens, score, rank, ROLE_WORDS };
+  /**
+   * Below this a match is "weak": the right role but none of the words, or one word of several. The
+   * agent side (`src/agent/page.ts`) labels such a hit and refuses to click it unseen; the bridge
+   * refuses to scroll to it or select in it. The test suite pins the two copies to each other.
+   */
+  const WEAK_SCORE = 30;
+
+  root.DeskfishScore = { normalize, tokens, score, rank, ROLE_WORDS, WEAK_SCORE };
 })(typeof globalThis !== 'undefined' ? globalThis : this);

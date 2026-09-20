@@ -18,6 +18,45 @@ export const MAX_TASK_LINE = 120;
 /** Reflection is due when the salience of the tasks since the last one adds up to this (or the task count hits reflectEvery). */
 export const SALIENCE_THRESHOLD = 12;
 
+/** A task's token counts as the loop keeps them; `input` is the fresh input, the part not read from the cache. */
+export interface TokenCounts {
+  input: number;
+  output: number;
+  cacheRead: number;
+  cacheWrite: number;
+}
+
+/** What a task ended with, for the transcript's end line and a client's status item. */
+export interface TaskEnd {
+  steps: number;
+  tokens?: TokenCounts;
+}
+
+/** "471k", "2.4M", "812": k and M, with one decimal below 10. */
+export function shortCount(n: number): string {
+  if (n >= 1e6) return `${n >= 1e7 ? Math.round(n / 1e6) : Math.round(n / 1e5) / 10}M`;
+  if (n >= 1e3) return `${n >= 1e4 ? Math.round(n / 1e3) : Math.round(n / 1e2) / 10}k`;
+  return String(Math.round(n));
+}
+
+/**
+ * ` · 471k tokens (61k fresh)`: what a task read in all (fresh input plus cache reads) and how much
+ * of it was fresh — the two numbers a comparison between builds needs (decision 127). Empty when
+ * nothing is known, so a line without counts stays exactly as it was.
+ */
+export function tokensFragment(t?: TokenCounts): string {
+  if (!t) return '';
+  const total = t.input + t.cacheRead;
+  if (!(total > 0)) return '';
+  return ` · ${shortCount(total)} tokens (${shortCount(t.input)} fresh)`;
+}
+
+/** ` · 16 steps · 471k tokens (61k fresh)`: a task's end on the transcript's status line; empty when the status is not a task's end. */
+export function endFragment(end?: TaskEnd): string {
+  if (!end) return '';
+  return ` · ${end.steps} step${end.steps === 1 ? '' : 's'}${tokensFragment(end.tokens)}`;
+}
+
 /**
  * How much a finished task should weigh in memory, 1–5, from signals the loop already has — the
  * cheap stand-in for "emotional arousal decides what is consolidated" (McGaugh) and for the
@@ -100,7 +139,7 @@ export class JournalStore {
    * `reason` is what started the run when it was not simply the person typing — a schedule, or a
    * lesson from a teacher (decision 109): she should be able to read later why a task was there.
    */
-  appendTask(info: { task: string; outcome: string; steps: number; costUsd?: number; subscription?: boolean; reason?: string; summary?: string; salience?: number }): JournalEntry {
+  appendTask(info: { task: string; outcome: string; steps: number; costUsd?: number; subscription?: boolean; reason?: string; summary?: string; salience?: number; tokens?: TokenCounts }): JournalEntry {
     const task = oneLine(info.task, MAX_TASK_LINE);
     const summary = oneLine(info.summary ?? '', MAX_SUMMARY);
     // A run on a subscription sign-in has no dollar figure: the pool is what it spent, and a "$0.00"
@@ -108,7 +147,7 @@ export class JournalStore {
     const cost = info.subscription ? ' · subscription' : info.costUsd && info.costUsd > 0 ? ` · $${info.costUsd.toFixed(2)}` : '';
     const why = info.reason ? ` · ${oneLine(info.reason, 40)}` : '';
     const weight = info.salience && info.salience > 1 ? ` · ${'★'.repeat(Math.min(5, info.salience))}` : '';
-    const text = `${info.outcome} · ${info.steps} step${info.steps === 1 ? '' : 's'}${cost}${why}${weight} — Task: ${task}${summary ? ` — ${summary}` : ''}`;
+    const text = `${info.outcome} · ${info.steps} step${info.steps === 1 ? '' : 's'}${cost}${tokensFragment(info.tokens)}${why}${weight} — Task: ${task}${summary ? ` — ${summary}` : ''}`;
     return this.appendLine('task', text);
   }
 

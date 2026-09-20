@@ -102,8 +102,9 @@ shows the file; it is yours to edit.
 ## The journal
 
 When a task ends, Deskfish writes one line to the journal, with no model call and no cost:
-the date, how it ended, how many steps and what it cost, the task, and the first lines of the
-agent's final summary, and what you told it mid-task, so a correction said during a task lands
+the date, how it ended, how many steps, what it cost and how many tokens it read (with how many
+of them were fresh rather than served from the cache, as in *471k tokens (61k fresh)*), the task,
+and the first lines of the agent's final summary, and what you told it mid-task, so a correction said during a task lands
 somewhere written and reaches its next reflection. Tasks that weighed more, long ones, costly
 ones, ones where it needed you or left itself a note, are marked with stars: that is what decides how soon it reflects,
 the way emotional weight decides what a person consolidates. The agent can also leave itself a **note** mid-task (*"Meta discards

@@ -10,8 +10,9 @@
 //                                 (+ set_clipboard {text} / get_clipboard → {text})
 //                                 (+ read_file {path} / write_file {path,data} / list_files {path},
 //                                    all confined to $HOME — the file exchange with the user)
-//                                 (+ page_find {query,limit} / page_read {scope,limit} — answered by
-//                                    the Deskfish page bridge, a WebExtension in Firefox, see below)
+//                                 (+ page_find {query,limit} / page_read {scope,limit} / page_scroll_to
+//                                    {query} / page_select {query,option} — answered by the Deskfish
+//                                    page bridge, a WebExtension in Firefox, see below)
 //                                 (+ run_command {command,timeout_seconds,cwd} → {stdout,stderr,exit,
 //                                    timedOut,ms}: bash as the bot user, not queued, killed on timeout
 //                                    or when the caller goes away)
@@ -41,8 +42,8 @@ const SHOT = '/tmp/screenshot.png';
 
 // ---------- Firefox page bridge ----------
 // The Deskfish page bridge (docker/desktop/bridge, force-installed in Firefox by policy) long-polls
-// GET /bridge/next and answers with POST /bridge/result. The page_find / page_read actions queue a
-// job and wait for its answer. While Firefox is closed nobody polls, and the actions fail fast.
+// GET /bridge/next and answers with POST /bridge/result. The page_* actions queue a job and wait
+// for its answer. While Firefox is closed nobody polls, and the actions fail fast.
 const bridge = { lastSeen: 0, pollers: [], queue: [], jobs: new Map(), seq: 0 };
 const BRIDGE_POLL_MS = 25_000;
 const BRIDGE_TIMEOUT_MS = 12_000;
@@ -557,6 +558,27 @@ async function handle(body, extra = {}) {
       // What is on the current Firefox page: interactive elements in page order, or its text.
       const scope = body.scope === 'text' ? 'text' : 'interactive';
       const answer = await bridgeRequest('read', { scope, limit: Number(body.limit) || 120 });
+      if (!answer.ok) throw new Error(answer.error || 'the page bridge failed');
+      return answer.data;
+    }
+
+    case 'page_scroll_to': {
+      // The page scrolls the best match for a query into the middle of its viewport itself — no
+      // mouse wheel — and reports where the element is now (`scrolled: false` when the match was weak).
+      const query = String(body.query ?? '').trim();
+      if (!query) throw new Error('page_scroll_to needs a query');
+      const answer = await bridgeRequest('scroll_to', { query, limit: Number(body.limit) || 5 });
+      if (!answer.ok) throw new Error(answer.error || 'the page bridge failed');
+      return answer.data;
+    }
+
+    case 'page_select': {
+      // Choose an option of a native <select> on the current Firefox page by its text; the page
+      // gets input and change events as from a person (`selected: false` and a reason when it cannot).
+      const query = String(body.query ?? '').trim();
+      const option = String(body.option ?? '').trim();
+      if (!query || !option) throw new Error('page_select needs a query and an option');
+      const answer = await bridgeRequest('select', { query, option, limit: Number(body.limit) || 5 });
       if (!answer.ok) throw new Error(answer.error || 'the page bridge failed');
       return answer.data;
     }

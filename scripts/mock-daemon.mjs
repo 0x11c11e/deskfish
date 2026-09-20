@@ -18,6 +18,9 @@ const state = {
   typed: '',
   scroll: 0,
   actions: 0,
+  /** The canned page's own state: which element scroll_to brought into view, which option the dropdown holds. */
+  scrolledTo: '',
+  selected: 0,
 };
 
 const ICON = { x: 40, y: 280, w: 72, h: 72 };
@@ -125,29 +128,53 @@ async function handle(body) {
     case 'input_state':
       return { success: true, data: { keys: [], buttons: [] } };
     case 'page_find':
-    case 'page_read': {
-      // A canned page, so the loop's find/read_page path can be exercised without Firefox.
-      log(action === 'page_find' ? JSON.stringify(body.query) : body.scope ?? 'interactive');
+    case 'page_read':
+    case 'page_scroll_to':
+    case 'page_select': {
+      // A canned page, so the loop's page-bridge paths can be exercised without Firefox. scroll_to
+      // brings the off-screen "Privacy policy" link into the viewport; select sets the one dropdown.
+      log(action === 'page_read' ? body.scope ?? 'interactive' : action === 'page_select' ? `${JSON.stringify(body.query)} → ${JSON.stringify(body.option)}` : JSON.stringify(body.query));
+      const OPTIONS = ['Open this select menu', 'One', 'Two', 'Three'];
       const elements = [
         { role: 'heading', name: 'Example Domain', state: '', x: 640, y: 200, w: 400, h: 40, visible: true },
         { role: 'link', name: 'More information...', state: '', x: 640, y: 320, w: 160, h: 20, visible: true },
         { role: 'textbox', name: 'Email', state: 'empty', x: 640, y: 420, w: 300, h: 32, visible: true },
         { role: 'button', name: 'Sign in', state: '', x: 640, y: 480, w: 120, h: 36, visible: true },
-        { role: 'link', name: 'Privacy policy', state: '', x: 640, y: 1400, w: 100, h: 20, visible: false, below: 600 },
+        { role: 'combobox', name: 'Dropdown (select)', state: `selected: ${JSON.stringify(OPTIONS[state.selected])}`, x: 640, y: 560, w: 200, h: 32, visible: true },
+        state.scrolledTo === 'Privacy policy'
+          ? { role: 'link', name: 'Privacy policy', state: '', x: 640, y: 440, w: 100, h: 20, visible: true }
+          : { role: 'link', name: 'Privacy policy', state: '', x: 640, y: 1400, w: 100, h: 20, visible: false, below: 600 },
         { role: 'button', name: 'Close dialog', state: '', x: 900, y: 300, w: 60, h: 24, visible: false, covered: true },
       ];
       const q = String(body.query ?? '').toLowerCase();
-      const page = { url: 'https://example.com/', title: 'Example Domain', viewport: { x: 0, y: 80, width: 1280, height: 720, scrollY: 0, pageHeight: 1500 } };
+      const scrollY = state.scrolledTo ? 760 : 0;
+      const page = { url: 'https://example.com/', title: 'Example Domain', viewport: { x: 0, y: 80, width: 1280, height: 720, scrollY, pageHeight: 1500 } };
       if (action === 'page_read') {
         if (body.scope === 'text') return { success: true, data: { ...page, elements: [], text: 'Example Domain\nThis domain is for use in illustrative examples in documents.' } };
-        return { success: true, data: { ...page, elements: elements.filter((e) => e.visible), total: elements.length, more: { visible: 0, below: 1, above: 0 } } };
+        return { success: true, data: { ...page, elements: elements.filter((e) => e.visible), total: elements.length, more: { visible: 0, below: state.scrolledTo ? 0 : 1, above: 0 } } };
       }
       // A query that only names a role matches nothing by its words: that is what a weak hit is, and
       // it is how a test drives click_element's "clicked nothing, here is why" answer.
       const hits = elements
         .filter((e) => e.name.toLowerCase().includes(q) || e.role === q)
         .map((e, i) => ({ ...e, score: e.name.toLowerCase().includes(q) ? 100 - i : 10 }));
-      return { success: true, data: { ...page, elements: hits, total: elements.length } };
+      if (action === 'page_find') return { success: true, data: { ...page, elements: hits, total: elements.length } };
+      const best = hits[0];
+      if (action === 'page_scroll_to') {
+        if (!best || best.score < 30) return { success: true, data: { ...page, elements: hits, total: elements.length, scrolled: false } };
+        state.scrolledTo = best.name;
+        const moved = best.name === 'Privacy policy' ? { ...best, x: 640, y: 440, visible: true, below: 0 } : best;
+        return { success: true, data: { ...page, viewport: { ...page.viewport, scrollY: 760 }, elements: [moved], total: elements.length, scrolled: true } };
+      }
+      const combo = hits.find((e) => e.score >= 30 && e.role === 'combobox');
+      if (!combo) return { success: true, data: { ...page, elements: hits, total: elements.length, selected: false, reason: 'no-select' } };
+      const want = String(body.option ?? '').trim().toLowerCase();
+      const idx = OPTIONS.findIndex((o) => o.toLowerCase() === want);
+      const found = idx >= 0 ? idx : OPTIONS.findIndex((o) => want && o.toLowerCase().startsWith(want));
+      const chosen = found >= 0 ? found : OPTIONS.findIndex((o) => want && o.toLowerCase().includes(want));
+      if (chosen < 0) return { success: true, data: { ...page, elements: [combo], total: elements.length, selected: false, reason: 'no-option', options: OPTIONS, optionCount: OPTIONS.length } };
+      state.selected = chosen;
+      return { success: true, data: { ...page, elements: [{ ...combo, state: `selected: ${JSON.stringify(OPTIONS[chosen])}` }], total: elements.length, selected: true } };
     }
     case 'run_command': {
       // A canned terminal, so the loop's run_command path can be exercised without a shell:

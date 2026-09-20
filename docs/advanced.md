@@ -282,7 +282,7 @@ the web page asks for.
 | `run` | Give her a task, in her chat, the way you would type it. Queued if she is busy; she turns the tank on herself |
 | `say` | A message while she works — a correction, or the answer to a knock. Refused when she is idle |
 | `wait` | Block until the task ends, she knocks, or the timeout; returns the chat items since your cursor |
-| `status` | What she is doing, the step, the cost so far (what the provider reported, or an estimate at list price, marked `costEstimated`), her model, whether the tank is on, what is queued |
+| `status` | What she is doing, the step, the cost and tokens so far in the running task (what the provider reported, or an estimate at list price, marked `costEstimated`), her model, whether the tank is on, what is queued. The counts are live: a finished task's steps and tokens are on its journal line and at the end of its transcript |
 | `transcript` | The chat she is in now, or a past one by name |
 | `screenshot` | A picture of the tank — a fresh one by default, which is passive and does not interrupt her |
 | `stop` | End the running task at once, standby and knocks included |

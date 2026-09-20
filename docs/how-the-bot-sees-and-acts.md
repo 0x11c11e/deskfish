@@ -41,6 +41,8 @@ The model is given a small set of tools, the same on every provider:
 | `find` | Find links, buttons, fields and text on the web page open in Firefox by what they say, and get their exact click coordinates. See below. Changes nothing |
 | `read_page` | List every control on the page in Firefox with its state and position, or read the page's text. Changes nothing |
 | `click_element` | Click a control on that page by what it says — the find and the click in one step. Clicks only a clear match that is visible and unobstructed; otherwise it clicks nothing and says why. See below |
+| `scroll_to` | Bring a named element into the middle of the visible part of the page — the page scrolls itself, no mouse wheel — and say where it is now. See below |
+| `select_option` | Choose an option of a native dropdown on the page by its text, without opening it. See below |
 | `run_command` | Run a shell command in the tank's terminal environment and get its output back as text, without the screen: reading and editing files, git, tests, scripts. Time-limited, and cut at about 20,000 characters |
 | `ask_user` | Stop and hand the desktop to you, with a reason. See [Knocking on the glass](knocking-on-the-glass) |
 | `read_docs` | Read a page of this documentation, so it can answer questions about Deskfish accurately. Changes nothing |
@@ -105,12 +107,28 @@ lets the agent ask the page directly:
   it is not sure it **clicks nothing** and answers exactly as `find` would: the candidates it
   considered, how far to scroll if the match is below the fold, or that a dialog covers the target.
   The agent then decides. It never retries and never scrolls on the agent's behalf.
+- **`scroll_to`** takes the same words and has the page scroll the best match into the middle of
+  the visible part itself. The answer says where the element is now, so a `click_element` or `find`
+  can follow at once. It is the one-step answer to *N px below, scroll down first*: no wheel clicks,
+  no looking to see whether the target has arrived yet. A weak match scrolls nothing.
+- **`select_option`** sets a native dropdown (an HTML `select`) to the option whose text the agent
+  names, without opening it: the page gets the change exactly as it would from a person, and the
+  answer shows the dropdown with its new value. The options of an open dropdown are not elements
+  of the page, so `find` and `click_element` cannot see them; this tool does not need to. If the
+  dropdown has no such option, the answer lists the ones it has. A menu made of buttons is not a
+  dropdown: the agent opens it with `click_element` and clicks the option.
 
-`find` and `read_page` are passive: nothing on screen changes. The agent is told to ask the page
-rather than guess where something is — `click_element` to press, `find` to read what is there or
-check a field's state before acting — and to zoom only for what the bridge cannot see: native
-dialogs, the terminal, the panel, PDFs, drawings, and anything that is not an `http(s)` page.
-Frames inside a page (a payment form, an embedded editor) are read too.
+The click point the bridge reports is on the element's own text: for a link wrapped onto two lines
+it is the middle of the first line, never the gap between the lines, and the bridge checks with
+the page that a click there really reaches the element before it calls the element visible.
+
+`find` and `read_page` are passive: nothing on screen changes. `click_element`, `scroll_to` and
+`select_option` act, and are followed by a look like any other action. The agent is told to ask
+the page rather than guess where something is — `click_element` to press, `find` to read what is
+there or check a field's state before acting, `scroll_to` to reach what is off-screen — and to
+zoom only for what the bridge cannot see: native dialogs, the terminal, the panel, PDFs, drawings,
+and anything that is not an `http(s)` page. Frames inside a page (a payment form, an embedded
+editor) are read too.
 
 The bridge talks only to the tank's own control daemon; it has no network access of its own,
 and the page's contents go to the model only when the agent asks for them, the way a
@@ -218,8 +236,8 @@ sent as one batch and executed in order, with a single screenshot afterwards. An
 certain is done one action at a time, with a look in between. When a batch contains only
 passive actions (a zoom, a `find` or `read_page`, a pointer check, a documentation lookup),
 Deskfish skips the settle delay *and* the screenshot, because nothing on screen could have
-changed; the agent is told so in words. A `click_element` acts, so it ends a passive batch: it
-settles and looks like any other click. `run_command` and `wait_for` keep their screenshot too —
+changed; the agent is told so in words. `click_element`, `scroll_to` and `select_option` act, so
+they end a passive batch: the step settles and looks like any other click. `run_command` and `wait_for` keep their screenshot too —
 a command can open a window, and standing by is waiting for the screen to change.
 
 ## What it is told
@@ -227,7 +245,8 @@ a command can open a window, and standing by is waiting for the screen to change
 The agent's instructions are short. In summary: you are Deskfish; this computer is yours,
 and everything in it is yours to use; you operate it with screenshots, mouse and keyboard;
 check every screenshot against what you intended; on a web page ask the page instead of hunting in the picture
-(`click_element` to press something by its words, `find` or `read_page` to see what is there), and
+(`click_element` to press something by its words, `find` or `read_page` to see what is there,
+`scroll_to` to bring it into view, `select_option` for a native dropdown), and
 zoom before clicking anything small; files
 you are given are in Uploads and anything for the user goes in Downloads; when you need
 something only the user has (a code, a card, a confirmation, a CAPTCHA you cannot pass) or you

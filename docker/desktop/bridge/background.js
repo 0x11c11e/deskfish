@@ -1,8 +1,10 @@
 // Deskfish page bridge — background script.
 //
 // Long-polls the Deskfish daemon (same container, 127.0.0.1) for page requests, asks the content
-// script of the active tab to answer them, and posts the answer back. The daemon's port and token
-// arrive through managed storage (policies.json → 3rdparty), written by the tank's entrypoint.
+// script of the active tab to answer them (every frame for a find or a read; for a scroll or a
+// selection, every frame finds and the one holding the best hit acts), and posts the answer back.
+// The daemon's port and token arrive through managed storage (policies.json → 3rdparty), written
+// by the tank's entrypoint.
 'use strict';
 
 const EXTENSION_ID = 'deskfish-bridge@deskfish.sh';
@@ -45,9 +47,14 @@ function merge(frames, op, args) {
   return { viewport: top.viewport, elements, text, total: frames.reduce((n, f) => n + (f.total || 0), 0), more };
 }
 
+/** The daemon's names for the content script's ops. */
+const OPS = { page_find: 'find', find: 'find', page_read: 'read', read: 'read', page_scroll_to: 'scroll_to', scroll_to: 'scroll_to', page_select: 'select', select: 'select' };
+/** Ops that act on the page: found in every frame first, then done in the one frame that holds the best hit. */
+const ACTS = new Set(['scroll_to', 'select']);
+
 async function perform(job) {
-  const op = job.op === 'page_find' ? 'find' : job.op === 'page_read' ? 'read' : job.op;
-  if (op !== 'find' && op !== 'read') return { ok: false, error: `unknown page op "${job.op}"` };
+  const op = OPS[job.op];
+  if (!op) return { ok: false, error: `unknown page op "${job.op}"` };
   let tab;
   try {
     [tab] = await browser.tabs.query({ active: true, lastFocusedWindow: true });
@@ -66,22 +73,39 @@ async function perform(job) {
     frames = [{ frameId: 0 }];
   }
   if (!frames || !frames.length) frames = [{ frameId: 0 }];
+  // One frame, one op: undefined when it has no content script (still loading, or a restricted
+  // page) or does not answer in time.
+  const ask = (frameId, what) =>
+    Promise.race([
+      browser.tabs.sendMessage(tab.id, { op: what, args: job.args || {} }, { frameId }),
+      sleep(4000).then(() => undefined),
+    ]).catch(() => undefined);
+  const NO_ANSWER = 'the page did not answer (still loading, or a page Firefox does not let extensions read); wait a moment and try again, or use the screenshot';
+
+  // Phase 1: every frame answers — the op itself for find and read, a find for the ops that act.
   const answers = [];
   await Promise.all(frames.map(async (f) => {
     if (f.url && !/^https?:/i.test(f.url)) return;
-    try {
-      const r = await Promise.race([
-        browser.tabs.sendMessage(tab.id, { op, args: job.args || {} }, { frameId: f.frameId }),
-        sleep(4000).then(() => undefined),
-      ]);
-      if (r && !r.error) answers.push({ frameId: f.frameId, ...r });
-    } catch {
-      // no content script in that frame (still loading, or a restricted page)
-    }
+    const r = await ask(f.frameId, ACTS.has(op) ? 'find' : op);
+    if (r && !r.error) answers.push({ frameId: f.frameId, ...r });
   }));
-  if (!answers.length) return { ok: false, error: 'the page did not answer (still loading, or a page Firefox does not let extensions read); wait a moment and try again, or use the screenshot' };
-  const data = merge(answers, op, job.args);
-  return { ok: true, data: { url, title: tab.title || '', ...data } };
+  if (!answers.length) return { ok: false, error: NO_ANSWER };
+  const title = tab.title || '';
+  if (!ACTS.has(op)) return { ok: true, data: { url, title, ...merge(answers, op, job.args) } };
+
+  // Phase 2: the frame whose best hit scores highest does it, alone — a scroll or a selection must
+  // happen once, in the frame that holds the element. The content script finds again in that frame
+  // and refuses a weak hit itself; a refusal carries every frame's candidates, as find would.
+  const best = answers.reduce((a, f) => {
+    const s = f.elements && f.elements[0] ? f.elements[0].score || 0 : -1;
+    return !a || s > a.s ? { f, s } : a;
+  }, undefined);
+  const r = await ask(best.f.frameId, op);
+  if (!r) return { ok: false, error: NO_ANSWER };
+  if (r.error) return { ok: false, error: r.error };
+  const done = op === 'scroll_to' ? r.scrolled : r.selected;
+  if (!done && r.reason !== 'no-option') r.elements = merge(answers, 'find', job.args).elements;
+  return { ok: true, data: { url, title, ...r } };
 }
 
 async function main() {

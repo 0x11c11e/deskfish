@@ -268,6 +268,71 @@ export function clickElementAction(input: unknown): ComputerAction {
   return { type: 'click_element', query };
 }
 
+/**
+ * The page scrolls the hit into view itself. Measured reason: a real task spent eleven scroll
+ * actions (steps 76–86 of 112) hunting for a section that `find` had already located "N px below"
+ * (decision 127). One step, from the page's own structure, instead of wheel clicks and looks.
+ */
+export const SCROLL_TO_TOOL_NAME = 'scroll_to';
+
+export const SCROLL_TO_TOOL_DESCRIPTION =
+  'Scroll the web page open in Firefox so that an element is in the middle of the visible part: `query` is its text, ' +
+  'label or kind, as for find ("Accounts", "Order summary heading", "Submit button"). The page scrolls itself to the ' +
+  'best match and the answer says where the element is now, so a click_element or find can follow at once. Use it ' +
+  'when find or click_element says a match is off-screen ("N px below"), or to reach a section by its heading, ' +
+  'instead of scrolling with the mouse wheel and looking. If nothing matches well it scrolls nothing and says so with ' +
+  'the candidates it saw. Only works on http(s) pages in Firefox.';
+
+export const SCROLL_TO_TOOL_PARAMETERS: { type: 'object'; properties: Record<string, unknown>; required: string[]; additionalProperties: boolean } = {
+  type: 'object',
+  properties: {
+    query: { type: 'string', description: 'The element to bring into view: its visible text, label, or kind ("Accounts heading")' },
+  },
+  required: ['query'],
+  additionalProperties: false,
+};
+
+export function scrollToAction(input: unknown): ComputerAction {
+  const query = String(((input ?? {}) as { query?: unknown }).query ?? '').trim();
+  if (!query) throw new Error('scroll_to needs a query');
+  return { type: 'scroll_to', query };
+}
+
+/**
+ * A native dropdown without the picture. The options of an open <select> have no box in the DOM,
+ * so find and click_element cannot see them (decision 128); the page can set the value directly and
+ * tell its scripts, which is what a person's choice amounts to.
+ */
+export const SELECT_OPTION_TOOL_NAME = 'select_option';
+
+export const SELECT_OPTION_TOOL_DESCRIPTION =
+  'Choose an option in a native dropdown (an HTML <select>) on the web page open in Firefox, without opening it: ' +
+  '`query` names the dropdown as for find (its label, its current value, or "country dropdown"), `option` is the text ' +
+  'of the choice ("Two", "United States"; an exact text is best, a prefix or a part works). The page gets the change ' +
+  'as if you had picked it, and the answer shows the dropdown with its new value. Native dropdowns only: a custom menu ' +
+  'made of buttons or a list that opens on click is not one — open it with click_element and click the option. If no ' +
+  'dropdown matches, or it has no such option, nothing changes and the answer lists what it found (the options, so ' +
+  'you can name one exactly). Only works on http(s) pages in Firefox.';
+
+export const SELECT_OPTION_TOOL_PARAMETERS: { type: 'object'; properties: Record<string, unknown>; required: string[]; additionalProperties: boolean } = {
+  type: 'object',
+  properties: {
+    query: { type: 'string', description: 'The dropdown: its label, its current value, or its kind ("country dropdown")' },
+    option: { type: 'string', description: 'The text of the option to choose' },
+  },
+  required: ['query', 'option'],
+  additionalProperties: false,
+};
+
+export function selectOptionAction(input: unknown): ComputerAction {
+  const o = (input ?? {}) as { query?: unknown; option?: unknown };
+  const query = String(o.query ?? '').trim();
+  const option = String(o.option ?? '').trim();
+  if (!query) throw new Error('select_option needs a query (which dropdown)');
+  if (!option) throw new Error('select_option needs an option (the text to choose)');
+  return { type: 'select_option', query, option };
+}
+
 export const READ_PAGE_TOOL_NAME = 'read_page';
 
 export const READ_PAGE_TOOL_DESCRIPTION =

@@ -145,7 +145,7 @@ async function runTask(dir: string, port: number, task: string): Promise<number>
     client.on('event', (e: AgentEvent) => {
       if (!started) return;
       if (e.type === 'assistant') console.log(e.text);
-      else if (e.type === 'action') console.log(`  #${e.step} ${describeAction(e.action)}${e.result.ok ? '' : ` — ${e.result.error ?? 'failed'}`}`);
+      else if (e.type === 'action') console.log(`  #${e.step} ${e.describe ?? describeAction(e.action)}${e.result.ok ? '' : ` — ${e.result.error ?? 'failed'}`}`);
       else if (e.type === 'needs_user') console.log(`✋ She needs you: ${e.reason} (open the Desktop tab, then resume)`);
       else if (e.type === 'status' && (e.status === 'done' || e.status === 'stopped' || e.status === 'error')) {
         console.log(`● ${e.status}${e.message ? ` — ${e.message}` : ''}`);

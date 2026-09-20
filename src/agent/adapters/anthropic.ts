@@ -29,6 +29,14 @@ import {
   READ_PAGE_TOOL_DESCRIPTION,
   READ_PAGE_TOOL_PARAMETERS,
   readPageAction,
+  SCROLL_TO_TOOL_NAME,
+  SCROLL_TO_TOOL_DESCRIPTION,
+  SCROLL_TO_TOOL_PARAMETERS,
+  scrollToAction,
+  SELECT_OPTION_TOOL_NAME,
+  SELECT_OPTION_TOOL_DESCRIPTION,
+  SELECT_OPTION_TOOL_PARAMETERS,
+  selectOptionAction,
   READ_DOCS_TOOL_PARAMETERS,
   REMEMBER_TOOL_DESCRIPTION,
   REMEMBER_TOOL_NAME,
@@ -266,6 +274,8 @@ export class AnthropicAdapter implements ModelAdapter {
           else if (block.name === FIND_TOOL_NAME) actions.push(findAction(block.input));
           else if (block.name === CLICK_ELEMENT_TOOL_NAME) actions.push(clickElementAction(block.input));
           else if (block.name === READ_PAGE_TOOL_NAME) actions.push(readPageAction(block.input));
+          else if (block.name === SCROLL_TO_TOOL_NAME) actions.push(scrollToAction(block.input));
+          else if (block.name === SELECT_OPTION_TOOL_NAME) actions.push(selectOptionAction(block.input));
           else if (block.name === WAIT_FOR_TOOL_NAME) actions.push(waitForAction(block.input));
           else if (block.name === RUN_COMMAND_TOOL_NAME) actions.push(runCommandAction(block.input));
           else if (block.name === REMEMBER_TOOL_NAME) actions.push(rememberAction(block.input));
@@ -385,6 +395,8 @@ export class AnthropicAdapter implements ModelAdapter {
         { name: FIND_TOOL_NAME, description: FIND_TOOL_DESCRIPTION, input_schema: FIND_TOOL_PARAMETERS },
         { name: READ_PAGE_TOOL_NAME, description: READ_PAGE_TOOL_DESCRIPTION, input_schema: READ_PAGE_TOOL_PARAMETERS },
         { name: CLICK_ELEMENT_TOOL_NAME, description: CLICK_ELEMENT_TOOL_DESCRIPTION, input_schema: CLICK_ELEMENT_TOOL_PARAMETERS },
+        { name: SCROLL_TO_TOOL_NAME, description: SCROLL_TO_TOOL_DESCRIPTION, input_schema: SCROLL_TO_TOOL_PARAMETERS },
+        { name: SELECT_OPTION_TOOL_NAME, description: SELECT_OPTION_TOOL_DESCRIPTION, input_schema: SELECT_OPTION_TOOL_PARAMETERS },
         { name: WAIT_FOR_TOOL_NAME, description: WAIT_FOR_TOOL_DESCRIPTION, input_schema: WAIT_FOR_TOOL_PARAMETERS },
         { name: RUN_COMMAND_TOOL_NAME, description: RUN_COMMAND_TOOL_DESCRIPTION, input_schema: RUN_COMMAND_TOOL_PARAMETERS },
         ...(this.cfg.docsIndex

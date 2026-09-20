@@ -5,7 +5,7 @@ import { createAdapter } from '../agent/adapters';
 import { DocsLibrary } from '../agent/docs';
 import { MemoryStore } from '../agent/memory';
 import { SelfStore } from '../agent/self';
-import { JournalStore, type JournalState } from '../agent/journal';
+import { endFragment, JournalStore, type JournalState } from '../agent/journal';
 import { PlaybookStore } from '../agent/playbook';
 import { Library } from '../agent/library';
 import { DEFAULT_CHARTER } from '../agent/charter';
@@ -718,21 +718,22 @@ export class DeskfishService extends EventEmitter {
         break;
       case 'action': {
         const a = e.action.type;
+        const what = e.describe ?? describeAction(e.action);
         if (a === 'wait_for') {
           // A standby reads as its own line in the transcript, like in the chat.
-          t.note(e.result.ok ? `⏳ ${(e.result.message ?? 'Stood by').split(/[;.] /)[0]} (${describeAction(e.action)})` : `⏳ Standby failed: ${e.result.error ?? ''}`);
+          t.note(e.result.ok ? `⏳ ${(e.result.message ?? 'Stood by').split(/[;.] /)[0]} (${what})` : `⏳ Standby failed: ${e.result.error ?? ''}`);
           break;
         }
         const memoryish = a === 'remember' || a === 'forget' || a === 'revise_self' || a === 'restore_self' || a === 'note' || a === 'save_playbook' || a === 'archive_story';
-        if (memoryish) t.note(e.result.ok ? (e.result.message ?? describeAction(e.action)) : `${describeAction(e.action)} — not done: ${e.result.error ?? ''}`);
-        else t.action(e.step, describeAction(e.action), e.result.ok);
+        if (memoryish) t.note(e.result.ok ? (e.result.message ?? what) : `${what} — not done: ${e.result.error ?? ''}`);
+        else t.action(e.step, what, e.result.ok);
         break;
       }
       case 'needs_user':
         t.needsUser(e.reason);
         break;
       case 'status':
-        if (e.status === 'done' || e.status === 'stopped' || e.status === 'error') t.status(`${e.status}${e.message ? ` — ${e.message}` : ''}`);
+        if (e.status === 'done' || e.status === 'stopped' || e.status === 'error') t.status(`${e.status}${e.message ? ` — ${e.message}` : ''}${endFragment(e.end)}`);
         break;
       case 'ledger':
         t.note(`📒 Ledger after ${e.step} steps: ${e.text.replace(/\s*\n+\s*/g, ' / ')}`);
@@ -1235,7 +1236,7 @@ export class DeskfishService extends EventEmitter {
       case 'action':
         st.steps = Math.max(st.steps, e.step);
         st.lastStepAt = new Date().toISOString();
-        st.lastAction = { step: e.step, describe: describeAction(e.action), ok: e.result.ok };
+        st.lastAction = { step: e.step, describe: e.describe ?? describeAction(e.action), ok: e.result.ok };
         break;
       case 'screenshot':
         st.steps = Math.max(st.steps, e.step);
@@ -1266,7 +1267,7 @@ export class DeskfishService extends EventEmitter {
     } else if (e.type === 'assistant') {
       this.log(`🤖 ${e.text}`);
     } else if (e.type === 'action') {
-      this.log(`  #${e.step} ${describeAction(e.action)} → ${e.result.ok ? 'ok' : `error: ${e.result.error}`}${e.action.type === 'run_command' && e.result.message ? ` (${e.result.message})` : ''}`);
+      this.log(`  #${e.step} ${e.describe ?? describeAction(e.action)} → ${e.result.ok ? 'ok' : `error: ${e.result.error}`}${e.action.type === 'run_command' && e.result.message ? ` (${e.result.message})` : ''}`);
       if (e.action.type === 'run_command' && e.result.command) {
         // The command's output, as the model saw it (trimmed), so a pull request can be followed from the log.
         const out = e.result.command;

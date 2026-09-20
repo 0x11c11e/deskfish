@@ -10,7 +10,7 @@ import { PNG } from 'pngjs';
 import { AgentRunner, type AgentEvent } from '../src/agent/loop';
 import { AnthropicAdapter } from '../src/agent/adapters/anthropic';
 import { OpenAICompatAdapter } from '../src/agent/adapters/openaiCompat';
-import { changesScreen, type ComputerAction, type ComputerProvider } from '../src/computer/types';
+import { changesScreen, describeAction, type ComputerAction, type ComputerProvider } from '../src/computer/types';
 import { SCREEN_UNCHANGED_NOTE, type ModelAdapter, type ModelTurn, type Observation } from '../src/agent/adapters/types';
 
 let n = 0;
@@ -38,6 +38,8 @@ const passive: ComputerAction[] = [
 const active: ComputerAction[] = [
   { type: 'click', x: 1, y: 1, button: 'left', count: 1 },
   { type: 'click_element', query: 'Sign in' },
+  { type: 'scroll_to', query: 'Accounts' },
+  { type: 'select_option', query: 'Country', option: 'Norway' },
   { type: 'type', text: 'hello' },
   { type: 'key', keys: ['Return'] },
   { type: 'scroll', direction: 'down', amount: 3 },
@@ -111,6 +113,12 @@ const batch = (...actions: ComputerAction[]): ModelTurn => ({ text: '', actions,
   ok(f.map((e) => e.step).join(',') === '0,1,2,3,4,5', `the step counter advances on every step, image or not (${f.map((e) => e.step).join(',')})`);
   ok(f.filter((e) => e.fresh === false).length === 2 && f.every((e) => (e.fresh === false) === (e.jpegBase64 === '')), 'the two frameless events say fresh:false and carry no jpeg; every other one carries one');
   ok(f.filter((e) => e.fresh !== false).every((e) => e.width === W && e.height > 0), 'a real frame still carries its size');
+  // The step's words ride on the event (decision 127): a client older than the build that added an
+  // action still shows the step in words instead of as an item with no text.
+  const acts = h.events.filter((e): e is Extract<AgentEvent, { type: 'action' }> => e.type === 'action');
+  ok(acts.length === 6 && acts.every((e) => typeof e.describe === 'string' && e.describe === describeAction(e.action)), `every action event carries its description, equal to describeAction of its action (${acts.map((e) => e.describe).join(' | ')})`);
+  const end = h.events.find((e): e is Extract<AgentEvent, { type: 'status' }> => e.type === 'status' && e.status === 'done');
+  ok(end?.end?.steps === 6 && end.end.tokens?.input === 0 && !h.events.some((e) => e.type === 'status' && e.status === 'running' && e.end), `the done status carries the task's end (6 turns, the closing one included, as the journal counts them; a model that reports no usage leaves the counts at zero), running statuses carry none: ${JSON.stringify(end?.end)}`);
   void before;
 }
 

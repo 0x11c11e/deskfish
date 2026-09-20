@@ -1,15 +1,18 @@
 // Deskfish page bridge — content script. Runs in every frame of every http(s) page.
 //
-// Answers two requests from the background script: `find` (elements matching a query, best
-// first) and `read` (what is on the page: interactive elements in page order, or the text).
-// Coordinates are screen pixels (the X display), computed from the frame's own screen origin, so
-// they are right inside iframes too. Nothing here changes the page.
+// Answers four requests from the background script: `find` (elements matching a query, best
+// first), `read` (what is on the page: interactive elements in page order, or the text),
+// `scroll_to` (the page scrolls the best hit into view) and `select` (an option of a native
+// <select>, chosen by its text). Coordinates are screen pixels (the X display), computed from the
+// frame's own screen origin, so they are right inside iframes too. find and read change nothing;
+// scroll_to moves the page and select sets one control, exactly as a person would.
 (function () {
   'use strict';
   if (window.__deskfishBridge) return;
   window.__deskfishBridge = true;
 
   const S = globalThis.DeskfishScore;
+  const P = globalThis.DeskfishPlace;
 
   const INTERACTIVE = [
     'a[href]', 'button', 'input:not([type=hidden])', 'select', 'textarea', 'summary', 'details',
@@ -140,33 +143,32 @@
     dpr: window.devicePixelRatio || 1,
   });
 
+  /**
+   * Where to click, and whether a click there reaches the element. The point comes from the line
+   * boxes (`getClientRects()`), not the bounding box: for a link wrapped onto two lines the bounding
+   * box's centre is the gap between them (decision 127). The page itself is asked whether the point
+   * lands on the element — an ancestor there is a miss, not a hit.
+   */
   function place(el, o) {
     const r = el.getBoundingClientRect();
     const vw = window.innerWidth;
     const vh = window.innerHeight;
-    // Click point: centre of the part inside the viewport when partly visible, else the centre.
-    const ix0 = Math.max(0, r.left);
-    const iy0 = Math.max(0, r.top);
-    const ix1 = Math.min(vw, r.right);
-    const iy1 = Math.min(vh, r.bottom);
-    const inView = ix1 > ix0 && iy1 > iy0;
-    const cx = inView ? (ix0 + ix1) / 2 : r.left + r.width / 2;
-    const cy = inView ? (iy0 + iy1) / 2 : r.top + r.height / 2;
-    let covered = false;
-    if (inView) {
-      const top = document.elementFromPoint(cx, cy);
-      covered = !!top && top !== el && !el.contains(top) && !top.contains(el);
-    }
+    let rects = [...el.getClientRects()].map((c) => ({ left: c.left, top: c.top, right: c.right, bottom: c.bottom })).filter((c) => c.right > c.left && c.bottom > c.top);
+    if (!rects.length) rects = [{ left: r.left, top: r.top, right: r.right, bottom: r.bottom }];
+    const p = P.pick(rects, vw, vh, (x, y) => {
+      const top = document.elementFromPoint(x, y);
+      return !!top && (top === el || el.contains(top));
+    });
     return {
-      x: Math.round((o.x + cx) * o.dpr),
-      y: Math.round((o.y + cy) * o.dpr),
+      x: Math.round((o.x + p.x) * o.dpr),
+      y: Math.round((o.y + p.y) * o.dpr),
       w: Math.round(r.width * o.dpr),
       h: Math.round(r.height * o.dpr),
-      visible: inView && !covered,
-      covered,
+      visible: p.inView && !p.covered,
+      covered: p.covered,
       // How far outside the viewport, in screen pixels (positive = below/right).
-      below: !inView && r.top >= vh ? Math.round((r.top - vh) * o.dpr) : 0,
-      above: !inView && r.bottom <= 0 ? Math.round(-r.bottom * o.dpr) : 0,
+      below: !p.inView && r.top >= vh ? Math.round((r.top - vh) * o.dpr) : 0,
+      above: !p.inView && r.bottom <= 0 ? Math.round(-r.bottom * o.dpr) : 0,
     };
   }
 
@@ -204,14 +206,18 @@
     return out;
   }
 
-  function find(args) {
+  const limitOf = (args) => Math.max(1, Math.min(20, Number(args && args.limit) || 8));
+
+  /**
+   * Everything find can point at, ranked for the query. Each record keeps its DOM element as `node`
+   * (never sent: `slim` drops it), so scroll_to and select can act on the hit they found.
+   */
+  function candidates(query, limit) {
     const o = ORIGIN();
-    const query = String((args && args.query) || '');
-    const limit = Math.max(1, Math.min(20, Number(args && args.limit) || 8));
     const elements = [];
     for (const el of collect(`${INTERACTIVE},${HEADINGS},img[alt]`, 3000)) {
       const d = describe(el, o, true);
-      if (d) elements.push(d);
+      if (d) elements.push({ ...d, node: el });
     }
     // Static text too, so "find 'Order total'" can point at a label; leaves only.
     let texts = 0;
@@ -223,14 +229,69 @@
       if (!t || t.length < 2) continue;
       if (!isShown(el)) continue;
       texts++;
-      elements.push({ role: 'text', name: t, state: '', hint: '', href: '', ids: clean(`${el.id || ''} ${typeof el.className === 'string' ? el.className : ''}`), disabled: false, ...place(el, o) });
+      elements.push({ role: 'text', name: t, state: '', hint: '', href: '', ids: clean(`${el.id || ''} ${typeof el.className === 'string' ? el.className : ''}`), disabled: false, ...place(el, o), node: el });
     }
-    const ranked = S.rank(query, elements, limit);
-    return {
-      viewport: viewportInfo(o),
-      elements: ranked.map(slim),
-      total: elements.length,
-    };
+    return { o, ranked: S.rank(query, elements, limit), total: elements.length };
+  }
+
+  function find(args) {
+    const { o, ranked, total } = candidates(String((args && args.query) || ''), limitOf(args));
+    return { viewport: viewportInfo(o), elements: ranked.map(slim), total };
+  }
+
+  /** One frame after the page moved, so a re-place sees the new layout (a bounded wait: a hidden tab never paints). */
+  const nextFrame = () =>
+    new Promise((resolve) => {
+      let done = false;
+      const finish = () => { if (!done) { done = true; resolve(); } };
+      requestAnimationFrame(() => setTimeout(finish, 0));
+      setTimeout(finish, 250);
+    });
+
+  /**
+   * scroll_to: the page scrolls the best hit for the query into the middle of the viewport itself —
+   * no mouse wheel, no guessing how far — and answers with the element placed again, so the result
+   * says where it is now. A weak or missing hit scrolls nothing and answers as find would, with
+   * `scrolled: false`, so the agent side can say why in find's own words.
+   */
+  async function scrollTo(args) {
+    const { o, ranked, total } = candidates(String((args && args.query) || ''), limitOf(args));
+    const best = ranked[0];
+    if (!best || best.score < S.WEAK_SCORE) return { viewport: viewportInfo(o), elements: ranked.map(slim), total, scrolled: false };
+    best.node.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'instant' });
+    await nextFrame();
+    const it = { ...best, ...place(best.node, o) };
+    return { viewport: viewportInfo(o), elements: [slim(it)], total, scrolled: true };
+  }
+
+  /**
+   * select: choose an option of a native <select> by its text. The best hit that is a <select> gets
+   * the option — exact, then prefix, then contains, case-insensitively — and `input` and `change`
+   * are dispatched so the page reacts as it would to a person. The element comes back with its new
+   * state. No <select> among the hits (a custom menu is buttons, not this), or no such option:
+   * nothing changes, and the answer says which, with the options it does have.
+   */
+  function select(args) {
+    const option = clean(args && args.option);
+    const { o, ranked, total } = candidates(String((args && args.query) || ''), limitOf(args));
+    const hit = ranked.find((e) => e.score >= S.WEAK_SCORE && e.node.tagName.toLowerCase() === 'select');
+    if (!hit) return { viewport: viewportInfo(o), elements: ranked.map(slim), total, selected: false, reason: 'no-select' };
+    const node = hit.node;
+    const opts = [...node.options];
+    const want = option.toLowerCase();
+    const textOf = (op) => clean(op.text || op.label).toLowerCase();
+    const found =
+      opts.find((op) => textOf(op) === want) ||
+      (want && opts.find((op) => textOf(op).startsWith(want))) ||
+      (want && opts.find((op) => textOf(op).includes(want)));
+    if (!found) {
+      return { viewport: viewportInfo(o), elements: [slim(hit)], total, selected: false, reason: 'no-option', options: opts.slice(0, 20).map((op) => clean(op.text)), optionCount: opts.length };
+    }
+    node.selectedIndex = found.index;
+    node.dispatchEvent(new Event('input', { bubbles: true }));
+    node.dispatchEvent(new Event('change', { bubbles: true }));
+    const it = { ...hit, state: stateOf(node, hit.role), ...place(node, o) };
+    return { viewport: viewportInfo(o), elements: [slim(it)], total, selected: true };
   }
 
   function read(args) {
@@ -275,15 +336,14 @@
     return { role: e.role, name: e.name, state: e.state, x: e.x, y: e.y, w: e.w, h: e.h, visible: e.visible, covered: e.covered, below: e.below, above: e.above, score: e.score };
   }
 
+  const OPS = { find, read, scroll_to: scrollTo, select, ping: () => ({ ok: true }) };
+
   browser.runtime.onMessage.addListener((msg) => {
     if (!msg || typeof msg !== 'object') return undefined;
-    try {
-      if (msg.op === 'find') return Promise.resolve(find(msg.args));
-      if (msg.op === 'read') return Promise.resolve(read(msg.args));
-      if (msg.op === 'ping') return Promise.resolve({ ok: true });
-    } catch (err) {
-      return Promise.resolve({ error: String((err && err.message) || err) });
-    }
-    return undefined;
+    const op = Object.prototype.hasOwnProperty.call(OPS, msg.op) ? OPS[msg.op] : undefined;
+    if (!op) return undefined;
+    return Promise.resolve()
+      .then(() => op(msg.args))
+      .catch((err) => ({ error: String((err && err.message) || err) }));
   });
 })();

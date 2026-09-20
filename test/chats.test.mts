@@ -2,13 +2,13 @@
 // action, the memory pill, a hand-over, the status line, the end), parseTranscript, list newest
 // first named by the first task, search with chat context across chats, dump/restore without
 // duplicates, the loop's recall merging journal + chats, the no-hit error, delete all; each listed
-// chat's outcome read from its tail (step 6B).
+// chat's outcome read from its tail (step 6B); the end line that carries a task's steps and tokens.
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { PNG } from 'pngjs';
-import { ChatStore, parseTranscript } from '../src/agent/chats';
+import { ChatStore, outcomeOf, parseTranscript } from '../src/agent/chats';
 import { JournalStore } from '../src/agent/journal';
 import { SelfStore, newSelfKey } from '../src/agent/self';
 import { DEFAULT_SELF } from '../src/agent/seed';
@@ -116,6 +116,21 @@ try {
 
   // ---------- delete all ----------
   ok(store.deleteAll() === 7 && store.list().length === 0 && fs.readdirSync(store.dir).filter((f) => f.endsWith('.md')).length === 0, 'deleteAll removes every transcript');
+
+  // ---------- the end line with the task's counts ----------
+  // The gateway writes `_done — Task finished · 16 steps · 471k tokens (61k fresh)_` (decision 127's E);
+  // the outcome reader and the replay must still see a done chat in it.
+  const endStore = new ChatStore(path.join(dir, 'end'));
+  const te = endStore.start('Count the towers', { model: 'm', provider: 'p' });
+  te.user('Count the towers');
+  te.assistant('Six.');
+  te.status('done — Task finished · 16 steps · 471k tokens (61k fresh)');
+  te.end();
+  const endText = fs.readFileSync(te.file, 'utf8');
+  ok(endText.includes('\n_done — Task finished · 16 steps · 471k tokens (61k fresh)_\n\n'), 'the status line carries the counts');
+  ok(outcomeOf(endText) === 'done' && endStore.list()[0]?.outcome === 'done', `outcomeOf still reads done from it: ${outcomeOf(endText)}`);
+  const endItems = parseTranscript(endText);
+  ok(endItems.at(-1)?.kind === 'status' && (endItems.at(-1) as any).text === 'done — Task finished · 16 steps · 471k tokens (61k fresh)', 'and the replay keeps the line whole');
 } finally {
   fs.rmSync(dir, { recursive: true, force: true });
 }

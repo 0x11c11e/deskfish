@@ -94,8 +94,48 @@ export function renderClick(page: PageInfo, scale: Scale, query: string, clicked
   let why: string;
   if (!best) why = `Nothing was clicked: no element matches ${JSON.stringify(query)}.`;
   else if (best.covered) why = 'Nothing was clicked: the best match is covered by something in front of it, so a click there would hit that instead.';
-  else if (!best.visible) why = 'Nothing was clicked: the best match is off the visible part of the page. Scroll it into view first, then click_element again.';
+  else if (!best.visible) why = 'Nothing was clicked: the best match is off the visible part of the page. Scroll it into view first with scroll_to, then click_element again.';
   else why = `Nothing was clicked: nothing matches ${JSON.stringify(query)} well enough to click unseen. Look, or find with other words.`;
+  return `${why}\n${renderPage(page, scale, 'find', query)}`;
+}
+
+/**
+ * What `scroll_to` tells her. Scrolled: the element in find's words with where it is now, then
+ * find's rendering under it (the viewport line says which part of the page shows). Not scrolled:
+ * why, and the candidates the page had, in find's words — the next move is in the result.
+ */
+export function renderScroll(page: PageInfo, scale: Scale, query: string): string {
+  const best = page.elements[0];
+  if (page.scrolled && best) {
+    const sx = Math.round(best.x / (scale.x || 1));
+    const sy = Math.round(best.y / (scale.y || 1));
+    const name = best.name ? JSON.stringify(trim(best.name, 80)) : '(unnamed)';
+    return `Scrolled to ${best.role} ${name}${best.state ? ` (${best.state})` : ''}, now at (${sx}, ${sy}).\n${renderPage(page, scale, 'find', query)}`;
+  }
+  const why = best
+    ? `Nothing was scrolled: nothing matches ${JSON.stringify(query)} well enough to scroll to unseen. Look, or find with other words.`
+    : `Nothing was scrolled: no element matches ${JSON.stringify(query)}.`;
+  return `${why}\n${renderPage(page, scale, 'find', query)}`;
+}
+
+/**
+ * What `select_option` tells her. Selected: the dropdown in find's words, its state now showing the
+ * choice. Not selected: no native dropdown matched (a custom menu is buttons, for click_element),
+ * with the candidates; or the dropdown has no such option, with the options it does have, so the
+ * next call can name one exactly.
+ */
+export function renderSelect(page: PageInfo, scale: Scale, query: string, option: string): string {
+  const best = page.elements[0];
+  if (page.selected && best) return `Selected ${JSON.stringify(option)}: ${renderElement(best, scale)}.`;
+  if (page.reason === 'no-option' && best) {
+    const listed = (page.options ?? []).map((o) => JSON.stringify(o)).join(', ');
+    const count = page.optionCount ?? page.options?.length ?? 0;
+    const more = count > (page.options?.length ?? 0) ? ` (the first ${page.options?.length} of ${count})` : '';
+    return `Nothing was selected: ${renderElement(best, scale)} has no option matching ${JSON.stringify(option)}. Its options are${more}: ${listed || '(none)'}.`;
+  }
+  const why = best
+    ? `Nothing was selected: no native dropdown matches ${JSON.stringify(query)} — the nearest elements are below. A custom menu is buttons: open it with click_element and click the option.`
+    : `Nothing was selected: no element matches ${JSON.stringify(query)}.`;
   return `${why}\n${renderPage(page, scale, 'find', query)}`;
 }
 
