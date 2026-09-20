@@ -87,4 +87,16 @@ const wf = fs.readFileSync(path.join(ROOT, '.github', 'workflows', 'release.yml'
 ok(/npm pack/.test(wf), 'the release workflow packs the tarball');
 ok(/deskfish\.tgz/.test(wf), 'it uploads it as deskfish.tgz, so releases/latest/download/deskfish.tgz works');
 
+// And every workflow that runs this suite must build first: the listing above is `npm pack
+// --dry-run`, which lists only files that exist, and `dist/` exists only after `npm run build`.
+// Locally dist/ is always there, so this order is wrong only on a fresh checkout — which is
+// every CI run. It cost the first 0.2 release (release.yml, 2026-09-19) and then every pull
+// request check (pr.yml, one red run merged as pull request 2).
+for (const name of ['release.yml', 'pr.yml']) {
+  const y = fs.readFileSync(path.join(ROOT, '.github', 'workflows', name), 'utf8');
+  const build = y.indexOf('run: npm run build');
+  const test = y.indexOf('run: npm test');
+  ok(build >= 0 && test >= 0 && build < test, `${name} builds before it tests (the tarball listing needs dist/)`);
+}
+
 console.log(`pack: ${n} checks passed`);

@@ -168,10 +168,11 @@ Nothing redacts them, so read through an export before you share it.
 The self file is different: only the agent writes it, and only during a *reflection*, in
 which it is told to stay with its own notes. That delay puts distance between a web page and
 a rewrite, but it is not a wall: a reflection continues the last conversation when that ended
-cleanly, and it still takes screenshots. Every version it writes is signed with a key kept in
-VS Code's secret storage. That does not stop the owner of the computer from editing the file,
-and Deskfish does not claim it does; it means the agent notices an outside edit at its next
-task, keeps every version in a history, and can restore its own. Details in [Memory](memory).
+cleanly, and it still takes screenshots. Every version it writes is signed with a key that
+belongs to this installation, kept in `secrets.json` in her data folder beside the model key.
+That does not stop the owner of the computer from editing the file, and Deskfish does not claim
+it does; it means the agent notices an outside edit at its next task, keeps every version in a
+history, and can restore its own. Details in [Memory](memory).
 
 Every chat is also saved as a transcript in the same folder (text only, never images). A
 transcript contains what the agent read on screen during that chat, so treat the folder as you

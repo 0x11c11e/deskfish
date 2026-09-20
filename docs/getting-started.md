@@ -58,10 +58,12 @@ If your system is not in the list, the card links to Podman's installation guide
 
 ## 2. Install the extension
 
-Download `deskfish.vsix` from [deskfish.sh](https://deskfish.sh): the button there always
-serves the newest build, published to [GitHub Releases](https://github.com/0x11c11e/deskfish/releases)
-on every change. In VS Code, open the Extensions view, choose **Install from VSIX…** from its
-**…** menu, and pick the downloaded file. Or from a terminal:
+Download `deskfish.vsix` from [deskfish.sh](https://deskfish.sh). The big button there is the
+app for your system; the extension is the **VS Code extension** link on the quiet line under
+it. Either way it is the newest build, published to
+[GitHub Releases](https://github.com/0x11c11e/deskfish/releases) on every change. In VS Code,
+open the Extensions view, choose **Install from VSIX…** from its **…** menu, and pick the
+downloaded file. Or from a terminal:
 
 ```bash
 code --install-extension deskfish.vsix

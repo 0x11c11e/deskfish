@@ -108,6 +108,9 @@ export class GatewayClient extends EventEmitter {
     const old = this.ws;
     this.ws = undefined;
     old?.removeAllListeners(); // closing it is this method's doing, not an outage to log
+    // …but a socket still shaking hands answers terminate() with an 'error' event, and an
+    // EventEmitter with no listener for that throws it at the extension host.
+    old?.on('error', () => {});
     old?.terminate();
     if (this.isConnected) {
       this.isConnected = false;

@@ -21,6 +21,10 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run typecheck
-      - run: npm test
+      # Build before test, as release.yml does: pack.test.mts lists the tarball and expects
+      # dist/cli.js in it, which exists only after a build. A pull request is always a fresh
+      # checkout with no dist/, so the other order fails every run (the only run of this
+      # workflow, on pull request 2, did — and it was merged red).
       - run: npm run build
+      - run: npm test
       - run: npm run package
