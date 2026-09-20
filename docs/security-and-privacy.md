@@ -100,11 +100,12 @@ Everything the model needs to do its job goes to the model provider you configur
 nothing else:
 
 - the text of your tasks and follow-ups;
-- screenshots of the **tank's** screen, one per step;
+- screenshots of the **tank's** screen, one per step that could have changed it (a step that only
+  read something — the page, the documentation, its memory — sends none);
 - the results of the agent's actions, the output of commands it runs in its terminal tool, and
   the documentation pages it reads;
 - the controls or text of the web page open in the tank's Firefox, when the agent asks for
-  them with `find` or `read_page` (the same page it is looking at in the screenshot);
+  them with `find`, `read_page` or `click_element` (the same page it is looking at in the screenshot);
 - its memory: the facts, the self page, the charter, the last few journal entries and the
   titles of its playbooks ride in every prompt, and a playbook or a past chat it looks up
   goes along when it does.

@@ -1,13 +1,13 @@
 import type { ActionResult, ComputerAction, ComputerProvider } from '../computer/types';
 import { scalePng } from '../image/resize';
 import { renderZoom } from '../image/zoom';
-import { renderPage } from './page';
+import { clickable, renderClick, renderElement, renderPage } from './page';
 import { cutMiddle, renderCommand, summarizeCommand } from './command';
 import { isPoolExhaustedError, type ModelAdapter, type ModelTurn, type Observation } from './adapters/types';
 import type { DocsLibrary } from './docs';
 import { costUsd, type Price } from './pricing';
 import { frameDiff, type ScaledImage } from '../image/resize';
-import { describeAction } from '../computer/types';
+import { changesScreen, describeAction } from '../computer/types';
 import { maskDeep, maskSecrets } from './secrets';
 import type { MemoryStore } from './memory';
 import type { SelfStore } from './self';
@@ -35,6 +35,9 @@ import * as crypto from 'node:crypto';
  * blocks, and when control comes back it re-observes the screen before letting the model continue.
  */
 
+/** How many candidates click_element asks the bridge for: the one it may click, and a few to show. */
+const CLICK_ELEMENT_CANDIDATES = 5;
+
 export type AgentStatus = 'idle' | 'running' | 'paused' | 'done' | 'stopped' | 'error';
 
 export type AgentEvent =
@@ -42,7 +45,13 @@ export type AgentEvent =
   | { type: 'status'; status: AgentStatus; message?: string; screenFree?: boolean }
   | { type: 'assistant'; text: string }
   | { type: 'action'; step: number; action: ComputerAction; result: ActionResult }
-  | { type: 'screenshot'; step: number; jpegBase64: string; width: number; height: number }
+  /**
+   * A step's observation. `fresh: false` means no new frame was taken — the batch could not have
+   * changed the screen — and then `jpegBase64` is empty: the last frame still stands, so a view
+   * keeps the one it has. The event is emitted either way, because it is what advances the step
+   * counter in every host.
+   */
+  | { type: 'screenshot'; step: number; jpegBase64: string; width: number; height: number; fresh?: boolean }
   /** The model handed the desktop to the human. Carries the screen as it looked at that moment. */
   | { type: 'needs_user'; step: number; reason: string; jpegBase64: string; width: number; height: number }
   | { type: 'usage'; input: number; output: number; cacheRead?: number; cacheWrite?: number; cacheWrite1h?: number; costUsd?: number }
@@ -406,6 +415,11 @@ export class AgentRunner {
 
         const results: ActionResult[] = [];
         let acted = false;
+        // Could anything in this batch have changed the screen? If not, no new screenshot is taken
+        // after it — 41 of the 89 steps of a real task were a find or a read_page and carried a
+        // fresh picture of a screen nobody had touched (decision 123). Decided from the action
+        // types, not from whether they succeeded: a click that failed still gets a look.
+        const touchesScreen = turn.actions.some(changesScreen);
         // The frame from before the last real action, when a wait_for follows it in this batch: a
         // toggle that flips at once would otherwise have changed before standby takes its first look.
         let before: ScaledImage | undefined;
@@ -438,6 +452,22 @@ export class AgentRunner {
                 : { ok: false, error: raw.error ?? 'the page could not be read' };
             results.push(result);
             onEvent({ type: 'action', step, action, result: { ok: result.ok, error: result.error } });
+            continue;
+          }
+
+          if (action.type === 'click_element') {
+            const hit = await this.clickElement(action);
+            results.push(hit.result);
+            // The transcript and the chat line say what was clicked, not just what was asked for.
+            // The full answer (the candidates, the scroll advice) is for the model; the chip gets
+            // its first line, which is the sentence that says nothing was clicked and why.
+            onEvent({
+              type: 'action',
+              step,
+              action: hit.clicked ? { ...action, hit: hit.clicked } : action,
+              result: { ok: hit.result.ok, error: hit.result.error?.split('\n')[0] },
+            });
+            if (hit.clicked) acted = true;
             continue;
           }
 
@@ -532,18 +562,22 @@ export class AgentRunner {
 
         // Only wait for the screen to settle when something could have changed it.
         if (acted) await this.sleepUnlessStopped(this.opts.settleMs ?? 800);
-        obs = await this.observe(step, results, pendingNotes.length ? pendingNotes.splice(0).join('\n') : undefined);
+        obs = await this.observe(step, results, pendingNotes.length ? pendingNotes.splice(0).join('\n') : undefined, touchesScreen);
 
         // Stall detection: the same batch (coordinates rounded to 20 px) three times in a row while
-        // less than 0.3% of the screen changed each time. Passive batches (zoom, docs) don't count.
+        // less than 0.3% of the screen changed each time. Passive batches (zoom, docs) don't count,
+        // and now have no frame to compare either — `acted` implies `touchesScreen`, so a batch that
+        // could stall always brings one.
         const actionsKey = turn.actions
           .map((a) => describeAction(a).replace(/\((\d+), ?(\d+)\)/g, (_, x, y) => `(${Math.round(+x / 20) * 20},${Math.round(+y / 20) * 20})`))
           .join(' | ');
-        const changed = !lastFrame || frameDiff(lastFrame, obs.image) >= 0.003;
-        lastFrame = obs.image;
-        if (acted) {
-          repeatStreak = !changed && actionsKey === lastActions ? repeatStreak + 1 : 0;
-          lastActions = actionsKey;
+        if (obs.image) {
+          const changed = !lastFrame || frameDiff(lastFrame, obs.image) >= 0.003;
+          lastFrame = obs.image;
+          if (acted) {
+            repeatStreak = !changed && actionsKey === lastActions ? repeatStreak + 1 : 0;
+            lastActions = actionsKey;
+          }
         }
         if (repeatStreak >= 3) {
           repeatStreak = 0;
@@ -558,7 +592,7 @@ export class AgentRunner {
             const result = await this.handOver(step, 'I seem to be stuck: I keep repeating the same actions and nothing changes on screen. Please take a look, do what is needed and hand back, or tell me what to try.');
             if (!result) return;
             obs = await this.observe(step, results, 'The user took control of the desktop for a while and has handed it back. Re-check the screen before continuing.');
-            lastFrame = obs.image;
+            lastFrame = obs.image ?? lastFrame;
           }
         }
       }
@@ -826,7 +860,18 @@ export class AgentRunner {
     return false;
   }
 
-  private async observe(step: number, results: ActionResult[], note?: string): Promise<Observation> {
+  /**
+   * Look, and hand the model what it needs to decide. `screen: false` — a batch of nothing but
+   * passive tools — means no screenshot is taken at all: the frame she was last shown is still the
+   * truth, so `lastSeen` (standby's baseline) and `lastShot` (the hosts' fallback frame) stay as
+   * they are, the observation carries no image, and the adapter says the screen is unchanged. The
+   * event still goes out, without a frame, because the step counter rides on it.
+   */
+  private async observe(step: number, results: ActionResult[], note?: string, screen = true): Promise<Observation> {
+    if (!screen && this.lastShot) {
+      this.opts.onEvent({ type: 'screenshot', step, jpegBase64: '', width: this.lastShot.width, height: this.lastShot.height, fresh: false });
+      return { results, note };
+    }
     const shot = await this.opts.computer.screenshot();
     // scrot screenshots don't include the cursor; stamp a crosshair where the pointer really is,
     // so the model can see where its last click landed.
@@ -966,6 +1011,26 @@ export class AgentRunner {
     } catch (err) {
       return { ok: false, error: err instanceof Error ? err.message : String(err) };
     }
+  }
+
+  /**
+   * click_element: the find and the click in one step. The bridge is asked the same question `find`
+   * asks; its best hit is clicked at its own native coordinates when it is strong, visible,
+   * uncovered and on screen. Anything else clicks nothing and comes back as `ok: false` carrying
+   * find's own rendering, so she reads it as "not clicked, here is why, here is the next move"
+   * rather than as a click that happened. No retry, no scrolling on her behalf: the next move is
+   * hers. `clicked` is the element's words for the transcript line.
+   */
+  private async clickElement(action: { type: 'click_element'; query: string }): Promise<{ result: ActionResult; clicked?: string }> {
+    const raw = await this.opts.computer.execute({ type: 'find', query: action.query, limit: CLICK_ELEMENT_CANDIDATES });
+    if (!raw.ok || !raw.page) return { result: { ok: false, error: raw.error ?? 'the page could not be read' } };
+    const page = raw.page;
+    const best = page.elements[0];
+    if (!best || !clickable(best)) return { result: { ok: false, error: renderClick(page, this.scale, action.query) } };
+    // Native coordinates from the bridge: the element's own click point, no scaling round trip.
+    const click = await this.opts.computer.execute({ type: 'click', x: best.x, y: best.y, button: 'left', count: 1 });
+    if (!click.ok) return { result: { ok: false, error: click.error ?? `the click on ${renderElement(best, this.scale)} failed` } };
+    return { result: { ok: true, message: renderClick(page, this.scale, action.query, best) }, clicked: renderElement(best, this.scale) };
   }
 
   /** Execute a read_docs action: hand the model a page of its own documentation (or the index). */

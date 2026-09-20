@@ -65,7 +65,9 @@ colleague:
 2. If the tank is off, Deskfish turns it on first; the Desktop tab shows the progress.
 3. The agent takes a screenshot, thinks, and decides on one or more actions.
 4. The actions run on the tank, the screen settles for a moment, and a fresh screenshot is
-   taken. That is one **step**.
+   taken. That is one **step**. A step whose actions could not have changed the screen — asking
+   the page what is on it, reading a documentation page, saving a memory — takes no new
+   screenshot at all.
 5. Repeat until the agent decides the task is finished, at which point it writes a summary
    and stops.
 

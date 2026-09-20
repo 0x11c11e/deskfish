@@ -219,7 +219,8 @@ export class GatewayClient extends EventEmitter {
       if (e.type === 'status') {
         this.status = e.status;
         this.screenFree = !!e.screenFree;
-      } else if (e.type === 'screenshot') {
+      } else if (e.type === 'screenshot' && e.jpegBase64) {
+        // No frame means the step took none (a passive batch); the mirror keeps the last real one.
         this.latestScreenshot = { dataUrl: `data:image/jpeg;base64,${e.jpegBase64}`, width: e.width, height: e.height };
       }
     } else if (name === 'desktop') {

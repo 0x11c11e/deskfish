@@ -55,7 +55,8 @@ as `kimi-k3` and GPT-5 accept only their own default and reject any other value.
 
 Models here are shown a generic `computer` tool whose actions mirror the vocabulary Claude
 uses, with `zoom` as one of its actions, so instructions and habits transfer. The rest of the
-tool set is the same as on the Anthropic path: `run_command`, `wait_for`, `find`, `read_page`, `ask_user`,
+tool set is the same as on the Anthropic path: `run_command`, `wait_for`, `find`, `read_page`,
+`click_element`, `ask_user`,
 `read_docs`, `remember` and `forget`, `note_to_self` and `recall`, `revise_self`,
 `restore_self`, `self_history` and `archive_story`, and `save_playbook` and `read_playbook`.
 Accuracy depends entirely on the model. Large hosted models do well; small local ones can find

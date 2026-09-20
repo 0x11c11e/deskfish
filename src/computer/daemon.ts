@@ -141,6 +141,7 @@ export class DesktopDaemonComputer implements ComputerProvider {
 
         case 'wait_for':
         case 'zoom':
+        case 'click_element':
         case 'read_docs':
         case 'remember':
         case 'forget':
@@ -153,7 +154,8 @@ export class DesktopDaemonComputer implements ComputerProvider {
         case 'save_playbook':
         case 'read_playbook':
         case 'ask_user':
-          // Handled by the agent loop (zoom renders a view, ask_user pauses); never reach the computer.
+          // Handled by the agent loop (zoom renders a view, click_element becomes a find and a
+          // plain click, ask_user pauses); never reach the computer under these names.
           return { ok: true };
       }
     } catch (err) {

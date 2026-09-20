@@ -24,6 +24,11 @@ Every task is a repetition of the same four moves:
 One trip round the loop is a **step**. The model is told to check each new screenshot
 against what it intended, and to correct itself if a click landed in the wrong place.
 
+A step that could not have changed the screen — asking the page a question, magnifying a corner
+of it, reading a documentation page, saving a memory — skips the looking: no screenshot is taken,
+and the agent is told in one sentence that the screen is still the one it last saw. Most of a long
+web task is such steps, and each of them used to carry a fresh picture of an untouched screen.
+
 ## What the agent can do
 
 The model is given a small set of tools, the same on every provider:
@@ -35,6 +40,7 @@ The model is given a small set of tools, the same on every provider:
 | `zoom` | Magnify part of the screen to read small text or find an exact click point. Changes nothing |
 | `find` | Find links, buttons, fields and text on the web page open in Firefox by what they say, and get their exact click coordinates. See below. Changes nothing |
 | `read_page` | List every control on the page in Firefox with its state and position, or read the page's text. Changes nothing |
+| `click_element` | Click a control on that page by what it says — the find and the click in one step. Clicks only a clear match that is visible and unobstructed; otherwise it clicks nothing and says why. See below |
 | `run_command` | Run a shell command in the tank's terminal environment and get its output back as text, without the screen: reading and editing files, git, tests, scripts. Time-limited, and cut at about 20,000 characters |
 | `ask_user` | Stop and hand the desktop to you, with a reason. See [Knocking on the glass](knocking-on-the-glass) |
 | `read_docs` | Read a page of this documentation, so it can answer questions about Deskfish accurately. Changes nothing |
@@ -91,11 +97,20 @@ lets the agent ask the page directly:
   in the viewport, in page order, with the same details, and says how many more lie below or
   above. With scope *text* it returns the page's text instead, so the agent can read an
   article, a results list or a confirmation without scrolling through it.
+- **`click_element`** does what `find` does and then clicks the answer, in the same step. It is
+  what the agent uses to press something it can name: *Sign in*, *Accept all cookies*, *60 days
+  late*. It clicks only when it is sure — the words really matched, the element is inside the
+  visible part of the page, and nothing is in front of it — and then says what it clicked, in the
+  same words `find` uses, with the other candidates listed under it so a near miss is visible. When
+  it is not sure it **clicks nothing** and answers exactly as `find` would: the candidates it
+  considered, how far to scroll if the match is below the fold, or that a dialog covers the target.
+  The agent then decides. It never retries and never scrolls on the agent's behalf.
 
-Both are passive: nothing on screen changes. The agent is told to use `find` before guessing
-where something is and to zoom only for what the bridge cannot see: native dialogs, the
-terminal, the panel, PDFs, drawings, and anything that is not an `http(s)` page. Frames
-inside a page (a payment form, an embedded editor) are read too.
+`find` and `read_page` are passive: nothing on screen changes. The agent is told to ask the page
+rather than guess where something is — `click_element` to press, `find` to read what is there or
+check a field's state before acting — and to zoom only for what the bridge cannot see: native
+dialogs, the terminal, the panel, PDFs, drawings, and anything that is not an `http(s)` page.
+Frames inside a page (a payment form, an embedded editor) are read too.
 
 The bridge talks only to the tank's own control daemon; it has no network access of its own,
 and the page's contents go to the model only when the agent asks for them, the way a
@@ -169,6 +184,12 @@ run. With the default 1280 × 800 screen that is exactly one to one. A larger vi
 still costs the same tokens per screenshot, just at a smaller scale, which is why very large
 screens make small targets harder rather than easier.
 
+Not every step takes one. When a step's actions could not have changed the screen — a `find`, a
+`read_page`, a `zoom`, a documentation page, a memory — no screenshot is taken and none is sent;
+the agent is told that the screen is exactly as in its last one, which is still in the
+conversation. The Desktop tab is unaffected, since it is a live view of the screen rather than a
+stream of these pictures.
+
 Images are pruned in batches: after each prune only the three most recent stay in the
 conversation, and older ones are replaced by the note *earlier screenshot omitted*. Long text
 results are pruned the same way: a page's text, a command's output or a documentation page
@@ -193,15 +214,19 @@ the keyboard tool cannot map is pasted instead, without disturbing your clipboar
 Obviously sequential actions, such as *click the field, type the text, press Return*, are
 sent as one batch and executed in order, with a single screenshot afterwards. Anything less
 certain is done one action at a time, with a look in between. When a batch contains only
-passive actions (a zoom, a `find` or `read_page`, a standby, a pointer check, a documentation lookup),
-Deskfish skips the settle delay, because nothing on screen could have changed.
+passive actions (a zoom, a `find` or `read_page`, a pointer check, a documentation lookup),
+Deskfish skips the settle delay *and* the screenshot, because nothing on screen could have
+changed; the agent is told so in words. A `click_element` acts, so it ends a passive batch: it
+settles and looks like any other click. `run_command` and `wait_for` keep their screenshot too —
+a command can open a window, and standing by is waiting for the screen to change.
 
 ## What it is told
 
 The agent's instructions are short. In summary: you are Deskfish; this computer is yours,
 and everything in it is yours to use; you operate it with screenshots, mouse and keyboard;
-check every screenshot against what you intended; on a web page ask the page with `find` or
-`read_page` instead of hunting in the picture, and zoom before clicking anything small; files
+check every screenshot against what you intended; on a web page ask the page instead of hunting in the picture
+(`click_element` to press something by its words, `find` or `read_page` to see what is there), and
+zoom before clicking anything small; files
 you are given are in Uploads and anything for the user goes in Downloads; when you need
 something only the user has (a code, a card, a confirmation, a CAPTCHA you cannot pass) or you
 are stuck, hand over; do what the user asks all the way through; be economical with steps;

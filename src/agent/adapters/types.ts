@@ -25,12 +25,27 @@ export function isPoolExhaustedError(err: unknown): err is PoolExhaustedError {
 
 /** What the loop hands the model each turn: the screen, plus results of the model's last actions. */
 export interface Observation {
-  image: ScaledImage;
+  /**
+   * Absent when the last batch could not have changed the screen (a find, a read_page, a zoom, a
+   * memory call): no screenshot was taken and the adapter says so in words instead of sending the
+   * same picture again. Always present on the first observation of a task and after any batch that
+   * acted.
+   */
+  image?: ScaledImage;
   /** One result per action the adapter returned last turn, in order. Empty on the first turn. */
   results: ActionResult[];
   /** Optional out-of-band note, e.g. "the user took over the desktop and made changes". */
   note?: string;
 }
+
+/**
+ * What an image-less observation says in place of the screenshot. Both wires send the same
+ * sentence: the screen is not stale, it is simply unchanged, and nothing about it is worth another
+ * picture. (The last screenshot is still in the conversation — images are pruned to the newest
+ * three — so "your last screenshot" is something she can actually look at.)
+ */
+export const SCREEN_UNCHANGED_NOTE =
+  'No new screenshot: the screen is exactly as in your last screenshot — nothing you just did could have changed it.';
 
 /** What the model wants next. */
 export interface ModelTurn {

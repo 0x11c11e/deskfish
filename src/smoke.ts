@@ -86,7 +86,11 @@ async function main(): Promise<number> {
           console.log(`  #${e.step} ${describeAction(e.action)} → ${e.result.ok ? 'ok' : `ERROR ${e.result.error}`}${e.result.cursor ? ` cursor=(${e.result.cursor.x},${e.result.cursor.y})` : ''}`);
           break;
         case 'screenshot':
-          console.log(`  📷 step ${e.step}: ${e.width}×${e.height}, ${Math.round((e.jpegBase64.length * 3) / 4 / 1024)} KB jpeg`);
+          console.log(
+            e.jpegBase64
+              ? `  📷 step ${e.step}: ${e.width}×${e.height}, ${Math.round((e.jpegBase64.length * 3) / 4 / 1024)} KB jpeg`
+              : `  📷 step ${e.step}: no new screenshot (nothing could have changed the screen)`,
+          );
           break;
         case 'needs_user':
           console.log(`✋ needs you: ${e.reason} (screen ${e.width}×${e.height}) — headless run: auto-resuming in 1.5s`);

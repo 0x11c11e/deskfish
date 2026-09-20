@@ -7,6 +7,13 @@ export interface Scale {
 }
 
 /**
+ * Below this a match is "weak": the right role but none of the words, or one word of several.
+ * `find` labels such a hit so the model does not click the nearest thing as if it were the target,
+ * and `click_element` refuses to click one at all.
+ */
+export const WEAK_SCORE = 30;
+
+/**
  * Turn what the page bridge reported (native screen coordinates) into the text the model reads,
  * with every coordinate converted to screenshot pixels — the only coordinate space the model uses.
  */
@@ -36,9 +43,9 @@ export function renderPage(page: PageInfo, scale: Scale, kind: 'find' | 'read_pa
   }
   // A find whose best hit only matched weakly (the right role but none of the words, or one word
   // of several) is labelled so the model does not click the nearest thing as if it were the target.
-  const weak = kind === 'find' && page.elements.length > 0 && page.elements.every((e) => (e.score ?? 100) < 30);
+  const weak = kind === 'find' && page.elements.length > 0 && page.elements.every((e) => (e.score ?? 100) < WEAK_SCORE);
   if (weak) lines.push(`Nothing matches ${JSON.stringify(query ?? '')} well; the nearest candidates are:`);
-  page.elements.forEach((e, i) => lines.push(`[${i + 1}] ${describeElement(e, sx, sy)}${kind === 'find' && !weak && (e.score ?? 100) < 30 ? ' (weak match)' : ''}`));
+  page.elements.forEach((e, i) => lines.push(`[${i + 1}] ${describeElement(e, sx, sy)}${kind === 'find' && !weak && (e.score ?? 100) < WEAK_SCORE ? ' (weak match)' : ''}`));
   const more = page.more;
   if (more) {
     const bits: string[] = [];
@@ -48,6 +55,48 @@ export function renderPage(page: PageInfo, scale: Scale, kind: 'find' | 'read_pa
     if (bits.length) lines.push(`Also: ${bits.join('; ')}.`);
   }
   return lines.join('\n');
+}
+
+/** One element in find's own words ("button \"Sign in\" at (600, 400)"), for click_element's result. */
+export function renderElement(e: PageElement, scale: Scale): string {
+  return describeElement(
+    e,
+    (v) => Math.round(v / (scale.x || 1)),
+    (v) => Math.round(v / (scale.y || 1)),
+  );
+}
+
+/**
+ * Is this hit safe to click without a look first? Strong enough that the words really matched, and
+ * in a place where a click at (x, y) reaches it: inside the viewport, nothing in front of it.
+ */
+export function clickable(e: PageElement): boolean {
+  return (e.score ?? 100) >= WEAK_SCORE && e.visible && !e.covered;
+}
+
+/**
+ * What `click_element` tells her. Clicked: find's words for the element it hit, then the other
+ * candidates, so a near-miss is visible in the same message. Not clicked: why not, and find's own
+ * rendering underneath — the weak-candidates line, the "scroll N px" line, the "covered" line — so
+ * the next move is in the result rather than left to guesswork (the shape of decision 109).
+ */
+export function renderClick(page: PageInfo, scale: Scale, query: string, clicked?: PageElement): string {
+  if (clicked) {
+    const lines = [`Clicked ${renderElement(clicked, scale)}.`];
+    const others = page.elements.filter((e) => e !== clicked);
+    if (others.length) {
+      lines.push('The other candidates, not clicked:');
+      others.forEach((e, i) => lines.push(`[${i + 2}] ${renderElement(e, scale)}`));
+    }
+    return lines.join('\n');
+  }
+  const best = page.elements[0];
+  let why: string;
+  if (!best) why = `Nothing was clicked: no element matches ${JSON.stringify(query)}.`;
+  else if (best.covered) why = 'Nothing was clicked: the best match is covered by something in front of it, so a click there would hit that instead.';
+  else if (!best.visible) why = 'Nothing was clicked: the best match is off the visible part of the page. Scroll it into view first, then click_element again.';
+  else why = `Nothing was clicked: nothing matches ${JSON.stringify(query)} well enough to click unseen. Look, or find with other words.`;
+  return `${why}\n${renderPage(page, scale, 'find', query)}`;
 }
 
 function describeElement(e: PageElement, sx: (v: number) => number, sy: (v: number) => number): string {

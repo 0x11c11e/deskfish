@@ -58,6 +58,14 @@ export type ComputerAction =
   | { type: 'find'; query: string; limit?: number }
   | { type: 'read_page'; scope?: 'interactive' | 'text' }
   /**
+   * The find and the click in one step: ask the bridge what `find` would ask, then left-click the
+   * best hit at its own coordinates — but only when that hit is strong, visible, uncovered and on
+   * screen. Otherwise nothing is clicked and the result says why, with find's own rendering under
+   * it. `hit` is filled in by the loop after a click, for the transcript line; the model never
+   * sends it.
+   */
+  | { type: 'click_element'; query: string; hit?: string }
+  /**
    * Run a shell command in the tank (bash, as the bot user, stdin closed) and get its output back
    * as text. The daemon runs it outside its input queue; the loop renders the result for the
    * model. Passive for the screen: no settle, no stall bookkeeping.
@@ -174,6 +182,49 @@ export interface ComputerProvider {
   releaseInput?(): Promise<string[] | void>;
 }
 
+/**
+ * Could this action have changed what is on screen? False for everything that only reads — the page
+ * bridge, zoom, the docs, memory, the journal, the playbooks — and for the two computer calls that
+ * observe rather than act. A batch of nothing but these earns no new screenshot: the screen is
+ * still the one she was last shown, and sending it again costs a picture per step for nothing.
+ * `run_command` counts as a change (a command can open a window), and so do `wait_for` and
+ * `ask_user`, where the world or the person acts while we watch. Exhaustive on purpose: a new
+ * action has to say which side it is on.
+ */
+export function changesScreen(a: ComputerAction): boolean {
+  switch (a.type) {
+    case 'screenshot':
+    case 'cursor_position':
+    case 'zoom':
+    case 'read_docs':
+    case 'find':
+    case 'read_page':
+    case 'remember':
+    case 'forget':
+    case 'revise_self':
+    case 'restore_self':
+    case 'self_history':
+    case 'archive_story':
+    case 'recall':
+    case 'note':
+    case 'save_playbook':
+    case 'read_playbook':
+      return false;
+    case 'mouse_move':
+    case 'click':
+    case 'click_element':
+    case 'drag':
+    case 'type':
+    case 'key':
+    case 'scroll':
+    case 'wait':
+    case 'wait_for':
+    case 'run_command':
+    case 'ask_user':
+      return true;
+  }
+}
+
 /** Human-readable one-liner for logs and the chat feed. */
 export function describeAction(a: ComputerAction): string {
   switch (a.type) {
@@ -213,6 +264,8 @@ export function describeAction(a: ComputerAction): string {
       return `find on the page: ${JSON.stringify(a.query)}`;
     case 'read_page':
       return a.scope === 'text' ? 'read the page text' : 'read the page';
+    case 'click_element':
+      return `click ${JSON.stringify(a.query)}${a.hit ? ` → ${a.hit}` : ''}`;
     case 'run_command':
       return `run: ${a.command.length > 60 ? a.command.slice(0, 57) + '…' : a.command}`;
     case 'remember':

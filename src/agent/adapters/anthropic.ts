@@ -9,6 +9,10 @@ import {
   FORGET_TOOL_PARAMETERS,
   READ_DOCS_TOOL_DESCRIPTION,
   READ_DOCS_TOOL_NAME,
+  CLICK_ELEMENT_TOOL_DESCRIPTION,
+  CLICK_ELEMENT_TOOL_NAME,
+  CLICK_ELEMENT_TOOL_PARAMETERS,
+  clickElementAction,
   FIND_TOOL_NAME,
   FIND_TOOL_DESCRIPTION,
   FIND_TOOL_PARAMETERS,
@@ -75,7 +79,7 @@ import { charterNote, docsNote, journalNote, memoryNote, modelNote, playbookNote
 import { diffNotes } from '../notesDelta';
 import { KEEP_LONG_RESULTS, PRUNE_TEXT_BATCH, isLongResult, shortenResult } from '../prune';
 import type { AgentNotes } from './types';
-import { describeResult, type AdapterConfig, type ModelAdapter, type ModelTurn, type Observation } from './types';
+import { describeResult, SCREEN_UNCHANGED_NOTE, type AdapterConfig, type ModelAdapter, type ModelTurn, type Observation } from './types';
 
 type BetaMessageParam = Anthropic.Beta.BetaMessageParam;
 type BetaContentBlockParam = Anthropic.Beta.BetaContentBlockParam;
@@ -182,10 +186,11 @@ export class AnthropicAdapter implements ModelAdapter {
 
   async step(obs: Observation, signal?: AbortSignal): Promise<ModelTurn> {
     this.signal = signal;
-    const image: BetaImageBlockParam = {
-      type: 'image',
-      source: { type: 'base64', media_type: 'image/jpeg', data: obs.image.jpeg.toString('base64') },
-    };
+    // Absent after a batch that could not have changed the screen: the message then carries the
+    // results and one sentence saying so, and the picture she already has stands (see A, decision 123).
+    const image: BetaImageBlockParam | undefined = obs.image
+      ? { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: obs.image.jpeg.toString('base64') } }
+      : undefined;
     const extras = [obs.note, ...this.queuedUser.map((t) => `User: ${t}`)].filter(Boolean).join('\n');
     this.queuedUser = [];
 
@@ -194,7 +199,7 @@ export class AnthropicAdapter implements ModelAdapter {
       // The run-start note (clock, network mode, a continuation ledger) rides on the first message too.
       this.messages.push({
         role: 'user',
-        content: [{ type: 'text', text: `Task: ${this.task}\n\nHere is the current screen.${extras ? `\n\n${extras}` : ''}` }, image],
+        content: [{ type: 'text', text: `Task: ${this.task}\n\nHere is the current screen.${extras ? `\n\n${extras}` : ''}` }, ...(image ? [image] : [])],
       });
     } else {
       // The API rejects an `is_error` tool_result that contains anything but text, so images that
@@ -203,7 +208,7 @@ export class AnthropicAdapter implements ModelAdapter {
       const content: BetaContentBlockParam[] = this.pending.map((call, i): BetaToolResultBlockParam => {
         const last = i === this.pending.length - 1;
         if (call.parseError) {
-          if (last) trailing.push({ type: 'text', text: 'Current screen:' }, image);
+          if (last && image) trailing.push({ type: 'text', text: 'Current screen:' }, image);
           return { type: 'tool_result', tool_use_id: call.id, is_error: true, content: call.parseError };
         }
         const result = obs.results[i] ?? { ok: false, error: 'no result' };
@@ -214,7 +219,7 @@ export class AnthropicAdapter implements ModelAdapter {
         if (result.image) {
           blocks.push({ type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: result.image.jpeg.toString('base64') } });
         }
-        if (last) {
+        if (last && image) {
           if (result.image) blocks.push({ type: 'text', text: 'And the current full screen:' });
           blocks.push(image);
         }
@@ -229,7 +234,9 @@ export class AnthropicAdapter implements ModelAdapter {
         };
       });
       content.push(...trailing);
-      if (this.pending.length === 0) content.push({ type: 'text', text: 'Current screen:' }, image);
+      if (image) {
+        if (this.pending.length === 0) content.push({ type: 'text', text: 'Current screen:' }, image);
+      } else content.push({ type: 'text', text: SCREEN_UNCHANGED_NOTE });
       if (extras) content.push({ type: 'text', text: extras });
       this.messages.push({ role: 'user', content });
     }
@@ -257,6 +264,7 @@ export class AnthropicAdapter implements ModelAdapter {
           else if (block.name === ASK_USER_TOOL_NAME) actions.push(askUserAction(block.input));
           else if (block.name === READ_DOCS_TOOL_NAME) actions.push(readDocsAction(block.input));
           else if (block.name === FIND_TOOL_NAME) actions.push(findAction(block.input));
+          else if (block.name === CLICK_ELEMENT_TOOL_NAME) actions.push(clickElementAction(block.input));
           else if (block.name === READ_PAGE_TOOL_NAME) actions.push(readPageAction(block.input));
           else if (block.name === WAIT_FOR_TOOL_NAME) actions.push(waitForAction(block.input));
           else if (block.name === RUN_COMMAND_TOOL_NAME) actions.push(runCommandAction(block.input));
@@ -376,6 +384,7 @@ export class AnthropicAdapter implements ModelAdapter {
         },
         { name: FIND_TOOL_NAME, description: FIND_TOOL_DESCRIPTION, input_schema: FIND_TOOL_PARAMETERS },
         { name: READ_PAGE_TOOL_NAME, description: READ_PAGE_TOOL_DESCRIPTION, input_schema: READ_PAGE_TOOL_PARAMETERS },
+        { name: CLICK_ELEMENT_TOOL_NAME, description: CLICK_ELEMENT_TOOL_DESCRIPTION, input_schema: CLICK_ELEMENT_TOOL_PARAMETERS },
         { name: WAIT_FOR_TOOL_NAME, description: WAIT_FOR_TOOL_DESCRIPTION, input_schema: WAIT_FOR_TOOL_PARAMETERS },
         { name: RUN_COMMAND_TOOL_NAME, description: RUN_COMMAND_TOOL_DESCRIPTION, input_schema: RUN_COMMAND_TOOL_PARAMETERS },
         ...(this.cfg.docsIndex

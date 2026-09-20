@@ -1293,7 +1293,9 @@ export class DeskfishService extends EventEmitter {
     } else if (e.type === 'usage') {
       const u = this.usage;
       this.usage = { type: 'usage', input: (u?.input ?? 0) + e.input, output: (u?.output ?? 0) + e.output, cacheRead: (u?.cacheRead ?? 0) + (e.cacheRead ?? 0), cacheWrite: (u?.cacheWrite ?? 0) + (e.cacheWrite ?? 0), cacheWrite1h: (u?.cacheWrite1h ?? 0) + (e.cacheWrite1h ?? 0), costUsd: (u?.costUsd ?? 0) + (e.costUsd ?? 0) };
-    } else if (e.type === 'screenshot') {
+    } else if (e.type === 'screenshot' && e.jpegBase64) {
+      // A passive step carries no frame (nothing could have changed the screen); the snapshot keeps
+      // the last real one, which is still what the screen looks like.
       this.lastScreenshot = { dataUrl: `data:image/jpeg;base64,${e.jpegBase64}`, width: e.width, height: e.height, step: e.step };
     } else if (e.type === 'needs_user') {
       this.log(`✋ needs you: ${e.reason}`);

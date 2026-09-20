@@ -51,7 +51,9 @@ export class DesktopPanel {
       this.controller.onEvent((e) => {
         if (e.type === 'status') this.send({ type: 'agentStatus', status: e.status, message: e.message, screenFree: e.screenFree });
         if (e.type === 'action') this.send({ type: 'agentAction', action: e.action });
-        if (e.type === 'screenshot') {
+        // An empty frame means the step took no new screenshot (nothing could have changed):
+        // the fallback image keeps the one it has.
+        if (e.type === 'screenshot' && e.jpegBase64) {
           this.send({ type: 'screenshot', dataUrl: `data:image/jpeg;base64,${e.jpegBase64}`, width: e.width, height: e.height });
         }
       }),

@@ -134,6 +134,7 @@ async function handle(body) {
         { role: 'textbox', name: 'Email', state: 'empty', x: 640, y: 420, w: 300, h: 32, visible: true },
         { role: 'button', name: 'Sign in', state: '', x: 640, y: 480, w: 120, h: 36, visible: true },
         { role: 'link', name: 'Privacy policy', state: '', x: 640, y: 1400, w: 100, h: 20, visible: false, below: 600 },
+        { role: 'button', name: 'Close dialog', state: '', x: 900, y: 300, w: 60, h: 24, visible: false, covered: true },
       ];
       const q = String(body.query ?? '').toLowerCase();
       const page = { url: 'https://example.com/', title: 'Example Domain', viewport: { x: 0, y: 80, width: 1280, height: 720, scrollY: 0, pageHeight: 1500 } };
@@ -141,7 +142,11 @@ async function handle(body) {
         if (body.scope === 'text') return { success: true, data: { ...page, elements: [], text: 'Example Domain\nThis domain is for use in illustrative examples in documents.' } };
         return { success: true, data: { ...page, elements: elements.filter((e) => e.visible), total: elements.length, more: { visible: 0, below: 1, above: 0 } } };
       }
-      const hits = elements.filter((e) => e.name.toLowerCase().includes(q) || e.role === q).map((e, i) => ({ ...e, score: 100 - i }));
+      // A query that only names a role matches nothing by its words: that is what a weak hit is, and
+      // it is how a test drives click_element's "clicked nothing, here is why" answer.
+      const hits = elements
+        .filter((e) => e.name.toLowerCase().includes(q) || e.role === q)
+        .map((e, i) => ({ ...e, score: e.name.toLowerCase().includes(q) ? 100 - i : 10 }));
       return { success: true, data: { ...page, elements: hits, total: elements.length } };
     }
     case 'run_command': {

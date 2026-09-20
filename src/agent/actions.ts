@@ -30,7 +30,7 @@ export const COMPUTER_TOOL_DESCRIPTION = [
   'Control the computer with the mouse and keyboard and look at the screen.',
   'Coordinates are [x, y] pixels in the most recent screenshot, origin top-left.',
   'Actions:',
-  '- screenshot: look at the screen (a fresh screenshot is also sent after every batch of actions)',
+  '- screenshot: look at the screen (a fresh screenshot is also sent after every batch of actions that could have changed it)',
   '- left_click / right_click / middle_click / double_click / triple_click: click at `coordinate`; optional `text` = modifier keys to hold (e.g. "shift")',
   '- mouse_move: move the pointer to `coordinate`',
   '- left_click_drag: drag from `start_coordinate` to `coordinate`',
@@ -234,6 +234,38 @@ export function findAction(input: unknown): ComputerAction {
   if (!query) throw new Error('find needs a query');
   const limit = Number(o.limit);
   return Number.isInteger(limit) && limit > 0 ? { type: 'find', query, limit: Math.min(20, limit) } : { type: 'find', query };
+}
+
+/**
+ * The find and the click in one step. Measured reason: of a real task's 89 steps, 34 were a `find`
+ * followed one step later by the click it had just been handed — two model turns, two contexts, for
+ * one intention (decision 123). It clicks only what it is sure of; anything else comes back as
+ * find's own answer with nothing clicked, so the pair is still available when it is needed.
+ */
+export const CLICK_ELEMENT_TOOL_NAME = 'click_element';
+
+export const CLICK_ELEMENT_TOOL_DESCRIPTION =
+  'Click a control on the web page open in Firefox by what it says: `query` is its text, label or kind ("Sign in", ' +
+  '"Add to cart button", "Accept all cookies"). It asks the page the same question find asks and left-clicks the best ' +
+  'match in the same step, so you do not need find and then a click. It clicks only when the match is clear and the ' +
+  'element is visible, not covered and on screen; otherwise it clicks nothing and answers like find — the candidates ' +
+  'it saw, how far to scroll, or that something covers the target — and you decide. Use find instead when you want to ' +
+  'read what is there or check a field\'s state before acting, and the computer tool when you have coordinates ' +
+  'already. Only works on http(s) pages in Firefox.';
+
+export const CLICK_ELEMENT_TOOL_PARAMETERS: { type: 'object'; properties: Record<string, unknown>; required: string[]; additionalProperties: boolean } = {
+  type: 'object',
+  properties: {
+    query: { type: 'string', description: 'The control to click: its visible text, label, or kind ("Sign in button")' },
+  },
+  required: ['query'],
+  additionalProperties: false,
+};
+
+export function clickElementAction(input: unknown): ComputerAction {
+  const query = String(((input ?? {}) as { query?: unknown }).query ?? '').trim();
+  if (!query) throw new Error('click_element needs a query');
+  return { type: 'click_element', query };
 }
 
 export const READ_PAGE_TOOL_NAME = 'read_page';

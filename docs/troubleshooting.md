@@ -199,7 +199,7 @@ podman rmi localhost/deskfish-desktop:latest
 
 The next start rebuilds the image and creates an empty home folder.
 
-## `find` or `read_page` say Firefox is not open, or the page did not answer
+## `find`, `read_page` or `click_element` say Firefox is not open, or the page did not answer
 
 These tools are answered by the Deskfish page bridge, an extension inside the tank's
 Firefox. *Firefox is not open* means exactly that: the agent opens it from the panel and
@@ -208,6 +208,11 @@ Firefox does not let extensions read (its own `about:` pages, the add-ons site, 
 agent waits or falls back to the screenshot. If the answer is *unknown action "page_find"*,
 the tank is running an image from before the bridge existed: turn the desktop off and on,
 and Deskfish updates the image.
+
+*Nothing was clicked* from `click_element` is not a failure of the bridge: it is the tool
+refusing to click something it is not sure of. The reason comes with it — no clear match, the
+target is below the fold, or a dialog covers it — and the agent scrolls, closes the dialog or
+tries other words and goes again.
 
 ## Still stuck?
 

@@ -10,6 +10,10 @@ import {
   FORGET_TOOL_PARAMETERS,
   READ_DOCS_TOOL_DESCRIPTION,
   READ_DOCS_TOOL_NAME,
+  CLICK_ELEMENT_TOOL_DESCRIPTION,
+  CLICK_ELEMENT_TOOL_NAME,
+  CLICK_ELEMENT_TOOL_PARAMETERS,
+  clickElementAction,
   FIND_TOOL_NAME,
   FIND_TOOL_DESCRIPTION,
   FIND_TOOL_PARAMETERS,
@@ -73,7 +77,7 @@ import { diffNotes } from '../notesDelta';
 import { KEEP_LONG_RESULTS, PRUNE_TEXT_BATCH, isLongResult, shortenResult } from '../prune';
 import type { AgentNotes } from './types';
 import type { ComputerAction } from '../../computer/types';
-import { describeResult, PoolExhaustedError, type AdapterConfig, type ModelAdapter, type ModelTurn, type Observation } from './types';
+import { describeResult, PoolExhaustedError, SCREEN_UNCHANGED_NOTE, type AdapterConfig, type ModelAdapter, type ModelTurn, type Observation } from './types';
 
 /**
  * Adapter for any OpenAI-compatible `/chat/completions` endpoint that supports vision and tool
@@ -172,10 +176,11 @@ export class OpenAICompatAdapter implements ModelAdapter {
 
   async step(obs: Observation, signal?: AbortSignal): Promise<ModelTurn> {
     this.signal = signal;
-    const image: ContentPart = {
-      type: 'image_url',
-      image_url: { url: `data:image/jpeg;base64,${obs.image.jpeg.toString('base64')}` },
-    };
+    // Absent after a batch that could not have changed the screen: the message then carries the
+    // results and one sentence saying so, and the picture she already has stands (see A, decision 123).
+    const image: ContentPart | undefined = obs.image
+      ? { type: 'image_url', image_url: { url: `data:image/jpeg;base64,${obs.image.jpeg.toString('base64')}` } }
+      : undefined;
     const extras = [obs.note, ...this.queuedUser.map((t) => `User: ${t}`)].filter(Boolean).join('\n');
     // Everything pushed below belongs to *this* call. If the call never gets an answer — the
     // subscription's pool refused it and the loop knocks, then tries the same step again — the
@@ -191,7 +196,7 @@ export class OpenAICompatAdapter implements ModelAdapter {
       // The run-start note (clock, network mode, a continuation ledger) rides on the first message too.
       this.messages.push({
         role: 'user',
-        content: [{ type: 'text', text: `Task: ${this.task}\n\nHere is the current screen.${extras ? `\n\n${extras}` : ''}` }, image],
+        content: [{ type: 'text', text: `Task: ${this.task}\n\nHere is the current screen.${extras ? `\n\n${extras}` : ''}` }, ...(image ? [image] : [])],
       });
     } else {
       // The tool role only carries text, so a zoom result's magnified view rides in the user
@@ -207,7 +212,8 @@ export class OpenAICompatAdapter implements ModelAdapter {
       });
       const parts: ContentPart[] = [];
       if (zoomViews.length) parts.push({ type: 'text', text: 'Magnified view from your zoom action:' }, ...zoomViews);
-      parts.push({ type: 'text', text: `Screenshot after those actions.${extras ? `\n${extras}` : ''}` }, image);
+      parts.push({ type: 'text', text: `${image ? 'Screenshot after those actions.' : SCREEN_UNCHANGED_NOTE}${extras ? `\n${extras}` : ''}` });
+      if (image) parts.push(image);
       this.messages.push({ role: 'user', content: parts });
     }
     this.pruneImages();
@@ -249,6 +255,7 @@ export class OpenAICompatAdapter implements ModelAdapter {
         else if (call.function?.name === ASK_USER_TOOL_NAME) actions.push(askUserAction(args));
         else if (call.function?.name === READ_DOCS_TOOL_NAME) actions.push(readDocsAction(args));
         else if (call.function?.name === FIND_TOOL_NAME) actions.push(findAction(args));
+        else if (call.function?.name === CLICK_ELEMENT_TOOL_NAME) actions.push(clickElementAction(args));
         else if (call.function?.name === READ_PAGE_TOOL_NAME) actions.push(readPageAction(args));
         else if (call.function?.name === WAIT_FOR_TOOL_NAME) actions.push(waitForAction(args));
         else if (call.function?.name === RUN_COMMAND_TOOL_NAME) actions.push(runCommandAction(args));
@@ -386,6 +393,7 @@ export class OpenAICompatAdapter implements ModelAdapter {
         },
         { type: 'function', function: { name: FIND_TOOL_NAME, description: FIND_TOOL_DESCRIPTION, parameters: FIND_TOOL_PARAMETERS } },
         { type: 'function', function: { name: READ_PAGE_TOOL_NAME, description: READ_PAGE_TOOL_DESCRIPTION, parameters: READ_PAGE_TOOL_PARAMETERS } },
+        { type: 'function', function: { name: CLICK_ELEMENT_TOOL_NAME, description: CLICK_ELEMENT_TOOL_DESCRIPTION, parameters: CLICK_ELEMENT_TOOL_PARAMETERS } },
         { type: 'function', function: { name: WAIT_FOR_TOOL_NAME, description: WAIT_FOR_TOOL_DESCRIPTION, parameters: WAIT_FOR_TOOL_PARAMETERS } },
         { type: 'function', function: { name: RUN_COMMAND_TOOL_NAME, description: RUN_COMMAND_TOOL_DESCRIPTION, parameters: RUN_COMMAND_TOOL_PARAMETERS } },
         ...(this.cfg.docsIndex
