@@ -3,6 +3,5 @@
   "framework": null,
   "buildCommand": "npm run build",
   "outputDirectory": "dist/web",
-  "ignoreCommand": "git diff --quiet HEAD^ HEAD -- . ':(exclude)site' ':(exclude)docs' ':(exclude)app'",
   "rewrites": [{ "source": "/", "destination": "/remote.html" }]
 }
