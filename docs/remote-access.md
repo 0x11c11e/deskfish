@@ -55,8 +55,8 @@ one small JSON file of state.
 ### Where the page goes
 
 The sign-in page is one file, `remote.html`, attached to every [release](https://github.com/0x11c11e/deskfish/releases/latest).
-Put it **anywhere except the relay's own machine** — that separation is what the third point above
-is about. Two ways that cost nothing:
+Put it **anywhere except the relay's own machine** — that separation is what the point above about
+the page is for. Two ways that cost nothing:
 
 - **GitHub Pages**, from a repository of your own: commit the file as `index.html`, turn Pages on,
   and your address is `https://<you>.github.io/<repo>/`.

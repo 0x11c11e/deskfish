@@ -76,7 +76,7 @@ browser dials the same relay, and the relay passes frames between the two. Both 
 outbound, which is why no firewall rule and no port forward is needed. See
 [Reaching her from anywhere](remote-access) for how to set it up.
 
-The relay is a server in the middle, usually one you rent. Two things are true of it by design:
+The relay is a server in the middle, usually one you rent. Three things are true of it by design:
 
 - **It cannot read a word.** Everything between the page and her gateway — the chat, the live
   view, the files — is sealed with AES-256-GCM before it enters the relay, with keys the relay
