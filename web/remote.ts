@@ -172,7 +172,12 @@ export async function signIn(relay: string, username: string, password: string, 
     }
     const text = td.decode(frame);
     // Her gateway, refusing in words while there are still no keys to say it with.
-    if (text.startsWith('{')) throw new LoginRefused(String(JSON.parse(text).refused ?? 'She refused the sign-in.'));
+    // Her gateway's own words, kept as hers: capped and attributed. The relay carries this field and
+    // could write one of its own, so nothing it says is ever shown as if this page had said it.
+    if (text.startsWith('{')) {
+      const refused = String(JSON.parse(text).refused ?? '').trim();
+      throw new LoginRefused(refused ? `Her computer says: ${refused.slice(0, 200)}` : 'She refused the sign-in.');
+    }
     return text;
   };
 

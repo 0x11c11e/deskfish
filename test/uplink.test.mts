@@ -180,6 +180,9 @@ async function refusedSentence(password: string, username = USER): Promise<strin
   }
 }
 
+/** How many sign-ins her gateway has counted against the wrong-password fence. */
+const counted = () => gatewayLog.filter((l) => l.includes('a sign-in did not complete')).length;
+
 const dirs = [dir, relayData];
 /** The OPAQUE record her gateway answers logins with; made once, in section 3. */
 let made: RemoteRecord;
@@ -290,7 +293,6 @@ try {
     // The page learns first that the password is wrong (that is what OPAQUE does) and closes; her
     // gateway counts the attempt when the relay tells it the browser is gone, so each one is waited
     // for rather than raced.
-    const counted = () => gatewayLog.filter((l) => l.includes('a sign-in did not complete')).length;
     let last = '';
     for (let i = 0; i < 5; i++) {
       const before = counted();
@@ -320,14 +322,25 @@ try {
     ok(true, 'turning it back on is a settings change; the keys were kept');
   }
 
-  // ---------- 9. the relay restarts: the gateway dials again by itself ----------
+  // ---------- 9. the relay restarts: the gateway dials again, and the sign-in it cut is nobody's fault ----------
   {
+    // A browser that is in the middle of signing in when the uplink goes has not guessed a password;
+    // counting it would let a relay restart spend a person's five tries for them. (The fence is a
+    // fresh one: section 8 turned remote access off and on, which builds a new uplink.)
+    const half = new WebSocket(`${relayWs()}/client?user=${HANDLE}`);
+    half.on('error', () => {});
+    await new Promise<void>((r) => half.on('open', () => r()));
+    for (let i = 0; i < 100 && (await home.call('remote.status')).clients === 0; i++) await sleep(20);
+    ok((await home.call('remote.status')).clients === 1, 'her gateway has a browser in the middle of signing in');
+    const before = counted();
     await relay.close();
     await until(() => (home.call('remote.status'), true), 'the close to settle');
     await sleep(200);
     relay = startRelay({ port: relayPort, ...relayOptions });
     relayPort = await relay.listening;
     await until(() => relay.connected.includes(HANDLE), 'the uplink to find the relay again', 20_000);
+    ok(counted() === before, `a sign-in cut by the uplink's own loss is not counted against the fence (${counted()} vs ${before})`);
+    half.close();
     const back = await signIn(PASSWORD);
     ok((await back.call('snapshot')).dataDir === dir, 'and a page signs in again with nothing re-entered');
     back.close();
@@ -367,8 +380,12 @@ try {
     ok(quiet.connected.includes(HANDLE), 'the relay holds it');
     await until(() => said.some((l) => /went quiet/.test(l)), 'the gateway to notice the silence', 10_000);
     ok(/the relay went quiet for 2 s; dialling again/.test(said.find((l) => /went quiet/.test(l)) ?? ''), `one line says what happened: ${said.find((l) => /went quiet/.test(l))}`);
-    await until(() => lonely.status.state === 'connected' && states.lastIndexOf('connected') > states.indexOf('error'), 'the uplink to dial again by itself', 10_000);
-    ok(states.join(' → ').includes('connected → error') || states.join(' → ').includes('connected → connecting'), `status went ${states.join(' → ')}`);
+    // Both waits read the recorded states, not the live one: the log line is written a moment before
+    // the socket's close reaches `lost`, so asking the live status here would pass while it is still
+    // 'connected' and leave nothing to assert about.
+    await until(() => states.includes('error'), 'the uplink to drop the quiet socket', 10_000);
+    await until(() => states.lastIndexOf('connected') > states.indexOf('error'), 'the uplink to dial again by itself', 10_000);
+    ok(states.join(' → ').includes('connected → error'), `status went ${states.join(' → ')}`);
     ok(!said.some((l) => /trying again in/.test(l)), 'and the loss it caused is not announced a second time');
     ok(errors.some((e) => /went quiet/.test(e)), `and remote status said why while it was down: ${errors.join(' | ')}`);
     clearInterval(watching);

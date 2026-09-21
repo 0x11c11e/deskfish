@@ -458,11 +458,15 @@ class Session {
    * finds its own password wrong closes without a word (OPAQUE tells the *client* first), so
    * counting at the end is the only way the fence sees a guess at all; a login that simply stops
    * answering is counted by the same line, which is why silence buys nothing.
+   *
+   * `count` is false when *this* end ended it — the uplink was lost or turned off. Those are not
+   * guesses at a password and must not spend anybody's five: a relay that restarts while three
+   * phones are signing in would otherwise lock the next minute out.
    */
-  finish(why: string): void {
+  finish(why: string, count = true): void {
     if (this.done) return;
     this.done = true;
-    if (!this.channel && !this.counted && !this.blocked) {
+    if (count && !this.channel && !this.counted && !this.blocked) {
       this.counted = true;
       this.fence.failed();
       this.host.log('remote: a sign-in did not complete');
@@ -560,7 +564,7 @@ export class RemoteUplink {
     this.retry = undefined;
     if (this.heartbeat) clearInterval(this.heartbeat);
     this.heartbeat = undefined;
-    for (const session of [...this.sessions.values()]) session.finish(why);
+    for (const session of [...this.sessions.values()]) session.finish(why, false);
     this.sessions.clear();
     const socket = this.socket;
     this.socket = undefined;
@@ -771,7 +775,7 @@ export class RemoteUplink {
     this.socket = undefined;
     if (this.heartbeat) clearInterval(this.heartbeat);
     this.heartbeat = undefined;
-    for (const session of [...this.sessions.values()]) session.finish('the uplink went');
+    for (const session of [...this.sessions.values()]) session.finish('the uplink went', false);
     this.sessions.clear();
     if (this.stopped) return;
     const wasUp = this.state === 'connected';
