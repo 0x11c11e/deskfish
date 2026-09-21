@@ -94,7 +94,9 @@ export class DesktopDaemonComputer implements ComputerProvider {
           return { ok: true };
 
         case 'type':
-          await this.call({ action: 'type_text', text: action.text });
+          // `secret`: a value from a sign-in card. The daemon then writes nothing of it to its log
+          // and refuses the paste fallback (the clipboard is mirrored to the user's own machine).
+          await this.call({ action: 'type_text', text: action.text, ...(action.secret ? { secret: true } : {}) });
           return { ok: true };
 
         case 'key': {
@@ -138,6 +140,11 @@ export class DesktopDaemonComputer implements ComputerProvider {
           return { ok: true, page: r.data as ActionResult['page'] };
         }
 
+        case 'focus': {
+          const r = await this.call({ action: 'page_focus', query: action.query });
+          return { ok: true, page: r.data as ActionResult['page'] };
+        }
+
         case 'run_command': {
           // The daemon enforces the command's own timeout; the request gets a margin on top of it,
           // and Stop aborts the request, which makes the daemon kill the process.
@@ -164,8 +171,10 @@ export class DesktopDaemonComputer implements ComputerProvider {
         case 'save_playbook':
         case 'read_playbook':
         case 'ask_user':
+        case 'ask_fill':
           // Handled by the agent loop (zoom renders a view, click_element becomes a find and a
-          // plain click, ask_user pauses); never reach the computer under these names.
+          // plain click, ask_user pauses, ask_fill pauses and then focuses and types); never reach
+          // the computer under these names.
           return { ok: true };
       }
     } catch (err) {

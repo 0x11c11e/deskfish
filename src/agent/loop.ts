@@ -1,7 +1,7 @@
-import type { ActionResult, ComputerAction, ComputerProvider } from '../computer/types';
+import type { ActionResult, ComputerAction, ComputerProvider, FillField } from '../computer/types';
 import { scalePng } from '../image/resize';
 import { renderZoom } from '../image/zoom';
-import { clickable, renderClick, renderElement, renderPage, renderScroll, renderSelect } from './page';
+import { clickable, renderClick, renderElement, renderFocus, renderPage, renderScroll, renderSelect } from './page';
 import { cutMiddle, renderCommand, summarizeCommand } from './command';
 import { isPoolExhaustedError, type ModelAdapter, type ModelTurn, type Observation } from './adapters/types';
 import type { DocsLibrary } from './docs';
@@ -64,6 +64,13 @@ export type AgentEvent =
   | { type: 'screenshot'; step: number; jpegBase64: string; width: number; height: number; fresh?: boolean }
   /** The model handed the desktop to the human. Carries the screen as it looked at that moment. */
   | { type: 'needs_user'; step: number; reason: string; jpegBase64: string; width: number; height: number }
+  /**
+   * The model handed over a *form*: the chat shows a sign-in card with one input per field and the
+   * values go from there into the page, never through the model. Only the labels travel (the view
+   * has no use for the find-queries), and no value exists yet when this is emitted — nor ever in
+   * any event, which is what keeps the transcript, the journal, the log and the MCP door clean.
+   */
+  | { type: 'needs_fill'; step: number; reason: string; fields: { label: string; secret?: boolean }[]; jpegBase64: string; width: number; height: number }
   | { type: 'usage'; input: number; output: number; cacheRead?: number; cacheWrite?: number; cacheWrite1h?: number; costUsd?: number }
   /** A task just ended and was journaled; `due` = it is time for a reflection (tasks since the last one reached the threshold). */
   | { type: 'task_finished'; outcome: string; tasksSinceReflection: number; due: boolean }
@@ -138,6 +145,12 @@ export class AgentRunner {
   private lastShot?: { jpegBase64: string; width: number; height: number };
   /** A 320-px, marker-free copy of the last screenshot the model was shown: standby's default before-frame. */
   private lastSeen?: ScaledImage;
+  /**
+   * The sign-in card that is waiting, while `ask_fill` holds the loop. `values` is set by `fill()`
+   * — the one moment the values exist in this process — and is read once, by the typing, which is
+   * also where it dies. Nothing else ever reads it, and nothing writes it down.
+   */
+  private pendingFill?: { fields: FillField[]; values?: { label: string; value: string }[] };
   /** Per-run bookkeeping for the journal. */
   private current?: { task: string; reflection: boolean; reason?: string; steps: number; spentUsd: number; tokens: TokenCounts; lastAssistant: string; revisions: number; journaled: boolean; handovers: number; notes: number; followUps: number; said: string[]; ledger?: string; ledgers: number };
 
@@ -236,6 +249,30 @@ export class AgentRunner {
         resolve();
       };
     });
+  }
+
+  /**
+   * The sign-in card was submitted: the values for the card that is waiting, in the caller's hands
+   * for as long as this call takes. They are checked against the waiting card's labels, kept for
+   * the typing, and the loop is let go. A card that is not waiting, or labels that do not match
+   * it, is refused in a sentence — and then the values simply go out of scope unread.
+   */
+  fill(values: { label: string; value: string }[]): { ok: true } | { ok: false; error: string } {
+    const pending = this.pendingFill;
+    if (!pending || !this.waiting) return { ok: false, error: 'no sign-in card is waiting: she is not asking for one right now.' };
+    if (pending.values) return { ok: false, error: 'that card has already been filled in; nothing was sent a second time.' };
+    if (!Array.isArray(values) || values.length !== pending.fields.length) {
+      return { ok: false, error: `the card that is waiting has ${pending.fields.length} field${pending.fields.length === 1 ? '' : 's'} (${pending.fields.map((f) => f.label).join(', ')}); nothing was filled in.` };
+    }
+    const out: { label: string; value: string }[] = [];
+    for (const f of pending.fields) {
+      const given = values.find((v) => v && v.label === f.label);
+      if (!given) return { ok: false, error: `the card that is waiting has no field "${f.label}" in what was sent; it asks for ${pending.fields.map((x) => `"${x.label}"`).join(' and ')}. Nothing was filled in.` };
+      out.push({ label: f.label, value: String(given.value ?? '') });
+    }
+    pending.values = out;
+    this.resume();
+    return { ok: true };
   }
 
   /**
@@ -448,6 +485,16 @@ export class AgentRunner {
             if (!result) return; // stopped while waiting
             results.push(result);
             onEvent({ type: 'action', step, action, result });
+            continue;
+          }
+
+          if (action.type === 'ask_fill') {
+            if (this.current) this.current.handovers++;
+            const result = await this.handFill(step, action);
+            if (!result) return; // stopped while waiting
+            results.push(result);
+            onEvent({ type: 'action', step, action, result });
+            acted = true;
             continue;
           }
 
@@ -870,6 +917,70 @@ export class AgentRunner {
     // The observation after this batch is fresh anyway; skip the extra "user took control" re-observe.
     this.resumedSinceObserve = false;
     return { ok: true, message: 'The user handled it and handed the desktop back. Check the new screenshot before continuing.' };
+  }
+
+  /**
+   * ask_fill: the second knock. The chat is shown a card, the loop pauses exactly as a hand-over
+   * does, and one of three things ends the wait — a `fill` (the values are typed into the page), a
+   * `resume` (the person typed on the desktop instead, so this is an ordinary hand-over) or a stop.
+   *
+   * The typing is per field: the page puts the caret in the control the field names, then the value
+   * goes in as real keystrokes — so the page's own handlers run and Firefox's password manager sees
+   * a person typing and offers to save the login, which is why the second time there is no card at
+   * all. Nothing of a value reaches the result: only the labels that went in, and why any did not.
+   */
+  private async handFill(step: number, action: { type: 'ask_fill'; reason: string; fields: FillField[] }): Promise<ActionResult | undefined> {
+    // Armed before the event goes out, never after: a client can answer a card in the same tick it
+    // is shown (a password manager, a page that fills itself, a second screen), and the live check
+    // of 2026-09-21 did exactly that — the answer arrived while the loop was still letting go of
+    // the keyboard, and was refused as "no card is waiting".
+    this.pendingFill = { fields: action.fields };
+    this.waiting = true;
+    this.opts.onEvent({
+      type: 'needs_fill',
+      step,
+      reason: action.reason,
+      fields: action.fields.map((f) => (f.secret ? { label: f.label, secret: true } : { label: f.label })),
+      jpegBase64: this.lastShot?.jpegBase64 ?? '',
+      width: this.lastShot?.width ?? 0,
+      height: this.lastShot?.height ?? 0,
+    });
+    await this.opts.computer.releaseInput?.().catch(() => undefined);
+    // Already answered while we were releasing the keyboard: there is nothing to wait for, so the
+    // loop never pauses and the chat never shows a knock that was over before it was drawn.
+    if (!this.pendingFill.values) this.pause(`Waiting for you: ${action.reason}`);
+    const stopped = await this.shouldStop();
+    this.waiting = false;
+    const given = this.pendingFill?.values;
+    this.pendingFill = undefined;
+    if (stopped) return undefined;
+    this.resumedSinceObserve = false;
+    // Resumed without a card: they did it on the desktop, which is a hand-over and reads as one.
+    if (!given) return { ok: true, message: 'The user handled it and handed the desktop back. Check the new screenshot before continuing.' };
+
+    const filled: string[] = [];
+    const failed: string[] = [];
+    for (const [i, field] of action.fields.entries()) {
+      const focus = await this.opts.computer.execute({ type: 'focus', query: field.query });
+      if (!focus.ok || !focus.page || !focus.page.focused) {
+        failed.push(focus.page ? renderFocus(focus.page, this.scale, field.query, field.label) : `${field.label}: ${focus.error ?? 'the page could not be reached'}`);
+        continue;
+      }
+      const typed = await this.opts.computer.execute({ type: 'type', text: given[i].value, ...(field.secret ? { secret: true } : {}) });
+      if (!typed.ok) {
+        failed.push(`${field.label}: ${typed.error ?? 'the value could not be typed'}`);
+        continue;
+      }
+      filled.push(field.label);
+    }
+    const head = filled.length
+      ? `Filled ${filled.length} field${filled.length === 1 ? '' : 's'} into the page (${filled.join(', ')}). The values were never shown to you.`
+      : 'Nothing was filled into the page.';
+    const rest = failed.length ? ` These were not filled: ${failed.join(' ')}` : '';
+    const next = filled.length
+      ? ' Press the sign-in button yourself; if the site then wants a code or an approval on the user\'s phone, call ask_user.'
+      : ' Look at the screen, find the fields again and try once more, or call ask_user.';
+    return filled.length ? { ok: true, message: `${head}${rest}${next}` } : { ok: false, error: `${head}${rest}${next}` };
   }
 
   private async shouldStop(): Promise<boolean> {

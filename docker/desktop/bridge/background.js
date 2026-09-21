@@ -1,8 +1,9 @@
 // Deskfish page bridge — background script.
 //
 // Long-polls the Deskfish daemon (same container, 127.0.0.1) for page requests, asks the content
-// script of the active tab to answer them (every frame for a find or a read; for a scroll or a
-// selection, every frame finds and the one holding the best hit acts), and posts the answer back.
+// script of the active tab to answer them (every frame for a find or a read; for a scroll, a
+// selection or a focus, every frame finds and the one holding the best hit acts), and posts the
+// answer back.
 // The daemon's port and token arrive through managed storage (policies.json → 3rdparty), written
 // by the tank's entrypoint.
 'use strict';
@@ -48,9 +49,9 @@ function merge(frames, op, args) {
 }
 
 /** The daemon's names for the content script's ops. */
-const OPS = { page_find: 'find', find: 'find', page_read: 'read', read: 'read', page_scroll_to: 'scroll_to', scroll_to: 'scroll_to', page_select: 'select', select: 'select' };
+const OPS = { page_find: 'find', find: 'find', page_read: 'read', read: 'read', page_scroll_to: 'scroll_to', scroll_to: 'scroll_to', page_select: 'select', select: 'select', page_focus: 'focus', focus: 'focus' };
 /** Ops that act on the page: found in every frame first, then done in the one frame that holds the best hit. */
-const ACTS = new Set(['scroll_to', 'select']);
+const ACTS = new Set(['scroll_to', 'select', 'focus']);
 
 async function perform(job) {
   const op = OPS[job.op];
@@ -103,7 +104,7 @@ async function perform(job) {
   const r = await ask(best.f.frameId, op);
   if (!r) return { ok: false, error: NO_ANSWER };
   if (r.error) return { ok: false, error: r.error };
-  const done = op === 'scroll_to' ? r.scrolled : r.selected;
+  const done = op === 'scroll_to' ? r.scrolled : op === 'focus' ? r.focused : r.selected;
   if (!done && r.reason !== 'no-option') r.elements = merge(answers, 'find', job.args).elements;
   return { ok: true, data: { url, title, ...r } };
 }

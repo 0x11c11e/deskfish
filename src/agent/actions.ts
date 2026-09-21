@@ -97,6 +97,74 @@ export function askUserAction(input: unknown): ComputerAction {
 }
 
 /**
+ * The other hand-over: a form instead of the desktop. `ask_user` gives the person the keyboard;
+ * `ask_fill` gives them a card in the chat whose values go straight into the page's fields as real
+ * keystrokes, without ever passing through the model. Taken from the one thing xAI's Grok Bot does
+ * better than we did (2026-09-21): a login the bot never sees, typed by the person in the chat they
+ * are already in, on whatever screen they are at — including a phone.
+ */
+export const ASK_FILL_TOOL_NAME = 'ask_fill';
+
+/** A card asks for at most this many fields; more than a sign-in needs is a form, not a login. */
+export const MAX_FILL_FIELDS = 6;
+
+export const ASK_FILL_TOOL_DESCRIPTION =
+  'Ask the user for values and have them typed into the fields of the web page open in Firefox, without ever seeing them. ' +
+  'Use it for a sign-in the browser has not saved: find the fields first (find or read_page), then call this with one entry ' +
+  "per field. `reason` names the site in a short sentence (\"Sign in to LinkedIn\"). Each field has `label` (what the card " +
+  'shows the user: "Email or phone", "Password"), `query` (the words that find matches for that control, e.g. "password field") ' +
+  'and `secret: true` for a password, which masks the input. A card appears in the user\'s chat; what they type is typed into ' +
+  'the page for you, key by key, so the page reacts as it would to a person and Firefox offers to save the login for next time. ' +
+  'You are told which fields were filled and nothing else — never a value. Then press the sign-in button yourself. For a code, ' +
+  'an app approval, a CAPTCHA or anything that needs the desktop, use ask_user instead.';
+
+export const ASK_FILL_TOOL_PARAMETERS: { type: 'object'; properties: Record<string, unknown>; required: string[]; additionalProperties: boolean } = {
+  type: 'object',
+  properties: {
+    reason: { type: 'string', description: 'What the user is signing in to, in one short sentence ("Sign in to LinkedIn")' },
+    fields: {
+      type: 'array',
+      minItems: 1,
+      maxItems: MAX_FILL_FIELDS,
+      description: 'The fields to fill, in the order they should be typed',
+      items: {
+        type: 'object',
+        properties: {
+          label: { type: 'string', description: 'What the card shows above the input ("Email or phone")' },
+          query: { type: 'string', description: 'The control on the page, as for find ("email field", "password field")' },
+          secret: { type: 'boolean', description: 'true for a password: the card masks it and nothing of it is ever written down' },
+        },
+        required: ['label', 'query'],
+        additionalProperties: false,
+      },
+    },
+  },
+  required: ['reason', 'fields'],
+  additionalProperties: false,
+};
+
+export function askFillAction(input: unknown): ComputerAction {
+  const o = (input ?? {}) as { reason?: unknown; fields?: unknown };
+  const raw = Array.isArray(o.fields) ? o.fields : [];
+  const fields = raw.slice(0, MAX_FILL_FIELDS).map((f) => {
+    const x = (f ?? {}) as { label?: unknown; query?: unknown; secret?: unknown };
+    const label = String(x.label ?? '').trim();
+    const query = String(x.query ?? '').trim();
+    if (!label) throw new Error('every field of ask_fill needs a label (what the card shows the user)');
+    if (!query) throw new Error(`the field "${label}" needs a query: the words find matches for that control on the page`);
+    return x.secret ? { label, query, secret: true } : { label, query };
+  });
+  if (!fields.length) throw new Error('ask_fill needs at least one field');
+  const seen = new Set<string>();
+  for (const f of fields) {
+    if (seen.has(f.label)) throw new Error(`two fields are both labelled "${f.label}"; give each one its own label`);
+    seen.add(f.label);
+  }
+  const reason = String(o.reason ?? '').trim();
+  return { type: 'ask_fill', reason: reason || 'Sign in to this page.', fields };
+}
+
+/**
  * Third tool, for providers whose computer tool has a fixed schema (Anthropic's native one).
  * The OpenAI-compatible adapter instead exposes zoom as an action of the computer tool itself.
  */

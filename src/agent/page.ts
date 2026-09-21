@@ -139,6 +139,26 @@ export function renderSelect(page: PageInfo, scale: Scale, query: string, option
   return `${why}\n${renderPage(page, scale, 'find', query)}`;
 }
 
+/**
+ * What a `focus` reports back inside `ask_fill` — never to a tool of hers, so it is deliberately
+ * thinner than find's: role, name and place, and no `state`. A field's state is its current value,
+ * and the one thing this whole path exists to guarantee is that no value travels with it; the
+ * candidates listed after a failure are the page's own controls, and she can read their state with
+ * `find` if she wants it.
+ */
+export function renderFocus(page: PageInfo, scale: Scale, query: string, label: string): string {
+  const sx = (v: number) => Math.round(v / (scale.x || 1));
+  const sy = (v: number) => Math.round(v / (scale.y || 1));
+  const where = (e: PageElement) => `${e.role} ${e.name ? JSON.stringify(trim(e.name, 80)) : '(unnamed)'} at (${sx(e.x)}, ${sy(e.y)})`;
+  const best = page.elements[0];
+  if (page.focused && best) return `${label}: ${where(best)}`;
+  const why = best
+    ? `${label}: nothing matching ${JSON.stringify(query)} is a field that can be typed into.`
+    : `${label}: no element matches ${JSON.stringify(query)}.`;
+  const near = page.elements.slice(0, 5).map((e, i) => `[${i + 1}] ${where(e)}`);
+  return near.length ? `${why} The nearest controls are: ${near.join('; ')}.` : why;
+}
+
 function describeElement(e: PageElement, sx: (v: number) => number, sy: (v: number) => number): string {
   const name = e.name ? JSON.stringify(trim(e.name, 80)) : '(unnamed)';
   const state = e.state ? ` (${e.state})` : '';

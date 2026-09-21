@@ -4,6 +4,10 @@ import {
   ASK_USER_TOOL_DESCRIPTION,
   ASK_USER_TOOL_NAME,
   ASK_USER_TOOL_PARAMETERS,
+  ASK_FILL_TOOL_DESCRIPTION,
+  ASK_FILL_TOOL_NAME,
+  ASK_FILL_TOOL_PARAMETERS,
+  askFillAction,
   FORGET_TOOL_DESCRIPTION,
   FORGET_TOOL_NAME,
   FORGET_TOOL_PARAMETERS,
@@ -270,6 +274,7 @@ export class AnthropicAdapter implements ModelAdapter {
           if (block.name === 'computer') actions.push(toComputerAction(block.input));
           else if (block.name === ZOOM_TOOL_NAME) actions.push(zoomAction(block.input));
           else if (block.name === ASK_USER_TOOL_NAME) actions.push(askUserAction(block.input));
+          else if (block.name === ASK_FILL_TOOL_NAME) actions.push(askFillAction(block.input));
           else if (block.name === READ_DOCS_TOOL_NAME) actions.push(readDocsAction(block.input));
           else if (block.name === FIND_TOOL_NAME) actions.push(findAction(block.input));
           else if (block.name === CLICK_ELEMENT_TOOL_NAME) actions.push(clickElementAction(block.input));
@@ -391,6 +396,11 @@ export class AnthropicAdapter implements ModelAdapter {
           name: ASK_USER_TOOL_NAME,
           description: ASK_USER_TOOL_DESCRIPTION,
           input_schema: ASK_USER_TOOL_PARAMETERS,
+        },
+        {
+          name: ASK_FILL_TOOL_NAME,
+          description: ASK_FILL_TOOL_DESCRIPTION,
+          input_schema: ASK_FILL_TOOL_PARAMETERS,
         },
         { name: FIND_TOOL_NAME, description: FIND_TOOL_DESCRIPTION, input_schema: FIND_TOOL_PARAMETERS },
         { name: READ_PAGE_TOOL_NAME, description: READ_PAGE_TOOL_DESCRIPTION, input_schema: READ_PAGE_TOOL_PARAMETERS },

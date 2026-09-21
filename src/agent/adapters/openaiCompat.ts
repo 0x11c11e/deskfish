@@ -1,6 +1,10 @@
 import {
   ASK_USER_TOOL_DESCRIPTION,
   ASK_USER_TOOL_NAME,
+  ASK_FILL_TOOL_DESCRIPTION,
+  ASK_FILL_TOOL_NAME,
+  ASK_FILL_TOOL_PARAMETERS,
+  askFillAction,
   ASK_USER_TOOL_PARAMETERS,
   COMPUTER_TOOL_DESCRIPTION,
   COMPUTER_TOOL_NAME,
@@ -261,6 +265,7 @@ export class OpenAICompatAdapter implements ModelAdapter {
         const args = call.function?.arguments ? JSON.parse(call.function.arguments) : {};
         if (call.function?.name === COMPUTER_TOOL_NAME) actions.push(toComputerAction(args));
         else if (call.function?.name === ASK_USER_TOOL_NAME) actions.push(askUserAction(args));
+        else if (call.function?.name === ASK_FILL_TOOL_NAME) actions.push(askFillAction(args));
         else if (call.function?.name === READ_DOCS_TOOL_NAME) actions.push(readDocsAction(args));
         else if (call.function?.name === FIND_TOOL_NAME) actions.push(findAction(args));
         else if (call.function?.name === CLICK_ELEMENT_TOOL_NAME) actions.push(clickElementAction(args));
@@ -399,6 +404,14 @@ export class OpenAICompatAdapter implements ModelAdapter {
             name: ASK_USER_TOOL_NAME,
             description: ASK_USER_TOOL_DESCRIPTION,
             parameters: ASK_USER_TOOL_PARAMETERS,
+          },
+        },
+        {
+          type: 'function',
+          function: {
+            name: ASK_FILL_TOOL_NAME,
+            description: ASK_FILL_TOOL_DESCRIPTION,
+            parameters: ASK_FILL_TOOL_PARAMETERS,
           },
         },
         { type: 'function', function: { name: FIND_TOOL_NAME, description: FIND_TOOL_DESCRIPTION, parameters: FIND_TOOL_PARAMETERS } },

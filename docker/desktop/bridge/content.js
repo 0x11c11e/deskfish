@@ -1,11 +1,12 @@
 // Deskfish page bridge — content script. Runs in every frame of every http(s) page.
 //
-// Answers four requests from the background script: `find` (elements matching a query, best
+// Answers five requests from the background script: `find` (elements matching a query, best
 // first), `read` (what is on the page: interactive elements in page order, or the text),
-// `scroll_to` (the page scrolls the best hit into view) and `select` (an option of a native
-// <select>, chosen by its text). Coordinates are screen pixels (the X display), computed from the
-// frame's own screen origin, so they are right inside iframes too. find and read change nothing;
-// scroll_to moves the page and select sets one control, exactly as a person would.
+// `scroll_to` (the page scrolls the best hit into view), `select` (an option of a native <select>,
+// chosen by its text) and `focus` (the caret into one text field, for the sign-in card). Coordinates
+// are screen pixels (the X display), computed from the frame's own screen origin, so they are right
+// inside iframes too. find and read change nothing; scroll_to moves the page, and select and focus
+// touch one control, exactly as a person would.
 (function () {
   'use strict';
   if (window.__deskfishBridge) return;
@@ -294,6 +295,44 @@
     return { viewport: viewportInfo(o), elements: [slim(it)], total, selected: true };
   }
 
+  /**
+   * Can a person type into this? Anything that takes a caret: a textarea, a contenteditable, and
+   * every <input> but the ones that are really buttons or switches — a password field included,
+   * which `roleOf` reports as a textbox.
+   */
+  const NOT_TEXT = ['button', 'submit', 'reset', 'image', 'checkbox', 'radio', 'file', 'range', 'color'];
+  function typeable(el, role) {
+    const tag = el.tagName.toLowerCase();
+    if (tag === 'textarea') return true;
+    if (el.isContentEditable) return true;
+    if (tag === 'input') return !NOT_TEXT.includes((el.getAttribute('type') || 'text').toLowerCase());
+    return role === 'textbox' || role === 'searchbox';
+  }
+
+  /**
+   * focus: put the caret in the best hit that can be typed into, so the keystrokes that follow (a
+   * sign-in card's value, typed by the daemon) land in the right field. focus() scrolls the field
+   * into view if it is off-screen, as a click would; a field that already holds something has its
+   * content selected, so the typing replaces it rather than appending to it. Nothing matching, or a
+   * best hit that is a button or a checkbox: nothing is touched and the answer says so with the
+   * candidates, as find would. The answer never carries a value — only where the caret went.
+   */
+  async function focus(args) {
+    const { o, ranked, total } = candidates(String((args && args.query) || ''), limitOf(args));
+    const hit = ranked.find((e) => e.score >= S.WEAK_SCORE && typeable(e.node, e.role));
+    if (!hit) return { viewport: viewportInfo(o), elements: ranked.map(slim), total, focused: false };
+    const node = hit.node;
+    try {
+      node.focus();
+      if (typeof node.select === 'function' && node.value) node.select();
+    } catch (err) {
+      return { viewport: viewportInfo(o), elements: [slim(hit)], total, focused: false };
+    }
+    await nextFrame();
+    const it = { ...hit, state: stateOf(node, hit.role), ...place(node, o) };
+    return { viewport: viewportInfo(o), elements: [slim(it)], total, focused: document.activeElement === node || node.contains(document.activeElement) };
+  }
+
   function read(args) {
     const o = ORIGIN();
     const scope = String((args && args.scope) || 'interactive');
@@ -336,7 +375,7 @@
     return { role: e.role, name: e.name, state: e.state, x: e.x, y: e.y, w: e.w, h: e.h, visible: e.visible, covered: e.covered, below: e.below, above: e.above, score: e.score };
   }
 
-  const OPS = { find, read, scroll_to: scrollTo, select, ping: () => ({ ok: true }) };
+  const OPS = { find, read, scroll_to: scrollTo, select, focus, ping: () => ({ ok: true }) };
 
   browser.runtime.onMessage.addListener((msg) => {
     if (!msg || typeof msg !== 'object') return undefined;

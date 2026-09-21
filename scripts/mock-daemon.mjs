@@ -18,9 +18,10 @@ const state = {
   typed: '',
   scroll: 0,
   actions: 0,
-  /** The canned page's own state: which element scroll_to brought into view, which option the dropdown holds. */
+  /** The canned page's own state: which element scroll_to brought into view, which option the dropdown holds, which field has the caret. */
   scrolledTo: '',
   selected: 0,
+  focused: '',
 };
 
 const ICON = { x: 40, y: 280, w: 72, h: 72 };
@@ -130,15 +131,18 @@ async function handle(body) {
     case 'page_find':
     case 'page_read':
     case 'page_scroll_to':
-    case 'page_select': {
+    case 'page_select':
+    case 'page_focus': {
       // A canned page, so the loop's page-bridge paths can be exercised without Firefox. scroll_to
-      // brings the off-screen "Privacy policy" link into the viewport; select sets the one dropdown.
+      // brings the off-screen "Privacy policy" link into the viewport; select sets the one dropdown;
+      // focus puts the caret in a field that can be typed into (the sign-in card's one page call).
       log(action === 'page_read' ? body.scope ?? 'interactive' : action === 'page_select' ? `${JSON.stringify(body.query)} → ${JSON.stringify(body.option)}` : JSON.stringify(body.query));
       const OPTIONS = ['Open this select menu', 'One', 'Two', 'Three'];
       const elements = [
         { role: 'heading', name: 'Example Domain', state: '', x: 640, y: 200, w: 400, h: 40, visible: true },
         { role: 'link', name: 'More information...', state: '', x: 640, y: 320, w: 160, h: 20, visible: true },
-        { role: 'textbox', name: 'Email', state: 'empty', x: 640, y: 420, w: 300, h: 32, visible: true },
+        { role: 'textbox', name: 'Email', state: state.focused === 'Email' ? 'empty, focused' : 'empty', x: 640, y: 420, w: 300, h: 32, visible: true },
+        { role: 'textbox', name: 'Password', state: state.focused === 'Password' ? 'empty, focused' : 'empty', x: 640, y: 450, w: 300, h: 32, visible: true },
         { role: 'button', name: 'Sign in', state: '', x: 640, y: 480, w: 120, h: 36, visible: true },
         { role: 'combobox', name: 'Dropdown (select)', state: `selected: ${JSON.stringify(OPTIONS[state.selected])}`, x: 640, y: 560, w: 200, h: 32, visible: true },
         state.scrolledTo === 'Privacy policy'
@@ -165,6 +169,14 @@ async function handle(body) {
         state.scrolledTo = best.name;
         const moved = best.name === 'Privacy policy' ? { ...best, x: 640, y: 440, visible: true, below: 0 } : best;
         return { success: true, data: { ...page, viewport: { ...page.viewport, scrollY: 760 }, elements: [moved], total: elements.length, scrolled: true } };
+      }
+      if (action === 'page_focus') {
+        // Only something a person could type into takes the caret; a button that matched the words
+        // does not, and the answer then carries the candidates, as find's would.
+        const field = hits.find((e) => e.score >= 30 && (e.role === 'textbox' || e.role === 'searchbox'));
+        if (!field) return { success: true, data: { ...page, elements: hits, total: elements.length, focused: false } };
+        state.focused = field.name;
+        return { success: true, data: { ...page, elements: [{ ...field, state: 'empty, focused' }], total: elements.length, focused: true } };
       }
       const combo = hits.find((e) => e.score >= 30 && e.role === 'combobox');
       if (!combo) return { success: true, data: { ...page, elements: hits, total: elements.length, selected: false, reason: 'no-select' } };

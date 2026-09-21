@@ -11,8 +11,11 @@
 //                                 (+ read_file {path} / write_file {path,data} / list_files {path},
 //                                    all confined to $HOME — the file exchange with the user)
 //                                 (+ page_find {query,limit} / page_read {scope,limit} / page_scroll_to
-//                                    {query} / page_select {query,option} — answered by the Deskfish
-//                                    page bridge, a WebExtension in Firefox, see below)
+//                                    {query} / page_select {query,option} / page_focus {query} —
+//                                    answered by the Deskfish page bridge, a WebExtension in
+//                                    Firefox, see below)
+//                                 (+ type_text {text,secret}: with secret, nothing of the text is
+//                                    logged and there is no paste fallback — the sign-in card)
 //                                 (+ run_command {command,timeout_seconds,cwd} → {stdout,stderr,exit,
 //                                    timedOut,ms}: bash as the bot user, not queued, killed on timeout
 //                                    or when the caller goes away)
@@ -244,15 +247,26 @@ async function withHeldKeys(holdKeys, fn) {
 /** Text longer than this is typed at the fast key delay. */
 const PASTE_OVER = 200;
 
-/** One line via xdotool type (stdin, so no shell quoting); if xdotool cannot map a character, paste the line instead. */
-async function typeRun(text, delay) {
+/**
+ * One line via xdotool type (stdin, so no shell quoting); if xdotool cannot map a character, paste
+ * the line instead — except for a `secret` (a value from a sign-in card, which the model was never
+ * shown). For those: nothing of the text reaches this log, not even the masked slice the failure
+ * line normally carries, and there is no paste fallback at all, because the clipboard is mirrored
+ * to the user's own machine. A secret that cannot be typed is an error, not a paste.
+ */
+async function typeRun(text, delay, secret) {
   try {
     await new Promise((resolve, reject) => {
       const child = execFile('xdotool', ['type', '--delay', String(delay), '--file', '-'], { env: { ...process.env, LC_ALL: 'C.UTF-8', LANG: 'C.UTF-8' } }, (err) => (err ? reject(err) : resolve()));
       child.stdin.end(text);
     });
   } catch (err) {
-    console.log(`type_text: xdotool could not type ${maskSecrets(JSON.stringify(text.slice(0, 40)))} (${err.message.split('\n')[1] ?? err.message}); pasting instead`);
+    const why = err.message.split('\n')[1] ?? err.message;
+    if (secret) {
+      console.log(`type_text: xdotool could not type a secret value (${why}); it was not pasted — the clipboard leaves this computer`);
+      throw new Error(`the value could not be typed with the keyboard (${why}); a secret is never put on the clipboard, so nothing was entered`);
+    }
+    console.log(`type_text: xdotool could not type ${maskSecrets(JSON.stringify(text.slice(0, 40)))} (${why}); pasting instead`);
     await pasteText(text);
   }
 }
@@ -458,10 +472,11 @@ async function handle(body, extra = {}) {
       // between them; the UTF-8 locale lets it type anything beyond ASCII (em dashes, accents, CJK).
       // Long text (an email body) is typed faster: 3 ms a key is still in order in Firefox and xterm.
       const delay = body.delay ?? (text.length > PASTE_OVER ? 3 : 12);
+      const secret = body.secret === true;
       const lines = text.split('\n');
       for (let i = 0; i < lines.length; i++) {
         if (i) await xdo('key', '--delay', '40', 'Return');
-        if (lines[i]) await typeRun(lines[i], delay);
+        if (lines[i]) await typeRun(lines[i], delay, secret);
       }
       return;
     }
@@ -583,6 +598,17 @@ async function handle(body, extra = {}) {
       return answer.data;
     }
 
+    case 'page_focus': {
+      // Put the caret in one text field of the current Firefox page — the best match for a query
+      // that can actually be typed into. The sign-in card's one page call; the value that follows
+      // is typed with the keyboard, so the page sees a person and Firefox offers to save the login.
+      const query = String(body.query ?? '').trim();
+      if (!query) throw new Error('page_focus needs a query');
+      const answer = await bridgeRequest('focus', { query, limit: Number(body.limit) || 5 });
+      if (!answer.ok) throw new Error(answer.error || 'the page bridge failed');
+      return answer.data;
+    }
+
     case 'run_command':
       return runCommand(body, extra.signal);
 
@@ -667,7 +693,9 @@ const server = http.createServer(async (req, res) => {
         } else {
           data = await enqueue(() => handle(body));
         }
-        const log = body.action === 'write_file' ? { ...body, data: '<redacted>' } : body;
+        // What is written down: never a file's bytes, and never a sign-in card's value — not even
+        // masked. The rest goes through maskSecrets as before.
+        const log = body.action === 'write_file' ? { ...body, data: '<redacted>' } : body.action === 'type_text' && body.secret === true ? { ...body, text: '<redacted>' } : body;
         console.log(`${new Date().toISOString()} ${maskSecrets(JSON.stringify(log))}`.slice(0, 200));
         return json(res, 200, data === undefined ? { success: true } : { success: true, data });
       } catch (err) {

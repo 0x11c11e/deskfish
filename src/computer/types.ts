@@ -29,7 +29,12 @@ export type ComputerAction =
       holdKeys?: string[];
     }
   | { type: 'drag'; from: Point; to: Point; button?: MouseButton }
-  | { type: 'type'; text: string }
+  /**
+   * Type text as real keystrokes. `secret` marks a value the model was never shown (a sign-in
+   * card's, see `ask_fill`): the tank's daemon writes nothing of it to its log and never falls back
+   * to a paste, because the clipboard is mirrored to the user's own machine.
+   */
+  | { type: 'type'; text: string; secret?: boolean }
   /** A key chord, e.g. ['ctrl', 'l'] or ['Return']. xdotool-style names. */
   | { type: 'key'; keys: string[] }
   | { type: 'scroll'; x?: number; y?: number; direction: ScrollDirection; amount: number }
@@ -57,6 +62,13 @@ export type ComputerAction =
    */
   | { type: 'find'; query: string; limit?: number }
   | { type: 'read_page'; scope?: 'interactive' | 'text' }
+  /**
+   * The page puts the caret in one text field: the best hit for `query` that can take typing (a
+   * textbox, a search box, a password field, a textarea, a contenteditable). Not a tool of hers —
+   * only `ask_fill` uses it, once per field, so the value that follows lands in the right control.
+   * Changes the screen: a caret, a focus ring, and the page may scroll the field into view.
+   */
+  | { type: 'focus'; query: string }
   /**
    * The find and the click in one step: ask the bridge what `find` would ask, then left-click the
    * best hit at its own coordinates — but only when that hit is strong, visible, uncovered and on
@@ -105,7 +117,25 @@ export type ComputerAction =
    * Not a computer action: the model hands the desktop to the human (login, 2FA, CAPTCHA,
    * confirmation, or it is stuck). The loop pauses until the user resumes; the computer never sees it.
    */
-  | { type: 'ask_user'; reason: string };
+  | { type: 'ask_user'; reason: string }
+  /**
+   * The other hand-over: not the desktop but a form. The chat shows a card with one input per
+   * field; what the person types goes into the page as real keystrokes without ever passing
+   * through the model. `query` is what `find` matches for that control, `label` is what the card
+   * shows, `secret` masks the input and keeps the value out of the daemon's log. The tool never
+   * returns a value — only how many fields were filled, by label.
+   */
+  | { type: 'ask_fill'; reason: string; fields: FillField[] };
+
+/** One field of a sign-in card. */
+export interface FillField {
+  /** What the card shows above the input ("Email or phone"). */
+  label: string;
+  /** The words `find` matches for that control on the page. */
+  query: string;
+  /** A password: the card masks it and the tank's daemon writes nothing of it anywhere. */
+  secret?: boolean;
+}
 
 export interface Screenshot {
   /** PNG bytes at native resolution */
@@ -147,6 +177,8 @@ export interface PageInfo {
   more?: { visible: number; below: number; above: number };
   /** For scroll_to: whether the page scrolled (false: the hit was weak or missing; `elements` are the candidates). */
   scrolled?: boolean;
+  /** For focus: whether a text field took the caret (false: no hit, or the best hit cannot be typed into). */
+  focused?: boolean;
   /** For select_option: whether an option was chosen; when not, why, and the options the dropdown has (up to 20 of `optionCount`). */
   selected?: boolean;
   reason?: 'no-select' | 'no-option';
@@ -236,6 +268,7 @@ export function changesScreen(a: ComputerAction): boolean {
     case 'click_element':
     case 'scroll_to':
     case 'select_option':
+    case 'focus':
     case 'drag':
     case 'type':
     case 'key':
@@ -244,6 +277,7 @@ export function changesScreen(a: ComputerAction): boolean {
     case 'wait_for':
     case 'run_command':
     case 'ask_user':
+    case 'ask_fill':
       return true;
   }
 }
@@ -266,7 +300,8 @@ export function describeAction(a: ComputerAction): string {
     case 'drag':
       return `drag from (${a.from.x}, ${a.from.y}) to (${a.to.x}, ${a.to.y})`;
     case 'type':
-      return `type ${JSON.stringify(a.text.length > 60 ? a.text.slice(0, 57) + '…' : a.text)}`;
+      // A secret is a value from a sign-in card: nobody — the model, the chat, the log — is shown it.
+      return a.secret ? 'type a value from the sign-in card (not shown)' : `type ${JSON.stringify(a.text.length > 60 ? a.text.slice(0, 57) + '…' : a.text)}`;
     case 'key':
       return `press ${a.keys.join('+')}`;
     case 'scroll': {
@@ -315,7 +350,11 @@ export function describeAction(a: ComputerAction): string {
       return a.text ? `save playbook: ${a.title}` : `remove playbook: ${a.title}`;
     case 'read_playbook':
       return `read playbook: ${a.title}`;
+    case 'focus':
+      return `focus the field for ${JSON.stringify(a.query)}`;
     case 'ask_user':
       return `asks you: ${a.reason}`;
+    case 'ask_fill':
+      return `ask to fill: ${a.fields.map((f) => f.label).join(', ')}`;
   }
 }
