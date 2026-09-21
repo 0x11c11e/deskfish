@@ -486,11 +486,23 @@ export interface UplinkOptions {
   /** The OPAQUE record: enough to check a password, never enough to learn one. */
   record: RemoteRecord;
   host: UplinkHost;
+  /** How long the relay may say nothing before the socket is dropped and dialled again; only a test lowers it. */
+  idleMs?: number;
 }
 
 /** The backoff between attempts: a second, then doubling to a minute, so a relay that is down is not hammered. */
 const FIRST_DELAY = 1000;
 const MAX_DELAY = 60_000;
+/**
+ * How long the relay may say nothing at all — no frame, no ping — before this end decides the
+ * socket is dead and dials again. The relay pings every 30 s, so this is two and a half missed
+ * pings. Without it a laptop that slept, a NAT that forgot the flow or a proxy that cut a quiet
+ * socket leaves a connection that TCP may take an hour to give up on, while `remote status` calls
+ * it connected and every browser that arrives falls into it.
+ */
+const IDLE_MS = 75_000;
+/** How often that silence is measured (a third of `idleMs` when a test lowers it, so it is actually measured). */
+const IDLE_CHECK_MS = 15_000;
 /** The relay's own control lane: client number 0 carries `{open}` and `{close}`, never a browser's bytes. */
 const CONTROL = 0;
 /**
@@ -511,6 +523,11 @@ export class RemoteUplink {
   private state: RemoteStatus['state'] = 'connecting';
   private since = Date.now();
   private lastError?: string;
+  /** When the relay last said anything — a frame, or one of its pings. */
+  private lastSeen = 0;
+  private heartbeat?: ReturnType<typeof setInterval>;
+  /** Set when this end dropped a quiet socket, so `lost` says that rather than "the relay closed it". */
+  private quietReason?: string;
 
   constructor(private readonly o: UplinkOptions) {}
 
@@ -529,6 +546,8 @@ export class RemoteUplink {
     this.stopped = true;
     if (this.retry) clearTimeout(this.retry);
     this.retry = undefined;
+    if (this.heartbeat) clearInterval(this.heartbeat);
+    this.heartbeat = undefined;
     for (const session of [...this.sessions.values()]) session.finish(why);
     this.sessions.clear();
     const socket = this.socket;
@@ -567,7 +586,12 @@ export class RemoteUplink {
       return this.lost(err instanceof Error ? err.message : String(err));
     }
     this.socket = socket;
+    this.lastSeen = Date.now();
+    this.watch(socket);
+    // The relay pings; `ws` answers by itself. All this end has to do is notice that they stopped.
+    socket.on('ping', () => (this.lastSeen = Date.now()));
     socket.on('message', (data: Buffer | ArrayBuffer | Buffer[], isBinary: boolean) => {
+      this.lastSeen = Date.now();
       const bytes = Buffer.isBuffer(data) ? data : Array.isArray(data) ? Buffer.concat(data) : Buffer.from(data);
       if (!isBinary) return this.said(socket, bytes);
       if (!this.accepted || bytes.length < 4) return;
@@ -581,6 +605,28 @@ export class RemoteUplink {
       // `close` follows and does the work; this keeps the error from being thrown at the process.
       this.lastError = err.message;
     });
+  }
+
+  /**
+   * The watchdog: a relay that has said nothing at all for `idleMs` is not there any more, whatever
+   * the socket thinks. Dropping it runs the ordinary `close` path, so the backoff and the reconnect
+   * are the ones every other loss uses — which is what makes a sleep, a wake or a NAT timeout boring.
+   */
+  private watch(socket: WebSocket): void {
+    const idleMs = this.o.idleMs ?? IDLE_MS;
+    if (this.heartbeat) clearInterval(this.heartbeat);
+    this.heartbeat = setInterval(() => {
+      if (this.socket !== socket) return;
+      if (Date.now() - this.lastSeen <= idleMs) return;
+      this.quietReason = `the relay went quiet for ${Math.round(idleMs / 1000)} s; dialling again`;
+      this.o.host.log(`remote: ${this.quietReason}`);
+      try {
+        socket.terminate();
+      } catch {
+        /* already gone; `close` follows either way */
+      }
+    }, Math.min(IDLE_CHECK_MS, Math.max(200, Math.floor(idleMs / 3))));
+    this.heartbeat.unref?.();
   }
 
   /** The relay's text lane: the challenge before we are in, nothing after. */
@@ -672,12 +718,17 @@ export class RemoteUplink {
   /** The socket went (or never came). Every session on it goes, then the backoff runs. */
   private lost(why: string): void {
     this.socket = undefined;
+    if (this.heartbeat) clearInterval(this.heartbeat);
+    this.heartbeat = undefined;
     for (const session of [...this.sessions.values()]) session.finish('the uplink went');
     this.sessions.clear();
     if (this.stopped) return;
     const wasUp = this.state === 'connected';
-    this.setState('error', why);
-    if (wasUp || this.delay === FIRST_DELAY) this.o.host.log(`remote: ${why}; trying again in ${Math.round(this.delay / 1000)}s`);
+    // A socket this end dropped for silence has already said so, in better words than a close code.
+    const quiet = this.quietReason;
+    this.quietReason = undefined;
+    this.setState('error', quiet ?? why);
+    if (!quiet && (wasUp || this.delay === FIRST_DELAY)) this.o.host.log(`remote: ${why}; trying again in ${Math.round(this.delay / 1000)}s`);
     this.retry = setTimeout(() => this.connect(), this.delay);
     this.delay = Math.min(this.delay * 2, MAX_DELAY);
   }

@@ -51,18 +51,26 @@ const answerChallenge = (challenge: string, context: string, username: string, k
 const admin = (method: string, url: string, body?: unknown, key = ADMIN) =>
   fetch(`${http}${url}`, { method, headers: { authorization: `Bearer ${key}`, 'content-type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) });
 
+/** What a test uplink or browser may vary: which relay it dials, and how its socket behaves. */
+type Dial = { base?: string; wsOptions?: WebSocket.ClientOptions };
+
 /** A gateway uplink: connects, answers the challenge, and hands back what it is sent. */
-async function uplink(username = USER, key = pair.privateKey) {
-  const socket = new WebSocket(`${ws}/uplink`);
+async function uplink(username = USER, key = pair.privateKey, o: Dial = {}) {
+  const base = o.base ?? ws;
+  const socket = new WebSocket(`${base}/uplink`, o.wsOptions);
   const frames: { clientId: number; bytes: Buffer }[] = [];
   const control: any[] = [];
+  const challenged: any[] = [];
   let accepted = false;
   let closed: { code: number; reason: string } | undefined;
   const ready = new Promise<boolean>((resolve) => {
     socket.on('message', (data, isBinary) => {
       if (!isBinary) {
         const message = JSON.parse(data.toString());
-        if (message.challenge) return socket.send(JSON.stringify({ username, signature: answerChallenge(message.challenge, message.context, username, key) }));
+        if (message.challenge) {
+          challenged.push(message);
+          return socket.send(JSON.stringify({ username, signature: answerChallenge(message.challenge, message.context, username, key) }));
+        }
         if (message.ok) { accepted = true; resolve(true); }
         return;
       }
@@ -82,12 +90,12 @@ async function uplink(username = USER, key = pair.privateKey) {
     frame.set(bytes, 4);
     socket.send(frame, { binary: true });
   };
-  return { socket, frames, control, send, get accepted() { return accepted; }, get closed() { return closed; } };
+  return { socket, frames, control, challenged, send, get accepted() { return accepted; }, get closed() { return closed; } };
 }
 
 /** A browser on the relay. */
-async function browser(username = USER) {
-  const socket = new WebSocket(`${ws}/client?user=${encodeURIComponent(username)}`);
+async function browser(username = USER, o: Dial = {}) {
+  const socket = new WebSocket(`${o.base ?? ws}/client?user=${encodeURIComponent(username)}`, o.wsOptions);
   const binary: Buffer[] = [];
   const text: any[] = [];
   let closed: { code: number; reason: string } | undefined;
@@ -339,6 +347,78 @@ try {
     socket.close();
     await chatty.close();
     fs.rmSync(dir2, { recursive: true, force: true });
+    console.log = (...a: unknown[]) => void said.push(`log ${a.join(' ')}`);
+  }
+
+  /** A relay of its own, with its own folder, this user enrolled on it. */
+  const another = async (options: Record<string, unknown>) => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'deskfish-relay-more-'));
+    const one = startRelay({ port: 0, host: '127.0.0.1', adminKey: ADMIN, dataDir: dir, log: 'quiet', env: {}, ...options });
+    const p: number = await one.listening;
+    const code = await (await fetch(`http://127.0.0.1:${p}/admin/codes`, { method: 'POST', headers: { authorization: `Bearer ${ADMIN}`, 'content-type': 'application/json' }, body: '{}' })).json();
+    await fetch(`http://127.0.0.1:${p}/enroll`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ username: USER, publicKey, code: code.code }) });
+    return {
+      relay: one,
+      base: `ws://127.0.0.1:${p}`,
+      usage: async () => (await (await fetch(`http://127.0.0.1:${p}/admin/usage/${USER}`, { headers: { authorization: `Bearer ${ADMIN}` } })).json()).days as Record<string, { seconds: number; up: number; down: number }>,
+      done: async () => { await one.close(); fs.rmSync(dir, { recursive: true, force: true }); },
+    };
+  };
+
+  // 15. Keepalives: a socket that stops answering a ping is closed, one that answers is left alone
+  {
+    const { relay: quick, base, done } = await another({ pingIntervalMs: 200 });
+    const live = await uplink(USER, pair.privateKey, { base });
+    ok(live.accepted, 'the uplink is up at a relay that pings every 200ms');
+    // `autoPong: false` is the `ws` option that stops a client answering a ping by itself — a laptop
+    // that slept, a NAT that dropped the flow, a proxy that cut it: from here they all look like this.
+    const deaf = await browser(USER, { base, wsOptions: { autoPong: false } });
+    const polite = await browser(USER, { base });
+    await sleep(120);
+    const deafId = live.control.filter((c) => typeof c.open === 'number')[0].open;
+    await sleep(700);
+    ok(deaf.closed !== undefined, `a browser that never answers is closed within a second (${JSON.stringify(deaf.closed)})`);
+    ok(polite.closed === undefined, 'one that answers is left alone');
+    ok(live.control.some((c) => c.close === deafId), 'and the gateway was told that browser went');
+    ok(live.closed === undefined, 'the uplink itself, which pongs, is untouched');
+
+    const deafUplink = await uplink(USER, pair.privateKey, { base, wsOptions: { autoPong: false } });
+    ok(deafUplink.accepted, 'a second uplink takes the username');
+    const watching = await browser(USER, { base });
+    await sleep(700);
+    ok(deafUplink.closed !== undefined, 'an uplink that never answers a ping is dropped too');
+    ok(watching.closed?.code === 1012, `and its browsers are told (${watching.closed?.code})`);
+    ok(quick.connected.length === 0, 'the username is free again');
+    polite.socket.close();
+    await done();
+    ok(said.length === 0, `and none of it was said at RELAY_LOG=quiet (${said.slice(0, 2).join(' | ')})`);
+  }
+
+  // 16. Usage is written while a session runs, and the total is the same as counting once at the end
+  {
+    const day = new Date().toISOString().slice(0, 10);
+    const flushing = await another({ usageFlushMs: 300, pingIntervalMs: 0 });
+    const atTheEnd = await another({ pingIntervalMs: 0 }); // the same session, counted only when it ends
+    const pair2 = [flushing, atTheEnd];
+    const ups = await Promise.all(pair2.map((r) => uplink(USER, pair.privateKey, { base: r.base })));
+    const pages = await Promise.all(pair2.map((r) => browser(USER, { base: r.base })));
+    await sleep(60);
+    for (let i = 0; i < 2; i++) {
+      const id = ups[i].control.find((c) => typeof c.open === 'number')!.open;
+      pages[i].socket.send(Buffer.alloc(900, 7), { binary: true });
+      ups[i].send(id, new Uint8Array(400));
+    }
+    await sleep(500); // more than one flush of the first, less than any of the second
+    const mid = await flushing.usage();
+    ok(mid[day] && mid[day].up > 0 && mid[day].down > 0, `an uplink that is still connected already counts (${JSON.stringify(mid[day])})`);
+    ok(Object.keys(await atTheEnd.usage()).length === 0, 'where without the flush there is nothing to show for it yet');
+    for (const u of ups) u.socket.close();
+    await sleep(120);
+    const [after, once] = await Promise.all(pair2.map((r) => r.usage()));
+    ok(after[day].up === once[day].up && after[day].down === once[day].down, `flushed bytes add up to exactly what one count at the end gives (${JSON.stringify(after[day])} vs ${JSON.stringify(once[day])})`);
+    ok(Math.abs(after[day].seconds - once[day].seconds) <= 1, `and so do the seconds (${after[day].seconds} vs ${once[day].seconds})`);
+    for (const p of pages) p.socket.close();
+    await Promise.all(pair2.map((r) => r.done()));
   }
 
   await relay.close();

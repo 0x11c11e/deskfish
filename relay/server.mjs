@@ -32,7 +32,8 @@ import { JsonUsers, USERNAME, sameSecret } from './store.mjs';
  *
  * Configured only by the environment: RELAY_PORT (8080), RELAY_DATA (/data), RELAY_ADMIN_KEY
  * (required — it refuses to start without one), RELAY_LOG (quiet | events), RELAY_MAX_CLIENTS_PER_USER
- * (8), RELAY_RATE (connections per address per minute, 30).
+ * (8), RELAY_RATE (connections per address per minute, 30), RELAY_PING_SECONDS (30),
+ * RELAY_USAGE_FLUSH_SECONDS (300).
  *
  * Node 22, one dependency (`ws`). Nothing here imports anything of Deskfish's: this folder is its
  * own package and its own container, and the product could be rewritten around it.
@@ -48,8 +49,24 @@ const MAX_BACKLOG = 4 * 1024 * 1024;
 const UPLINK_CONTEXT = 'deskfish-uplink';
 /** The client number that means "this message is for the relay itself", never a browser. */
 const CONTROL = 0;
+/**
+ * How often every socket is pinged, and therefore how long a dead one is held: a socket that has
+ * not answered the previous ping is closed at the next sweep. Nothing else notices a laptop that
+ * slept, a NAT that forgot an idle flow or a proxy that cut a quiet socket — TCP can take an hour,
+ * and until it does the relay hands browsers to an uplink nobody is listening to.
+ */
+const PING_INTERVAL_MS = 30_000;
+/** How often a running session's seconds and bytes are added to the store; see `flushUsage`. */
+const USAGE_FLUSH_MS = 300_000;
 
 const nowSeconds = () => Date.now() / 1000;
+
+/** An interval given in seconds by the environment, in milliseconds; anything unusable is the default. */
+function everyMs(value, fallback) {
+  if (value === undefined || value === null || String(value).trim() === '') return fallback;
+  const n = Number(value);
+  return Number.isFinite(n) && n >= 0 ? n * 1000 : fallback;
+}
 
 /* ---------- little helpers ---------- */
 
@@ -130,6 +147,10 @@ class Uplink {
   bytesUp = 0;
   bytesDown = 0;
   startedAt = nowSeconds();
+  /** What of the above has already been written to the store, so a flush adds only what is new. */
+  countedSeconds = 0;
+  countedUp = 0;
+  countedDown = 0;
 
   constructor(username, ws) {
     this.username = username;
@@ -153,8 +174,9 @@ class Uplink {
 
 /**
  * Starts the relay. `options` exists for the tests, which run it in this process: `port: 0` for a
- * free one, and `onFrame` to record what crossed — the only way to prove, from the outside, that a
- * whole session is ciphertext. Nothing sets `onFrame` in the container: `main()` does not pass it.
+ * free one, `onFrame` to record what crossed — the only way to prove, from the outside, that a
+ * whole session is ciphertext — and `pingIntervalMs` / `usageFlushMs` to make the two intervals
+ * short enough for a suite. Nothing sets `onFrame` in the container: `main()` does not pass it.
  */
 export function startRelay(options = {}) {
   const env = options.env ?? process.env;
@@ -169,6 +191,9 @@ export function startRelay(options = {}) {
   const users = options.users ?? new JsonUsers(join(dataDir, 'users.json'));
   users.checkWritable?.();
   const onFrame = options.onFrame;
+  // Both intervals are options so the tests can lower them to milliseconds; 0 means never.
+  const pingIntervalMs = options.pingIntervalMs ?? everyMs(env.RELAY_PING_SECONDS, PING_INTERVAL_MS);
+  const usageFlushMs = options.usageFlushMs ?? everyMs(env.RELAY_USAGE_FLUSH_SECONDS, USAGE_FLUSH_MS);
 
   const say = (line) => {
     if (logLevel === 'events') console.log(`${new Date().toISOString()} ${line}`);
@@ -177,6 +202,24 @@ export function startRelay(options = {}) {
 
   /** username → the one uplink that holds it. */
   const uplinks = new Map();
+
+  /**
+   * Every socket this relay holds, browsers and uplinks alike. One interval walks the lot: a socket
+   * that has not answered since the last sweep is terminated, which runs its ordinary close handling
+   * (an uplink's browsers are told, a browser's `{close}` goes up). A socket that said anything at
+   * all counts as alive, so a busy session is never pinged out of existence.
+   */
+  const sockets = new Set();
+  const watch = (ws) => {
+    ws.deskfishAlive = true;
+    sockets.add(ws);
+    const alive = () => {
+      ws.deskfishAlive = true;
+    };
+    ws.on('pong', alive);
+    ws.on('message', alive);
+    ws.on('close', () => sockets.delete(ws));
+  };
 
   const http = createServer((req, res) => {
     void handle(req, res).catch((err) => json(res, 500, { error: String(err?.message ?? err) }));
@@ -264,6 +307,7 @@ export function startRelay(options = {}) {
   /* ---------- the gateway's side ---------- */
 
   function acceptUplink(ws, address) {
+    watch(ws);
     const challenge = randomBytes(32);
     let uplink;
     let settled = false;
@@ -376,7 +420,30 @@ export function startRelay(options = {}) {
     }
   }
 
-  /** The clients of an uplink that ended, and the counts an operator bills by. */
+  /**
+   * Add to the store what this uplink has accrued since the last time — on a timer while it runs and
+   * once more when it ends, so the two together count everything exactly once. Written while a
+   * session runs because an uplink that stays up for a week would otherwise be invisible to
+   * `GET /admin/usage/:name` for the whole week, which is no use to anyone billing or capping by it.
+   * The seconds are kept as whole numbers *already counted*, so the daily total is the rounded
+   * length of the session however often it was flushed.
+   */
+  function flushUsage(uplink) {
+    const seconds = Math.round(nowSeconds() - uplink.startedAt) - uplink.countedSeconds;
+    const up = uplink.bytesUp - uplink.countedUp;
+    const down = uplink.bytesDown - uplink.countedDown;
+    if (!seconds && !up && !down) return;
+    uplink.countedSeconds += seconds;
+    uplink.countedUp += up;
+    uplink.countedDown += down;
+    try {
+      users.addUsage(uplink.username, seconds, up, down);
+    } catch (err) {
+      complain(`could not write usage for ${uplink.username}: ${String(err?.message ?? err)}`);
+    }
+  }
+
+  /** The clients of an uplink that ended, and the last of the counts an operator bills by. */
   function endSession(uplink, why) {
     for (const client of uplink.clients.values()) {
       try {
@@ -386,20 +453,14 @@ export function startRelay(options = {}) {
       }
     }
     uplink.clients.clear();
-    const seconds = nowSeconds() - uplink.startedAt;
-    if (seconds > 0.5 || uplink.bytesUp || uplink.bytesDown) {
-      try {
-        users.addUsage(uplink.username, seconds, uplink.bytesUp, uplink.bytesDown);
-      } catch (err) {
-        complain(`could not write usage for ${uplink.username}: ${String(err?.message ?? err)}`);
-      }
-    }
-    say(`${uplink.username}: uplink down (${why}), ${Math.round(seconds)}s, ${uplink.bytesUp}↑ ${uplink.bytesDown}↓`);
+    flushUsage(uplink);
+    say(`${uplink.username}: uplink down (${why}), ${Math.round(nowSeconds() - uplink.startedAt)}s, ${uplink.bytesUp}↑ ${uplink.bytesDown}↓`);
   }
 
   /* ---------- the browser's side ---------- */
 
   function acceptClient(ws, username, address) {
+    watch(ws);
     // A name that is not one, a name nobody enrolled and a name whose gateway is asleep all get the
     // same answer on purpose: a browser cannot learn from here which usernames exist on this relay.
     if (!USERNAME.test(username)) {
@@ -449,6 +510,27 @@ export function startRelay(options = {}) {
 
   /* ---------- lifecycle ---------- */
 
+  const pingTimer = pingIntervalMs > 0 ? setInterval(() => {
+    for (const ws of sockets) {
+      if (!ws.deskfishAlive) {
+        ws.terminate();
+        continue;
+      }
+      ws.deskfishAlive = false;
+      try {
+        ws.ping();
+      } catch {
+        /* it is going anyway */
+      }
+    }
+  }, pingIntervalMs) : undefined;
+  const usageTimer = usageFlushMs > 0 ? setInterval(() => {
+    for (const uplink of uplinks.values()) flushUsage(uplink);
+  }, usageFlushMs) : undefined;
+  // Neither keeps a process alive: a relay is kept running by its sockets, and a test by its work.
+  pingTimer?.unref?.();
+  usageTimer?.unref?.();
+
   const listening = new Promise((resolve, reject) => {
     http.once('error', reject);
     http.listen(port, host, () => {
@@ -468,6 +550,8 @@ export function startRelay(options = {}) {
       return [...uplinks.keys()];
     },
     async close() {
+      if (pingTimer) clearInterval(pingTimer);
+      if (usageTimer) clearInterval(usageTimer);
       for (const uplink of [...uplinks.values()]) dropUplink(uplink, 'the relay is stopping');
       uplinkServer.close();
       clientServer.close();

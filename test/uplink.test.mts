@@ -26,7 +26,8 @@ import WebSocket, { WebSocketServer } from 'ws';
 import { GatewayClient } from '../src/gateway/client';
 import type { DeskfishConfig } from '../src/gateway/config';
 import { startGateway } from '../src/gateway/start';
-import { Channel, LoginRefused, StreamKind, readMessages, register, writeMessage, type Stream } from '../src/remote/channel';
+import { RemoteUplink, newUplinkKey, type ClientLink, type UplinkHost } from '../src/gateway/uplink';
+import { Channel, LoginRefused, StreamKind, readMessages, register, writeMessage, type RemoteRecord, type Stream } from '../src/remote/channel';
 import { fileTransfer, protocolSocket, signIn as pageSignIn, vncChannel, type Live } from '../web/remote';
 // @ts-expect-error — the relay is its own plain-JavaScript package; it has no types and imports nothing of ours.
 import { startRelay } from '../relay/server.mjs';
@@ -173,6 +174,8 @@ async function refusedSentence(password: string, username = USER): Promise<strin
 }
 
 const dirs = [dir, relayData];
+/** The OPAQUE record her gateway answers logins with; made once, in section 3. */
+let made: RemoteRecord;
 try {
   // ---------- 1. before anything: off, and the settings say so ----------
   {
@@ -203,7 +206,7 @@ try {
 
   // ---------- 3. the password: made here, sent as a record, and the uplink comes up ----------
   {
-    const made = await register(USER, PASSWORD);
+    made = await register(USER, PASSWORD);
     const s = await home.call('remote.password', { serverSetup: made.serverSetup, record: made.record });
     ok(s.hasPassword && s.enrolled, 'the record is kept');
     const secrets = JSON.parse(fs.readFileSync(path.join(dir, 'secrets.json'), 'utf8'));
@@ -314,7 +317,50 @@ try {
     back.close();
   }
 
-  // ---------- 10. forget: the keys go too ----------
+  // ---------- 10. a relay that goes quiet without closing: the uplink notices and dials again ----------
+  {
+    // The relay's keepalive is off here, so nothing crosses the socket at all — which is what a
+    // laptop that slept, a NAT that forgot the flow or a proxy that cut it look like from this end.
+    const quietDir = fs.mkdtempSync(path.join(os.tmpdir(), 'deskfish-quiet-relay-'));
+    dirs.push(quietDir);
+    const quiet = startRelay({ port: 0, host: '127.0.0.1', adminKey: ADMIN, dataDir: quietDir, log: 'quiet', env: {}, pingIntervalMs: 0 });
+    const quietPort: number = await quiet.listening;
+    const key = newUplinkKey();
+    const code = await (await fetch(`http://127.0.0.1:${quietPort}/admin/codes`, { method: 'POST', headers: { authorization: `Bearer ${ADMIN}`, 'content-type': 'application/json' }, body: '{}' })).json();
+    await fetch(`http://127.0.0.1:${quietPort}/enroll`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ username: USER, publicKey: key.publicKey, code: code.code }) });
+
+    // `idleMs` is 75 s in life; only a test lowers it, so only a test constructs the uplink itself.
+    const said: string[] = [];
+    const nothing: UplinkHost = {
+      attach: (): ClientLink => ({ message: () => {}, refuse: () => {}, close: () => {} }),
+      config: () => ({}) as never,
+      uploadFile: () => Promise.reject(new Error('not in this test')),
+      readFile: () => Promise.reject(new Error('not in this test')),
+      log: (line) => said.push(line),
+    };
+    const lonely = new RemoteUplink({ relay: `ws://127.0.0.1:${quietPort}`, username: USER, privateKey: key.privateKey, record: made, host: nothing, idleMs: 1500 });
+    const states: string[] = [];
+    const errors: string[] = [];
+    const watching = setInterval(() => {
+      const { state, lastError } = lonely.status;
+      if (states[states.length - 1] !== state) states.push(state);
+      if (state === 'error' && lastError && !errors.includes(lastError)) errors.push(lastError);
+    }, 20);
+    lonely.start();
+    await until(() => lonely.status.state === 'connected', 'the uplink to reach the quiet relay');
+    ok(quiet.connected.includes(USER), 'the relay holds it');
+    await until(() => said.some((l) => /went quiet/.test(l)), 'the gateway to notice the silence', 10_000);
+    ok(/the relay went quiet for 2 s; dialling again/.test(said.find((l) => /went quiet/.test(l)) ?? ''), `one line says what happened: ${said.find((l) => /went quiet/.test(l))}`);
+    await until(() => lonely.status.state === 'connected' && states.lastIndexOf('connected') > states.indexOf('error'), 'the uplink to dial again by itself', 10_000);
+    ok(states.join(' → ').includes('connected → error') || states.join(' → ').includes('connected → connecting'), `status went ${states.join(' → ')}`);
+    ok(!said.some((l) => /trying again in/.test(l)), 'and the loss it caused is not announced a second time');
+    ok(errors.some((e) => /went quiet/.test(e)), `and remote status said why while it was down: ${errors.join(' | ')}`);
+    clearInterval(watching);
+    lonely.stop();
+    await quiet.close();
+  }
+
+  // ---------- 11. forget: the keys go too ----------
   {
     const s = await home.call('remote.off', { forget: true });
     ok(!s.enrolled && !s.hasPassword && s.state === 'off', 'off --forget drops the key and the record');

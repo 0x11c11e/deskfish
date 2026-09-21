@@ -88,8 +88,9 @@ labels:
   - 'traefik.http.services.relay.loadbalancer.server.port=8080'
 ```
 
-**nginx** — WebSockets need the upgrade headers and a long read timeout, or an idle uplink is cut
-every minute:
+**nginx** — WebSockets need the upgrade headers and a long read timeout. The relay's own pings keep
+an idle connection from looking idle, but a timeout shorter than `RELAY_PING_SECONDS` would still
+cut one, so leave it generous:
 
 ```nginx
 location / {
@@ -117,6 +118,8 @@ All of it is environment variables; there is no configuration file.
 | `RELAY_LOG` | `quiet` | `quiet` prints errors only; `events` adds one line per connection, enrolment and disconnection. Neither prints a frame. |
 | `RELAY_MAX_CLIENTS_PER_USER` | `8` | Browser windows on one username at once. |
 | `RELAY_RATE` | `30` | New connections from one address per minute. |
+| `RELAY_PING_SECONDS` | `30` | How often every socket — uplinks and browsers — is pinged. A socket that has not answered by the next ping is closed, so a slept laptop, a forgotten NAT entry or a proxy that cut a quiet connection is noticed in a minute rather than whenever TCP gives up. `0` turns pinging off. |
+| `RELAY_USAGE_FLUSH_SECONDS` | `300` | How often the seconds and bytes of a *running* session are added to the store. Without this an uplink that has been up all week shows nothing at `/admin/usage`. `0` writes only when a session ends. |
 
 ## Enrolling yourself
 
