@@ -31,3 +31,5 @@ app/**
 dist/app/**
 relay/**
 .github/**
+# The Vercel project that serves the relay page at remote.deskfish.sh reads this; the extension does not.
+vercel.json
