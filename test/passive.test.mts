@@ -49,9 +49,13 @@ const active: ComputerAction[] = [
   { type: 'wait_for', reason: 'a page', minutes: 1, until: 'change' },
   { type: 'run_command', command: 'ls' },
   { type: 'ask_user', reason: 'a code' },
+  // The second knock: it hands over a form rather than the desktop, and a person types into the
+  // page while it waits — so it is on ask_user's side of the line, and a fresh frame follows it.
+  { type: 'ask_fill', reason: 'Sign in to LinkedIn', fields: [{ label: 'Password', query: 'password field', secret: true }] },
+  { type: 'focus', query: 'password field' },
 ];
 ok(passive.every((a) => !changesScreen(a)), `${passive.length} passive actions change nothing (screenshot among them: the loop still frames a batch that asks for one, below)`);
-ok(active.every(changesScreen), `${active.length} actions that can change the screen keep theirs (run_command opens windows; wait_for and ask_user watch the world act)`);
+ok(active.every(changesScreen), `${active.length} actions that can change the screen keep theirs (run_command opens windows; wait_for, ask_user and ask_fill watch the world act; focus moves the caret)`);
 
 // ---------- the loop ----------
 const W = 320, H = 200;

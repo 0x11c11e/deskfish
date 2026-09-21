@@ -11,7 +11,7 @@ import { spawn } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { PNG } from 'pngjs';
-import { clickable, renderClick, renderElement, renderPage, renderScroll, renderSelect, WEAK_SCORE } from '../src/agent/page';
+import { clickable, renderClick, renderElement, renderFocus, renderPage, renderScroll, renderSelect, WEAK_SCORE } from '../src/agent/page';
 import { clickElementAction, findAction, readPageAction, scrollToAction, selectOptionAction } from '../src/agent/actions';
 import { DesktopDaemonComputer } from '../src/computer/daemon';
 import { AgentRunner } from '../src/agent/loop';
@@ -225,7 +225,7 @@ try {
   await runner.run('find things');
   ok(runner.currentStatus === 'done', `loop finished (${runner.currentStatus})`);
   ok(seen.some((m) => m.includes(`[1] button "Sign in" at (${sx(640)}, ${sx(480)})`)), `find result rendered in screenshot pixels (scale ${scale}): ${seen.join(' | ').slice(0, 300)}`);
-  ok(seen.some((m) => m.includes('[4] button "Sign in"') && m.includes('1 below the viewport')), 'read_page result rendered with the more line');
+  ok(seen.some((m) => m.includes('[5] button "Sign in"') && m.includes('1 below the viewport')), 'read_page result rendered with the more line');
   ok(actions.join(',') === 'find:true,read_page:true,click:true', `events: ${actions.join(',')}`);
 
   // ---------- click_element: the find and the click in one step ----------
@@ -335,6 +335,21 @@ try {
   ok(noOptRun.errors.some((e) => e.startsWith('Nothing was selected: combobox "Dropdown (select)" (selected: "Two")') && e.includes('has no option matching "seventeen". Its options are: "Open this select menu", "One", "Two", "Three".')), `no such option: refused, with the options it has: ${noOptRun.errors[0]?.slice(0, 200)}`);
   const noSelRun = await actRun({ type: 'select_option', query: 'sign in', option: 'Two' });
   ok(noSelRun.errors.some((e) => e.startsWith('Nothing was selected: no native dropdown matches "sign in"') && e.includes('[1] button "Sign in"')), `a match that is not a dropdown: refused, with the candidates: ${noSelRun.errors[0]?.slice(0, 160)}`);
+  // ---------- focus: the caret into one field (the sign-in card's one page call) ----------
+  // Not a tool of hers — ask_fill uses it, once per field — so it is checked at the provider, with
+  // the renderer that turns the answer into the sentence the model is given.
+  const fEmail = await computer.execute({ type: 'focus', query: 'email' });
+  ok(fEmail.ok && fEmail.page?.focused === true && fEmail.page.elements[0]?.name === 'Email', `focus → page_focus: the textbox takes the caret and is named (${JSON.stringify(fEmail.page?.elements[0])})`);
+  ok(renderFocus(fEmail.page!, { x: 1, y: 1 }, 'email', 'Email or phone') === 'Email or phone: textbox "Email" at (640, 420)', `the sentence names the label and the field, and carries no state: ${renderFocus(fEmail.page!, { x: 1, y: 1 }, 'email', 'Email or phone')}`);
+  const fPass = await computer.execute({ type: 'focus', query: 'password' });
+  ok(fPass.ok && fPass.page?.focused === true && fPass.page.elements[0]?.name === 'Password', 'the password field takes the caret too');
+  const fButton = await computer.execute({ type: 'focus', query: 'sign in' });
+  ok(fButton.ok && fButton.page?.focused === false, 'a query that matches only a button focuses nothing');
+  const refusal = renderFocus(fButton.page!, { x: 1, y: 1 }, 'sign in', 'Password');
+  ok(refusal.startsWith('Password: nothing matching "sign in" is a field that can be typed into.') && refusal.includes('[1] button "Sign in" at (640, 480)') && !refusal.includes('empty'), `a button is refused in words, with the candidates and no state: ${refusal}`);
+  const fNone = await computer.execute({ type: 'focus', query: 'zzzz' });
+  ok(fNone.ok && fNone.page?.focused === false && renderFocus(fNone.page!, { x: 1, y: 1 }, 'zzzz', 'Email') === 'Email: no element matches "zzzz".', 'nothing at all: refused, with no candidates to name');
+
   const noneRun = await actRun({ type: 'select_option', query: 'zzz', option: 'Two' });
   ok(noneRun.errors.some((e) => e.startsWith('Nothing was selected: no element matches "zzz".')) && noneRun.lines[0]?.startsWith('select "Two" in "zzz" | Nothing was selected'), 'no match at all: refused, and the chip says so in one line');
 } finally {

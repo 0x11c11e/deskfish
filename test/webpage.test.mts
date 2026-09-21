@@ -221,6 +221,9 @@ try {
   ok(/<input id="user"/.test(html) && /<input id="pass"[^>]*type="password"/.test(html) && /<input id="relay"/.test(html) && /id="signinGo"/.test(html), 'the sign-in card asks for her name, a password and (folded away) a relay');
   ok(html.includes('https://deskfish.sh/docs'), 'the documentation button points at the site, not at a gateway’s /docs');
   ok(html.includes('@media (max-width: 760px)'), 'the phone-width layout is in it (the same stylesheet the page at home uses)');
+  // The sign-in card ships in the same chat bundle as everywhere else, so the phone gets it for
+  // free — the card's own words and its stylesheet are in this one file, with no second UI.
+  ok(html.includes('Deskfish needs a login') && html.includes('current-password') && /\.needs-user \.field input/.test(html), 'the sign-in card travels in it: the card, its masked input and its stylesheet');
   ok(html.includes('acquireVsCodeApi') && html.includes('deskfishHost.api('), 'the views get the same bridge as at home: one implementation, two ways in');
   ok(built.bytes < 4 * 1024 * 1024, `one file, ${Math.round(built.bytes / 1024)} KB, with the WebAssembly inlined`);
 }

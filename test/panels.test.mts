@@ -101,6 +101,9 @@ async function until(pred: () => boolean, what: string, timeoutMs = 5000): Promi
   ok(snapshotChat(snap).map((m) => m.type).join() === 'newChat,replay,event,event,event,desktop' && (snapshotChat(snap)[1] as any).live === true, 'a snapshot → newChat, the live transcript, usage, step, status, desktop');
   ok(snapshotChat({ ...snap, status: 'done', chat: [], usage: undefined, screenshot: undefined }).map((m) => m.type).join() === 'newChat,desktop', 'a finished, empty chat: newChat and the desktop');
   for (const cmd of VIEW_COMMANDS) ok(validate({ id: 1, cmd }).ok || /must be|unknown argument/.test((validate({ id: 1, cmd }) as any).error), `${cmd} is a real command`);
+  // The sign-in card is the view's to send: the values go from its inputs to the gateway and into
+  // the page, and the one thing that must never happen is a detour through anything that writes.
+  ok(isViewCommand('fill') && VIEW_COMMANDS.includes('fill'), 'the view may send a filled sign-in card');
   ok(!isViewCommand('key.set') && !isViewCommand('shutdown') && !isViewCommand('desktop.off') && !isViewCommand('run') && !isViewCommand('log.tail') && !isViewCommand(undefined), 'keys, shutdown, the desktop, runs and the log are not the view\'s to ask');
   // The sign-in is a credential, like a key: the view posts `setApiKey` to its host and the host
   // runs the flow. A panel that could start a sign-in, or sign out, would be a second writer.

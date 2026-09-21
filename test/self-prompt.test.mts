@@ -52,7 +52,11 @@ try {
   ok(self >= 0 && sys.includes('SELF-V1: I am careful'), 'the self note is in the system prompt with the self text');
   ok(howTo >= 0 && self > howTo, 'the self note comes after the how-to list');
   ok(charter > howTo && self > charter && sys.includes('CHARTER-LINE'), 'the charter (with its text) sits between the how-to list and the self');
-  ok(self - howTo <= 9000, `the self sits near the head: ${self - howTo} chars after "How to work"`);
+  // A budget, not a law: what sits between the how-to list and her own page is the fixed product
+  // prompt, and every tool added to it pushes her page further from the head. It stood at 9,000 for
+  // a year; the sign-in card's rule and its line in the tool list cost 460 characters (decision 154),
+  // so it is 9,500 now. The next thing that wants room at the head has to say what it displaces.
+  ok(self - howTo <= 9500, `the self sits near the head: ${self - howTo} chars after "How to work"`);
   ok(at('What you have:') > howTo && at('What you have:') < self, 'the tank note precedes the self');
   ok(at('Underneath, you currently run on the model') > at('What you have:') && at('Underneath, you currently run on the model') < charter, 'the model note sits between the tank note and the charter');
   ok(sys.includes('Recently, from your journal') && sys.includes('JOURNAL-ENTRY'), 'the journal note is present with the entries');

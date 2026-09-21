@@ -37,6 +37,8 @@ try {
   // (and a teacher reading it later) sees which control the words actually landed on.
   t1.action(2, describeAction({ type: 'click_element', query: '60 days late', hit: 'button at (1001, 445)' }), true);
   t1.action(3, describeAction({ type: 'click_element', query: 'accept all' }), false);
+  // The sign-in card's step: the labels the card showed, never a value and never the find-queries.
+  t1.action(3, describeAction({ type: 'ask_fill', reason: 'Sign in to Acme', fields: [{ label: 'Email or phone', query: 'email field' }, { label: 'Password', query: 'password field', secret: true }] }), true);
   t1.note('Remembered: Acme  orders need\na PO number');
   t1.needsUser('Please log in to Acme');
   t1.assistant('Ordered 3 boxes, reference #123.');
@@ -45,11 +47,14 @@ try {
   const text = fs.readFileSync(t1.file, 'utf8');
   ok(new RegExp('\\n## You \\(\\d{2}:\\d{2}\\)\\n\\nOrder 3 boxes of paper from Acme\\n\\n').test(text) && new RegExp('\\n## Deskfish \\(\\d{2}:\\d{2}\\)\\n\\nOrdered 3 boxes, reference #123\\.\\n\\n').test(text), 'You / Deskfish sections with a clock');
   ok(text.includes('\n_step 1_: left click at (10, 20) · type "acme" (failed)\n\n_step 2_: press Return · click "60 days late" → button at (1001, 445)\n\n'), 'one step line per step, actions joined, the failed one marked; a click_element line names the control it hit');
-  ok(text.includes('\n_step 3_: click "accept all" (failed)\n\n'), 'a click_element that clicked nothing is a failed step line, with no hit after it');
+  ok(text.includes('\n_step 3_: click "accept all" (failed) · ask to fill: Email or phone, Password\n\n'), 'a click_element that clicked nothing is a failed step line, with no hit after it; an ask_fill step names the card\'s labels');
+  ok(!/email field|password field/.test(text), 'and not the words that find the fields: the transcript carries what the person saw, nothing more');
   ok(text.includes('\n> Remembered: Acme orders need a PO number\n\n') && text.includes('\n> **Deskfish needs you:** Please log in to Acme\n\n'), 'the memory pill (one line) and the hand-over');
   ok(text.includes('\n_done · 2 steps_\n\n') && /— chat ended \d{2}:\d{2} —\n$/.test(text), 'the status line and the end marker');
   const items = parseTranscript(text);
   ok(items.map((i) => i.kind).join(',') === 'user,actions,actions,actions,note,needs_user,assistant,status', `parseTranscript replays the blocks in order: ${items.map((i) => i.kind).join(',')}`);
+  const st3 = items[3] as Extract<(typeof items)[number], { kind: 'actions' }>;
+  ok(st3.step === 3 && st3.actions[1].text === 'ask to fill: Email or phone, Password' && !st3.actions[1].failed, `the ask_fill line survives the round trip: ${JSON.stringify(st3.actions[1])}`);
   const st1 = items[1] as Extract<(typeof items)[number], { kind: 'actions' }>;
   ok(st1.step === 1 && st1.actions.length === 2 && st1.actions[1].failed && st1.actions[1].text === 'type "acme"' && !st1.actions[0].failed && (items[0] as any).at && CLOCK.test((items[0] as any).at), 'step, actions and the failed flag survive the round trip');
 
