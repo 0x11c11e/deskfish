@@ -48,7 +48,14 @@ COPY policies.json /usr/lib/firefox-esr/distribution/policies.json
 # policies.json also lowers xpinstall.signatures.required (allowed on ESR) and, in case a Firefox
 # build ignores that, the autoconfig below locks the same preference.
 COPY bridge /opt/bridge
-RUN mkdir -p /usr/share/deskfish && cd /opt/bridge && zip -qr /usr/share/deskfish/deskfish-bridge.xpi . \
+# The extension's version is derived from its files: Firefox replaces a force-installed extension
+# only when the version rises, and the profile that holds the installed copy lives on the home
+# volume, so a bridge with a fixed version stayed as first installed through every rebuild.
+RUN mkdir -p /usr/share/deskfish && cd /opt/bridge \
+    && v=$(find . -type f | sort | xargs cat | sha256sum | cut -c1-7) && v=$(printf '%d' "0x$v") \
+    && sed -i "s/\"version\": \"1.0.0\"/\"version\": \"1.0.$v\"/" manifest.json \
+    && grep -q "\"version\": \"1.0.$v\"" manifest.json \
+    && zip -qr /usr/share/deskfish/deskfish-bridge.xpi . \
     && chown 1000:1000 /usr/lib/firefox-esr/distribution/policies.json
 COPY firefox-autoconfig.js /usr/lib/firefox-esr/defaults/pref/autoconfig.js
 COPY firefox.cfg /usr/lib/firefox-esr/firefox.cfg
