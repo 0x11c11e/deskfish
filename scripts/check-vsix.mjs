@@ -9,7 +9,7 @@ let listing;
 try { listing = execFileSync('unzip', ['-Z1', file], { encoding: 'utf8' }); }
 catch { listing = execFileSync('python3', ['-c', `import zipfile,sys;print("\\n".join(zipfile.ZipFile(sys.argv[1]).namelist()))`, file], { encoding: 'utf8' }); }
 const names = listing.split('\n').filter(Boolean);
-const forbidden = /^extension\/(handbook|website|demo|growth|site|src|test|app|node_modules|\.git[^/]*|\.github|\.vscode|dist\/app)\/|^extension\/CLAUDE\.md$|\.vsix$|\.env$|\.map$/;
+const forbidden = /^extension\/(handbook|website|demo|growth|site|src|test|app|relay|node_modules|\.git[^/]*|\.github|\.vscode|dist\/app)\/|^extension\/CLAUDE\.md$|\.vsix$|\.env$|\.map$/;
 const bad = names.filter((n) => forbidden.test(n));
 if (bad.length) { console.error(`check-vsix: ${file} contains ${bad.length} file(s) that must not ship:\n  ${bad.slice(0, 20).join('\n  ')}`); process.exit(1); }
 console.log(`check-vsix: ${file} is clean (${names.length} files)`);

@@ -23,4 +23,5 @@ scripts/check-vsix.mjs
 scripts/build-icons.mjs
 app/**
 dist/app/**
+relay/**
 .github/**

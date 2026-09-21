@@ -24,7 +24,7 @@ const ok = (c: unknown, m: string) => {
 const lib = DocsLibrary.load(DOCS);
 const files = fs.readdirSync(DOCS).filter((f) => f.endsWith('.md'));
 ok(lib.size === files.length, `every page is loaded (${lib.size} of ${files.length})`);
-ok(lib.size === 19, `19 pages today (got ${lib.size})`);
+ok(lib.size === 20, `20 pages today (got ${lib.size})`);
 
 const index = lib.index();
 const lines = index.split('\n');

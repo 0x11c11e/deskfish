@@ -65,6 +65,7 @@ const forbidden: [RegExp, string][] = [
   [/(^|\/)gateway\.js$/, 'the gateway bundle (cli.js is the same program)'],
   [/smoke/i, 'a smoke runner'],
   [/^app\//, 'the app'],
+  [/^relay\//, 'the relay (its own package and its own container)'],
   [/^dist\/app\//, "the app's main process"],
   [/^src\//, 'the sources'],
   [/^test\//, 'the tests'],

@@ -1,0 +1,32 @@
+# A relay beside whatever else you run. Copy to compose.yml, write the env file, bring it up:
+#
+#   printf 'RELAY_ADMIN_KEY=%s\n' "$(openssl rand -base64 32)" > relay.env
+#   chmod 600 relay.env
+#   podman compose -f compose.yml up -d      # or docker compose
+#
+# It listens on 127.0.0.1:8080 only. Your own TLS proxy gives it a name and a certificate and
+# forwards to it — see README.md for Caddy, Traefik and nginx. Never publish 8080 itself: the
+# frames are sealed either way, but the browsers need wss:// and so does the gateway.
+services:
+  relay:
+    build: .
+    # Or, once you have pushed it somewhere: image: your-registry/deskfish-relay:0.2
+    container_name: deskfish-relay
+    restart: unless-stopped
+    env_file: relay.env
+    environment:
+      # quiet = errors only (the default). events = one line per connection, enrolment and
+      # disconnection. Neither ever writes a frame, a message or a screenshot; there is no level
+      # that does.
+      RELAY_LOG: quiet
+      # Windows on one username at once.
+      RELAY_MAX_CLIENTS_PER_USER: 8
+      # New connections from one address per minute.
+      RELAY_RATE: 30
+    ports:
+      - '127.0.0.1:8080:8080'
+    volumes:
+      - relay-data:/data
+
+volumes:
+  relay-data:
