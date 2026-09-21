@@ -87,6 +87,13 @@ export interface Snapshot {
   keys: string[];
   /** Who the current endpoint is signed in as, for the key row's "Signed in as …". A display name, never a token. */
   signedInAs?: string;
+  /**
+   * The knock that is waiting right now, if any, so a client that connects during it — a phone
+   * opened after the card went up, a reloaded VS Code — draws what a client that watched from the
+   * start has: the desktop hand-over, or the sign-in card with its fields. Labels only: no value
+   * exists until the person types one, and none ever comes back this way.
+   */
+  knock?: { kind: 'desktop'; reason: string } | { kind: 'form'; reason: string; fields: { label: string; secret?: boolean }[] };
 }
 
 /** Every command: [args, result]. */

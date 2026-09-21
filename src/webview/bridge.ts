@@ -72,11 +72,24 @@ export async function answerAsk(m: { id: number; cmd: unknown; args?: unknown },
 /** The messages that rebuild the chat from a snapshot: VS Code on (re)connect, the page's mirror, the view's Back from a past chat. */
 export function snapshotChat(s: Snapshot): ToChat[] {
   const out: ToChat[] = [{ type: 'newChat' }];
-  if (s.chat.length) out.push({ type: 'replay', title: '', items: s.chat, live: true });
+  // A sign-in card that is still waiting: the transcript holds only its plain knock line, and a
+  // card has inputs a transcript cannot carry — so the live event is replayed in that line's place
+  // (dropped from the replay, or the knock would be drawn twice). A desktop hand-over needs nothing:
+  // its replayed line already draws the card with Open desktop and Resume.
+  let items = s.chat;
+  if (s.knock?.kind === 'form') {
+    let i = items.length - 1;
+    while (i >= 0 && items[i].kind === 'status') i--;
+    if (i >= 0 && items[i].kind === 'needs_user') items = [...items.slice(0, i), ...items.slice(i + 1)];
+  }
+  if (items.length) out.push({ type: 'replay', title: '', items, live: true });
   if (s.usage) out.push({ type: 'event', event: s.usage });
   if (s.screenshot) out.push({ type: 'event', event: { type: 'screenshot', step: s.screenshot.step, jpegBase64: '', width: s.screenshot.width, height: s.screenshot.height } });
   // A finished run's status line is already in the transcript; only a live one is re-announced.
   if (s.status === 'running' || s.status === 'paused') out.push({ type: 'event', event: { type: 'status', status: s.status, message: s.statusMessage, ...(s.screenFree ? { screenFree: true } : {}) } });
+  if (s.knock?.kind === 'form' && (s.status === 'running' || s.status === 'paused')) {
+    out.push({ type: 'event', event: { type: 'needs_fill', step: s.screenshot?.step ?? 0, reason: s.knock.reason, fields: s.knock.fields, jpegBase64: '', width: 0, height: 0 } });
+  }
   out.push({ type: 'desktop', status: s.desktop.status });
   return out;
 }

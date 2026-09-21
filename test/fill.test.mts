@@ -29,6 +29,7 @@ import { DeskfishMcp } from '../src/gateway/mcp';
 import type { DeskfishConfig } from '../src/gateway/config';
 import { describeAction, type ComputerAction, type ComputerProvider, type PageInfo } from '../src/computer/types';
 import type { ModelAdapter, ModelTurn, Observation } from '../src/agent/adapters/types';
+import { snapshotChat } from '../src/webview/bridge';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 let n = 0;
@@ -312,6 +313,17 @@ try {
   ok(shown.reason === 'Sign in to LinkedIn' && shown.fields.length === 2 && shown.fields[1].secret === true, 'the model called ask_fill through the OpenAI-compatible adapter and the card reached the clients');
   ok(!JSON.stringify(shown.fields).includes('email field'), 'with the labels only');
 
+  // A client that connects while the card is waiting — a phone opened after the knock, a reloaded
+  // VS Code — is handed the card too: the snapshot carries it (labels only), the wire carries the
+  // snapshot, and the chat draws the card in place of the transcript's plain knock line.
+  const snap = service.snapshot();
+  ok(snap.knock?.kind === 'form' && snap.knock.reason === 'Sign in to LinkedIn' && JSON.stringify(snap.knock.fields) === JSON.stringify([{ label: 'Email or phone' }, { label: 'Password', secret: true }]), `the snapshot carries the waiting card: ${JSON.stringify(snap.knock)}`);
+  const wire = await client.call('snapshot', {});
+  ok(wire.knock?.kind === 'form' && wire.knock.fields.length === 2, 'and so does the snapshot a connecting client is handed');
+  const late = snapshotChat(snap);
+  ok(late.some((m) => m.type === 'event' && m.event.type === 'needs_fill' && m.event.reason === 'Sign in to LinkedIn' && m.event.fields.length === 2), 'a late client draws the card from the live event');
+  ok(!late.some((m) => m.type === 'replay' && m.items.some((i) => i.kind === 'needs_user')), "and not the transcript's plain knock line beside it");
+
   // A card that does not match is refused on the wire, and the values go no further.
   await assert.rejects(client.call('fill', { values: [{ label: 'Nope', value: PASS_VALUE }] }), /no field "Email or phone"|has 2 fields/);
   n++;
@@ -320,7 +332,9 @@ try {
   n++;
 
   await client.call('fill', { values: [{ label: 'Email or phone', value: USER_VALUE }, { label: 'Password', value: PASS_VALUE }] });
+  ok(service.snapshot().knock === undefined, 'once filled, no client is handed the card again');
   await until(() => !service.busy, 'the task ends');
+  ok(service.snapshot().knock === undefined && !snapshotChat(service.snapshot()).some((m) => m.type === 'event' && m.event.type === 'needs_fill'), 'and after the task there is no card to draw');
 
   // What reached the tank: the caret, then the keystrokes, the password marked secret.
   const acted = daemonCalls.filter((c) => c.action === 'page_focus' || c.action === 'type_text');

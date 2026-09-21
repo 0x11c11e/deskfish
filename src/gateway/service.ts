@@ -149,6 +149,8 @@ export class DeskfishService extends EventEmitter {
    */
   private schedulesSinceStart: { kind: 'fired' | 'missed'; task: string }[] = [];
   private lastScreenshot?: { dataUrl: string; width: number; height: number; step: number };
+  /** The knock that is waiting right now (`Snapshot.knock`): either kind, labels only, never a value. */
+  private knock?: Snapshot['knock'];
   /** Usage totals of the current chat (a client that connects late shows the same counter). */
   private usage?: Extract<AgentEvent, { type: 'usage' }>;
   /** The desktop container: state machine, health poll, engine. */
@@ -904,6 +906,7 @@ export class DeskfishService extends EventEmitter {
   fill(values: { label: string; value: string }[]): void {
     const r = this.runner?.fill(values);
     if (!r || !r.ok) throw new Error(r ? r.error : 'no task is running, so no sign-in card is waiting.');
+    this.knock = undefined; // a client connecting now must not be handed a card that is already being typed
     this.log(`— the sign-in card was filled into the page (${values.length} field${values.length === 1 ? '' : 's'}; the values are written nowhere) —`);
   }
 
@@ -1166,6 +1169,7 @@ export class DeskfishService extends EventEmitter {
       chat: t ? parseTranscript(this.chats.read(t.file)) : [],
       usage: this.usage,
       screenshot: this.lastScreenshot,
+      knock: this.knock,
       desktop: { status: this.desktop.current, networkMode: this.desktop.networkMode },
       config: this.cfg,
       configSaved: this.configSaved,
@@ -1316,6 +1320,11 @@ export class DeskfishService extends EventEmitter {
     } else if (e.type === 'needs_fill') {
       this.log(`✋ needs a login: ${e.reason} (${e.fields.map((f) => f.label).join(', ')})`);
     }
+    // The knock that is waiting, for a client that connects during it (the snapshot carries it): set
+    // by either knock, gone with the action that ends it, a task's end, or a stop.
+    if (e.type === 'needs_user') this.knock = { kind: 'desktop', reason: e.reason };
+    else if (e.type === 'needs_fill') this.knock = { kind: 'form', reason: e.reason, fields: e.fields };
+    else if (e.type === 'action' || e.type === 'task_finished' || (e.type === 'status' && e.status !== 'paused' && e.status !== 'running')) this.knock = undefined;
     this.fire('event', e);
     // After the clients have seen the end: a message held during a reflection, or the next queued task, starts now.
     if (e.type === 'status' && (e.status === 'done' || e.status === 'stopped' || e.status === 'error')) {
