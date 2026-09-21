@@ -702,6 +702,8 @@ svg {
   display: flex;
   flex-direction: column;
   gap: 8px;
+  min-width: 0;
+  overflow-wrap: anywhere; /* her reason often carries a long URL: it wraps instead of running out of the card */
   background: color-mix(in srgb, var(--warn) 7%, var(--surface));
 }
 
