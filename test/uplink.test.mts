@@ -360,7 +360,38 @@ try {
     await quiet.close();
   }
 
-  // ---------- 11. forget: the keys go too ----------
+  // ---------- 11. a relay that claims to be another relay gets no signature at all ----------
+  {
+    // Anyone may ask a relay for a challenge, so a relay could fetch one from *another* relay for
+    // this username and pass it on as its own: the signature that came back would be valid there and
+    // would take that username's uplink slot away. Binding the signature to the name this end dialled
+    // is what makes that pointless — and a gateway that is asked to sign for another name does not.
+    const fakeHttp = http.createServer();
+    const fake = new WebSocketServer({ server: fakeHttp, path: '/uplink' });
+    const heard: string[] = [];
+    fake.on('connection', (ws) => {
+      ws.on('message', (d) => heard.push(String(d)));
+      ws.send(JSON.stringify({ challenge: Buffer.alloc(32, 9).toString('base64url'), context: 'deskfish-uplink', host: 'relay.other.example', version: '0.3.0' }));
+    });
+    await new Promise<void>((r) => fakeHttp.listen(0, '127.0.0.1', r));
+    // `remote.status` shows the reason while it is down, and the backoff is a second, so it is read
+    // as it happens rather than after: a settled status is 'connecting' again by then.
+    const seen: string[] = [];
+    const watching = setInterval(() => void home.call('remote.status').then((st) => { if (st.lastError && !seen.includes(st.lastError)) seen.push(st.lastError); }).catch(() => {}), 40);
+    await home.call('config.set', { patch: { remoteRelay: `ws://127.0.0.1:${(fakeHttp.address() as AddressInfo).port}` } });
+    await until(() => gatewayLog.some((l) => l.includes('not signing for a name I did not dial')), 'the gateway to refuse a relay wearing another name');
+    await until(() => seen.some((e) => /not signing for a name I did not dial/.test(e)), 'remote.status to say so too');
+    clearInterval(watching);
+    ok(heard.length === 0, `the gateway said nothing at all to it (${heard.length} frames)`);
+    ok(seen.some((e) => /relay.other.example/.test(e)), `and the sentence names the two: ${seen.find((e) => /not signing/.test(e))}`);
+    await home.call('config.set', { patch: { remoteRelay: relayWs() } });
+    await until(() => relay.connected.includes(USER), 'the uplink to come back to the relay it was enrolled at', 20_000);
+    ok((await home.call('remote.status')).state === 'connected', 'the real relay, whose name it did dial, is connected to as before');
+    fake.close();
+    await new Promise<void>((r) => fakeHttp.close(() => r()));
+  }
+
+  // ---------- 12. forget: the keys go too ----------
   {
     const s = await home.call('remote.off', { forget: true });
     ok(!s.enrolled && !s.hasPassword && s.state === 'off', 'off --forget drops the key and the record');

@@ -526,8 +526,11 @@ export class RemoteUplink {
   /** When the relay last said anything — a frame, or one of its pings. */
   private lastSeen = 0;
   private heartbeat?: ReturnType<typeof setInterval>;
-  /** Set when this end dropped a quiet socket, so `lost` says that rather than "the relay closed it". */
-  private quietReason?: string;
+  /**
+   * Set when *this* end ended the socket and has already said why — a relay gone quiet, or one that
+   * named another relay — so `lost` reports that sentence rather than a close code, and says it once.
+   */
+  private ownReason?: string;
 
   constructor(private readonly o: UplinkOptions) {}
 
@@ -608,6 +611,15 @@ export class RemoteUplink {
   }
 
   /**
+   * The relay's name as this end dialled it — the host `ws` puts in the upgrade request, which is
+   * the value the relay reads back out of it. A port is part of a name when the URL carries one, and
+   * `URL` drops the default ports exactly as Node's `Host` header does.
+   */
+  private dialledHost(): string {
+    return new URL(relayUrls(this.o.relay).ws).host.toLowerCase();
+  }
+
+  /**
    * The watchdog: a relay that has said nothing at all for `idleMs` is not there any more, whatever
    * the socket thinks. Dropping it runs the ordinary `close` path, so the backoff and the reconnect
    * are the ones every other loss uses — which is what makes a sleep, a wake or a NAT timeout boring.
@@ -618,8 +630,8 @@ export class RemoteUplink {
     this.heartbeat = setInterval(() => {
       if (this.socket !== socket) return;
       if (Date.now() - this.lastSeen <= idleMs) return;
-      this.quietReason = `the relay went quiet for ${Math.round(idleMs / 1000)} s; dialling again`;
-      this.o.host.log(`remote: ${this.quietReason}`);
+      this.ownReason = `the relay went quiet for ${Math.round(idleMs / 1000)} s; dialling again`;
+      this.o.host.log(`remote: ${this.ownReason}`);
       try {
         socket.terminate();
       } catch {
@@ -632,17 +644,32 @@ export class RemoteUplink {
   /** The relay's text lane: the challenge before we are in, nothing after. */
   private said(socket: WebSocket, bytes: Buffer): void {
     if (this.accepted) return;
-    let message: { challenge?: string; context?: string; ok?: boolean; version?: string };
+    let message: { challenge?: string; context?: string; host?: string; ok?: boolean; version?: string };
     try {
       message = JSON.parse(bytes.toString('utf8'));
     } catch {
       return;
     }
     if (message.challenge) {
+      // Signed over the name this end *dialled*, never the one the answer claims. Without that, a
+      // relay could fetch another relay's challenge for this username (anyone may ask for one), hand
+      // it over as its own and forward the signature: the other relay would accept it and give away
+      // that username's uplink slot. Never content — the sealed channel needs a record only this
+      // gateway holds — but a denial of service and a false presence, and this is what closes it.
+      const dialled = this.dialledHost();
+      const claimed = String(message.host ?? '').toLowerCase();
+      if (claimed !== dialled) {
+        const sentence = `the relay at ${dialled} says its name is ${claimed || 'nothing at all (a relay older than 0.3 does not say)'}; not signing for a name I did not dial`;
+        this.ownReason = sentence;
+        this.setState('error', sentence);
+        this.o.host.log(`remote: ${sentence}`);
+        socket.close();
+        return;
+      }
       let signature: string;
       try {
         const key = crypto.createPrivateKey({ key: Buffer.from(this.o.privateKey, 'base64'), format: 'der', type: 'pkcs8' });
-        const signed = Buffer.concat([Buffer.from(message.challenge, 'base64url'), Buffer.from(String(message.context ?? '')), Buffer.from(this.o.username)]);
+        const signed = Buffer.concat([Buffer.from(message.challenge, 'base64url'), Buffer.from(String(message.context ?? '')), Buffer.from(this.o.username), Buffer.from(dialled)]);
         signature = crypto.sign(null, signed, key).toString('base64url');
       } catch (err) {
         this.setState('error', `the uplink key could not be used: ${err instanceof Error ? err.message : String(err)}`);
@@ -724,11 +751,11 @@ export class RemoteUplink {
     this.sessions.clear();
     if (this.stopped) return;
     const wasUp = this.state === 'connected';
-    // A socket this end dropped for silence has already said so, in better words than a close code.
-    const quiet = this.quietReason;
-    this.quietReason = undefined;
-    this.setState('error', quiet ?? why);
-    if (!quiet && (wasUp || this.delay === FIRST_DELAY)) this.o.host.log(`remote: ${why}; trying again in ${Math.round(this.delay / 1000)}s`);
+    // A socket this end dropped has already said why, in better words than a close code carries.
+    const mine = this.ownReason;
+    this.ownReason = undefined;
+    this.setState('error', mine ?? why);
+    if (!mine && (wasUp || this.delay === FIRST_DELAY)) this.o.host.log(`remote: ${why}; trying again in ${Math.round(this.delay / 1000)}s`);
     this.retry = setTimeout(() => this.connect(), this.delay);
     this.delay = Math.min(this.delay * 2, MAX_DELAY);
   }

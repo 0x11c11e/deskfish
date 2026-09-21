@@ -1,6 +1,6 @@
 {
   "name": "deskfish-relay",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
   "description": "The post box between a Deskfish gateway at home and a browser anywhere. It carries frames it cannot read.",
   "license": "Apache-2.0",

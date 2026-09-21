@@ -70,6 +70,12 @@ missing certificate, the connection rate limit counts `x-forwarded-for` — the 
 the one your proxy appended — which only a proxy you run can be trusted to set. One of these, with
 a name you own pointed at the machine:
 
+**Your proxy must pass the `Host` header through unchanged** — all three snippets below do. A
+gateway signs its challenge over the relay's own name, exactly as it dialled it (with the port when
+the address carries one), and the relay checks that signature against the `Host` it was reached by;
+a proxy that rewrites `Host` therefore turns every uplink away with *that signature is not the key
+we have for this username, or it was made for another relay's name*.
+
 **Caddy** — the whole of it:
 
 ```caddyfile
@@ -90,7 +96,8 @@ labels:
 
 **nginx** — WebSockets need the upgrade headers and a long read timeout. The relay's own pings keep
 an idle connection from looking idle, but a timeout shorter than `RELAY_PING_SECONDS` would still
-cut one, so leave it generous:
+cut one, so leave it generous. `$http_host` rather than `$host`, because the name a gateway signed
+for includes the port whenever it typed one:
 
 ```nginx
 location / {
@@ -98,7 +105,7 @@ location / {
     proxy_http_version 1.1;
     proxy_set_header Upgrade $http_upgrade;
     proxy_set_header Connection "upgrade";
-    proxy_set_header Host $host;
+    proxy_set_header Host $http_host;
     proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
     proxy_read_timeout 3600s;
     proxy_send_timeout 3600s;
@@ -152,7 +159,8 @@ POST   /admin/codes            (admin key) { "username": … } → a one-time co
 DELETE /admin/users/:name      (admin key) revoke a username; its uplink is dropped
 GET    /admin/usage/:name      (admin key) { "days": { "2026-09-20": { seconds, up, down } } }
 POST   /enroll                 { code, username, publicKey } — no admin key; the code is spent
-WS     /uplink                 her gateway, after signing a challenge with its enrolled key
+WS     /uplink                 her gateway, after signing a challenge — and this relay's own
+                               name — with its enrolled key
 WS     /client?user=<name>     a browser; { "offline": true } and a close when she is not here
 ```
 
@@ -193,6 +201,10 @@ was built by Deskfish's release workflow from a commit on `main`, not by someone
 password.
 
 The relay speaks a stable, tiny wire: a challenge, a signature, then `[client number][bytes]`.
-A gateway of a different version than the relay is fine. Every connected browser reconnects after
-the restart, and a task she is running at home is not interrupted by any of it — the relay holds
-no state a session depends on.
+**One version boundary exists so far: 0.3**, where the signature began to name the relay it was made
+for. A gateway and a relay from either side of it do not mix, and each says which it is — a 0.3
+relay turns an older gateway away with *that signature does not name a relay: this gateway is older
+than the 0.3 wire*, and a 0.3 gateway refuses to sign for an older relay at all, logging *the relay
+at … says its name is nothing at all*. Within a version, any two versions are fine. Every connected
+browser reconnects after a restart, and a task she is running at home is not interrupted by any of
+it — the relay holds no state a session depends on.

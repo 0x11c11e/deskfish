@@ -45,8 +45,9 @@ const ws = `ws://127.0.0.1:${port}`;
 /** Her gateway's key. The private half never leaves home; the relay learns only the public one. */
 const pair = generateKeyPairSync('ed25519');
 const publicKey = Buffer.from(pair.publicKey.export({ format: 'der', type: 'spki' })).subarray(-32).toString('base64url');
-const answerChallenge = (challenge: string, context: string, username: string, key = pair.privateKey) =>
-  sign(null, Buffer.concat([Buffer.from(challenge, 'base64url'), Buffer.from(context), Buffer.from(username)]), key).toString('base64url');
+/** What a gateway signs: the challenge, the context, its name, and **the relay's own name**. */
+const answerChallenge = (challenge: string, context: string, username: string, key = pair.privateKey, host = `127.0.0.1:${port}`) =>
+  sign(null, Buffer.concat([Buffer.from(challenge, 'base64url'), Buffer.from(context), Buffer.from(username), Buffer.from(host)]), key).toString('base64url');
 
 const admin = (method: string, url: string, body?: unknown, key = ADMIN) =>
   fetch(`${http}${url}`, { method, headers: { authorization: `Bearer ${key}`, 'content-type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) });
@@ -55,8 +56,9 @@ const admin = (method: string, url: string, body?: unknown, key = ADMIN) =>
 type Dial = { base?: string; wsOptions?: WebSocket.ClientOptions };
 
 /** A gateway uplink: connects, answers the challenge, and hands back what it is sent. */
-async function uplink(username = USER, key = pair.privateKey, o: Dial = {}) {
+async function uplink(username = USER, key = pair.privateKey, o: Dial & { signHost?: string } = {}) {
   const base = o.base ?? ws;
+  const host = o.signHost ?? new URL(base).host;
   const socket = new WebSocket(`${base}/uplink`, o.wsOptions);
   const frames: { clientId: number; bytes: Buffer }[] = [];
   const control: any[] = [];
@@ -69,7 +71,7 @@ async function uplink(username = USER, key = pair.privateKey, o: Dial = {}) {
         const message = JSON.parse(data.toString());
         if (message.challenge) {
           challenged.push(message);
-          return socket.send(JSON.stringify({ username, signature: answerChallenge(message.challenge, message.context, username, key) }));
+          return socket.send(JSON.stringify({ username, signature: answerChallenge(message.challenge, message.context, username, key, host) }));
         }
         if (message.ok) { accepted = true; resolve(true); }
         return;
@@ -157,11 +159,20 @@ try {
     const unknown = await uplink('nobody-here');
     ok(!unknown.accepted && /not enrolled/.test(unknown.closed?.reason ?? ''), `an unenrolled username is closed: ${unknown.closed?.reason}`);
     ok(relay.connected.length === 0, 'neither held an uplink');
+
+    // The signature names the relay it was made for, so one relay cannot pass another's challenge
+    // to a gateway and forward what comes back: the signature is worth nothing anywhere else.
+    const elsewhere = await uplink(USER, pair.privateKey, { signHost: 'relay.other.example' });
+    ok(!elsewhere.accepted && /another relay's name/.test(elsewhere.closed?.reason ?? ''), `a signature made for another relay is refused: ${elsewhere.closed?.reason}`);
+    const old = await uplink(USER, pair.privateKey, { signHost: '' });
+    ok(!old.accepted && /older than the 0.3 wire/.test(old.closed?.reason ?? ''), `and one that names no relay at all says which side is old: ${old.closed?.reason}`);
+    ok(relay.connected.length === 0, 'and neither of those held one either');
   }
 
   // 6. Two browsers on one uplink: their own numbers, only their own frames
   const up = await uplink();
   ok(up.accepted && relay.connected.join() === USER, 'the uplink is up');
+  ok(up.challenged[0].host === `127.0.0.1:${port}` && up.challenged[0].version === '0.3.0', `the challenge names the relay and its wire version: ${JSON.stringify(up.challenged[0].host)} ${up.challenged[0].version}`);
   const a = await browser();
   const b = await browser();
   await sleep(60);
@@ -332,7 +343,7 @@ try {
     socket.on('message', (d, isBinary) => {
       if (isBinary) return;
       const m = JSON.parse(d.toString());
-      if (m.challenge) socket.send(JSON.stringify({ username: USER, signature: answerChallenge(m.challenge, m.context, USER) }));
+      if (m.challenge) socket.send(JSON.stringify({ username: USER, signature: answerChallenge(m.challenge, m.context, USER, pair.privateKey, `127.0.0.1:${port2}`) }));
     });
     await sleep(200);
     // Behind a proxy that appends (nginx, Traefik) the client's own `x-forwarded-for` comes first; the address counted is the last one.

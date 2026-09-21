@@ -39,7 +39,7 @@ import { JsonUsers, USERNAME, sameSecret } from './store.mjs';
  * own package and its own container, and the product could be rewritten around it.
  */
 
-export const VERSION = '0.2.0';
+export const VERSION = '0.3.0';
 
 /** The most one WebSocket message may be. Backpressure belongs to the channel; this only refuses to be a buffer. */
 const MAX_PAYLOAD = 1024 * 1024;
@@ -299,14 +299,17 @@ export function startRelay(options = {}) {
       socket.end('HTTP/1.1 429 Too Many Requests\r\nConnection: close\r\nContent-Length: 0\r\n\r\n');
       return;
     }
-    if (url.pathname === '/uplink') return uplinkServer.handleUpgrade(req, socket, head, (ws) => acceptUplink(ws, address));
+    // The name this relay was reached by, as the gateway must have typed it: the signature is bound
+    // to it, so a relay cannot pass another relay's challenge on and collect a signature valid there.
+    const named = String(req.headers.host ?? '').toLowerCase();
+    if (url.pathname === '/uplink') return uplinkServer.handleUpgrade(req, socket, head, (ws) => acceptUplink(ws, address, named));
     if (url.pathname === '/client') return clientServer.handleUpgrade(req, socket, head, (ws) => acceptClient(ws, url.searchParams.get('user') ?? '', address));
     socket.end('HTTP/1.1 404 Not Found\r\nConnection: close\r\nContent-Length: 0\r\n\r\n');
   });
 
   /* ---------- the gateway's side ---------- */
 
-  function acceptUplink(ws, address) {
+  function acceptUplink(ws, address, named) {
     watch(ws);
     const challenge = randomBytes(32);
     let uplink;
@@ -323,7 +326,7 @@ export function startRelay(options = {}) {
       if (!settled) refuse('no answer to the challenge');
     }, 10_000);
 
-    ws.send(JSON.stringify({ challenge: challenge.toString('base64url'), context: UPLINK_CONTEXT, version: VERSION }));
+    ws.send(JSON.stringify({ challenge: challenge.toString('base64url'), context: UPLINK_CONTEXT, host: named, version: VERSION }));
 
     ws.on('message', (data, isBinary) => {
       if (!settled) {
@@ -341,13 +344,24 @@ export function startRelay(options = {}) {
         const user = users.get(username);
         if (!user) return refuse('that username is not enrolled here');
         let ok = false;
+        let nameless = false;
         try {
-          const signed = Buffer.concat([challenge, Buffer.from(UPLINK_CONTEXT), Buffer.from(username)]);
-          ok = verify(null, signed, publicKeyFrom(user.publicKey), Buffer.from(String(answer.signature ?? ''), 'base64url'));
+          const key = publicKeyFrom(user.publicKey);
+          const given = Buffer.from(String(answer.signature ?? ''), 'base64url');
+          const parts = [challenge, Buffer.from(UPLINK_CONTEXT), Buffer.from(username)];
+          ok = verify(null, Buffer.concat([...parts, Buffer.from(named)]), key, given);
+          // The same signature *without* a relay name is what a gateway older than 0.3 makes, and it
+          // is worth saying so: otherwise the pair looks like a wrong key and nobody looks at versions.
+          if (!ok) nameless = verify(null, Buffer.concat(parts), key, given);
         } catch {
           ok = false;
         }
-        if (!ok) return refuse('that signature is not the key we have for this username');
+        if (!ok)
+          return refuse(
+            nameless
+              ? 'that signature does not name a relay: this gateway is older than the 0.3 wire'
+              : 'that signature is not the key we have for this username, or it was made for another relay\'s name',
+          );
 
         const previous = uplinks.get(username);
         if (previous) {
