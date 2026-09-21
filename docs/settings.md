@@ -84,6 +84,19 @@ The API key is not a setting; **Deskfish: Set LLM API Key** stores it in the key
 
 The remote-tank settings are explained in [Advanced setups](advanced).
 
+## Reaching her from anywhere
+
+Two settings, both written for you by **Deskfish: Remote Access…** (or `deskfish remote enroll`).
+They say which relay her gateway dials out to and what name she answers to there. Leave the relay
+empty and she dials nothing. The key and the password's record are *not* settings: they live in
+`secrets.json` in her data folder, at 0600, and are mirrored nowhere. See
+[Reaching her from anywhere](remote-access).
+
+| Setting | Default | What it does |
+| --- | --- | --- |
+| `deskfish.remote.relay` | *(empty)* | The relay she dials out to, e.g. `wss://relay.example.com`. Empty means off. Your computer opens no port either way |
+| `deskfish.remote.username` | *(empty)* | The name she answers to on that relay — what you type on the sign-in page, with the password |
+
 ## Where Deskfish runs
 
 Deskfish itself — the desktop, the agent, her memory, her chats and her schedules — lives in a

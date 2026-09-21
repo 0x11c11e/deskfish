@@ -9,7 +9,7 @@ export { vncUrlWithToken } from './gateway/config';
 export const API_KEY_SECRET = 'deskfish.apiKey';
 
 /** Trimmed on read: a pasted name or workspace ID often carries a space. */
-const TRIMMED = new Set<keyof DeskfishConfig>(['anthropicWorkspaceId', 'userName']);
+const TRIMMED = new Set<keyof DeskfishConfig>(['anthropicWorkspaceId', 'userName', 'remoteRelay', 'remoteUsername']);
 
 /**
  * VS Code's Deskfish settings as a config (the table in `settingsSchema.ts` names each setting).

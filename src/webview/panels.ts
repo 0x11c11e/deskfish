@@ -302,7 +302,7 @@ export function createPanels(deps: PanelDeps): Panels {
       schema = sch;
       const fields: Field[] = [];
       const groups: HTMLElement[] = [];
-      for (const group of ['work', 'desktop', 'advanced'] as const) {
+      for (const group of ['work', 'desktop', 'remote', 'advanced'] as const) {
         const entries = sch.filter((e) => e.group === group);
         if (!entries.length) continue;
         const section = group === 'advanced' ? el('details', 'group') : el('section', 'group');

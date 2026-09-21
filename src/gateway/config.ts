@@ -51,6 +51,14 @@ export interface DeskfishConfig {
   containerCli: ContainerCli;
   /** Xvfb geometry for the bot's screen, e.g. 1280x800x24. */
   screen: string;
+  /**
+   * The relay her gateway dials out to so a browser anywhere can reach her (`deskfish remote`).
+   * Empty = off, and nothing is dialled. Never a secret: the key and the password's record live in
+   * `secrets.json` and are not mirrored anywhere.
+   */
+  remoteRelay: string;
+  /** The name she is known by on that relay. */
+  remoteUsername: string;
   /** Turn the desktop on automatically when the Deskfish view opens. */
   autoStart: boolean;
   /** Open the Desktop tab (live view) whenever a task is submitted. */
@@ -98,6 +106,8 @@ export const DEFAULT_CONFIG: DeskfishConfig = {
   composeFile: '',
   containerCli: 'auto',
   screen: '1280x800x24',
+  remoteRelay: '',
+  remoteUsername: '',
   autoStart: true,
   openDesktopOnRun: true,
 };

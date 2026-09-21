@@ -3,7 +3,7 @@ import { PRESETS, isLocalEndpoint, keySlotFor, presetFor, type Preset } from '..
 import { formatSize, safeFileName } from '../src/desktop/files';
 import type { DesktopStatus } from '../src/desktop/supervisor';
 import type { DeskfishConfig } from '../src/gateway/config';
-import { EVENT_NAMES, MAX_TRANSFER, type CommandArgs, type CommandName, type CommandResult, type DesktopView, type EventName, type Events, type Snapshot } from '../src/gateway/protocol';
+import { EVENT_NAMES, MAX_TRANSFER, type ClientKind, type CommandArgs, type CommandName, type CommandResult, type DesktopView, type EventName, type Events, type Snapshot } from '../src/gateway/protocol';
 import type { MemoryBundle } from '../src/gateway/service';
 import { VERSION } from '../src/gateway/version';
 import { answerAsk, isViewCommand, snapshotChat } from '../src/webview/bridge';
@@ -258,6 +258,8 @@ export interface HostUi {
   readClipboard(pane: Pane): Promise<string | undefined>;
   writeClipboard(pane: Pane, text: string): Promise<void>;
   openDocs(pane: Pane | 'page', load: () => Promise<Blob>): void;
+  /** A plain link in a new tab (the relay page's documentation button, which points at the site). */
+  openTab?(pane: Pane | 'page', url: string): void;
   askKey(title: string): Promise<string | undefined>;
   askModel(config: DeskfishConfig): Promise<ModelChoice | undefined>;
   /**
@@ -280,6 +282,16 @@ export interface SignInState {
   who?: string;
 }
 
+/**
+ * How files move when the page has no HTTP to move them over. The gateway's own page uses `POST
+ * /files` and `GET /files/…`; the page that reached her through a relay has one sealed channel and
+ * nothing else, and gives these two instead (`web/remote.ts`).
+ */
+export interface FileTransfer {
+  upload(name: string, file: File): Promise<DesktopFile>;
+  download(file: DesktopFile): Promise<Blob>;
+}
+
 export interface HostEnv {
   /** The gateway's `/ws` with the token, e.g. ws://127.0.0.1:9980/ws?token=… */
   wsUrl: string;
@@ -289,6 +301,12 @@ export interface HostEnv {
   post(pane: Pane, message: ToChat | ToDesktop): void;
   fetch(url: string, init?: RequestInit): Promise<Response>;
   ui: HostUi;
+  /** What this page says it is at `hello`. The gateway's own page is `web`; the relay page is `remote`. */
+  clientKind?: ClientKind;
+  /** Where the documentation is, when this page cannot ask the gateway for it (the relay page: deskfish.sh). */
+  docsUrl?: string;
+  /** Files over something other than HTTP. Without it, `POST /files` and `GET /files/…` are used. */
+  files?: FileTransfer;
 }
 
 type Pending = { resolve: (v: any) => void; reject: (e: Error) => void; sync?: (v: any) => void };
@@ -343,7 +361,7 @@ export class WebHost {
     ws.onopen = () => {
       this.opened = true;
       this.backoff = 500;
-      this.request('hello', { client: 'web', version: VERSION }, (snap) => this.onConnected(snap)).catch(() => {});
+      this.request('hello', { client: this.env.clientKind ?? 'web', version: VERSION }, (snap) => this.onConnected(snap)).catch(() => {});
     };
     ws.onmessage = (ev) => this.onFrame(String(ev.data));
     ws.onerror = () => {};
@@ -591,9 +609,13 @@ export class WebHost {
       const name = safeFileName(f.name);
       try {
         if (f.size > MAX_TRANSFER) throw new Error(`larger than ${formatSize(MAX_TRANSFER)}`);
-        const res = await this.env.fetch(`/files?name=${encodeURIComponent(name)}`, { method: 'POST', body: f, headers: { authorization: `Bearer ${this.env.token}`, 'content-type': 'application/octet-stream' } });
-        if (!res.ok) throw new Error(await errorOf(res));
-        out.push((await res.json()) as DesktopFile);
+        if (this.env.files) {
+          out.push(await this.env.files.upload(name, f));
+        } else {
+          const res = await this.env.fetch(`/files?name=${encodeURIComponent(name)}`, { method: 'POST', body: f, headers: { authorization: `Bearer ${this.env.token}`, 'content-type': 'application/octet-stream' } });
+          if (!res.ok) throw new Error(await errorOf(res));
+          out.push((await res.json()) as DesktopFile);
+        }
       } catch (err) {
         this.env.ui.toast(`Could not attach ${name}: ${msg(err)}`);
       }
@@ -606,9 +628,15 @@ export class WebHost {
     try {
       if (this.mirror.desktop.state !== 'on') throw new Error('the desktop is not running');
       if (file.size > MAX_TRANSFER) throw new Error(`${file.name} is larger than ${formatSize(MAX_TRANSFER)}`);
-      const res = await this.env.fetch(`/files${file.path.split('/').map(encodeURIComponent).join('/')}`, { headers: { authorization: `Bearer ${this.env.token}` } });
-      if (!res.ok) throw new Error(await errorOf(res));
-      this.env.ui.saveBlob(file.name, await res.blob());
+      let blob: Blob;
+      if (this.env.files) {
+        blob = await this.env.files.download(file);
+      } else {
+        const res = await this.env.fetch(`/files${file.path.split('/').map(encodeURIComponent).join('/')}`, { headers: { authorization: `Bearer ${this.env.token}` } });
+        if (!res.ok) throw new Error(await errorOf(res));
+        blob = await res.blob();
+      }
+      this.env.ui.saveBlob(file.name, blob);
       // The browser keeps the file in its downloads; the card's button comes back for another copy.
       this.env.post('chat', { type: 'saveFailed', path: file.path, error: '' });
       this.env.ui.toast(`${file.name} is in your browser's downloads.`);
@@ -633,6 +661,8 @@ export class WebHost {
   }
 
   openDocs(from: Pane | 'page'): void {
+    // The page that came through a relay has no `/docs` to ask for: its button goes to the site.
+    if (this.env.docsUrl) return this.env.ui.openTab?.(from, this.env.docsUrl);
     this.env.ui.openDocs(from, async () => {
       const res = await this.env.fetch('/docs', { headers: { authorization: `Bearer ${this.env.token}` } });
       if (!res.ok) throw new Error(`the documentation is not there (HTTP ${res.status})`);
@@ -877,6 +907,11 @@ export function browserUi(doc: Document): HostUi {
     },
     async writeClipboard(pane, text) {
       await win(pane).navigator.clipboard.writeText(text);
+    },
+    openTab(pane, url) {
+      const tab = win(pane).open(url, '_blank', 'noopener,noreferrer');
+      if (!tab) ui.toast('The browser blocked the new tab; allow pop-ups for this page.');
+      else tab.opener = null;
     },
     openDocs(pane, load) {
       // Opened inside the click, filled when the documentation arrives (a pop-up opened later is blocked).

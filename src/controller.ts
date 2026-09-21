@@ -14,6 +14,8 @@ import { GatewayClient } from './gateway/client';
 import { ConfigSync } from './gateway/configSync';
 import { DEFAULT_CONFIG } from './gateway/config';
 import { DEFAULT_PORT, type EditableFile, type Snapshot } from './gateway/protocol';
+import type { RemoteStatus } from './gateway/uplink';
+import { register } from './remote/channel';
 import { MAX_TRANSFER, type MemoryBundle } from './gateway/service';
 import { applyAutostart, autostartNeedsWrite, autostartPlan, hasDesktopSession, removeAutostart, type AutostartPlan } from './gateway/autostart';
 import { ensureLocalGateway } from './gateway/spawn';
@@ -310,6 +312,109 @@ export class AgentController implements vscode.Disposable {
         ? 'Deskfish will no longer start by itself. It still keeps running after you close VS Code, until the computer restarts.'
         : 'Deskfish will start when you log in, so her schedules run and a task survives a restart. The terminal shows the entry.',
     );
+  }
+
+  /* ---------- reaching her from anywhere (13-relay-plan.md) ---------- */
+
+  /**
+   * "Deskfish: Remote Access…" — the one entry for reaching her from a browser anywhere. It shows
+   * where she stands and offers the one thing that is missing: enrol, then a password, then the
+   * address to open. Nothing here opens a port on this computer; the gateway dials *out* to the
+   * relay, which is why this exists at all (05-user, 2026-09-20).
+   *
+   * The password is turned into an OPAQUE record **in this process**, where it was typed. What
+   * travels to the gateway — over loopback at home, over the person's own tunnel for a gateway on
+   * another machine — is a record nobody can read a password back out of.
+   */
+  async remoteAccess(): Promise<void> {
+    let state: RemoteStatus;
+    try {
+      state = await this.client.call('remote.status');
+    } catch (err) {
+      void vscode.window.showErrorMessage(`Deskfish: ${msg(err)}`);
+      return;
+    }
+    const ready = state.relay && state.enrolled && state.hasPassword;
+    const where = ready ? `${state.username} at ${state.relay} — ${state.state}${state.state === 'connected' ? ` (${state.clients} browser${state.clients === 1 ? '' : 's'})` : ''}` : 'not set up yet';
+    const items: (vscode.QuickPickItem & { id: string })[] = [];
+    if (!state.relay || !state.enrolled) items.push({ id: 'enroll', label: '$(key) Connect her to a relay…', detail: 'The relay address, a name for her, and the one-time code from whoever runs it' });
+    if (state.relay) items.push({ id: 'password', label: state.hasPassword ? '$(lock) Change the password' : '$(lock) Set the password…', detail: 'What the sign-in page asks for, together with her name. It never leaves this computer.' });
+    if (ready) items.push({ id: 'copy', label: '$(link) Copy her sign-in name', detail: `Open the page and sign in as ${state.username}` });
+    if (state.relay) items.push({ id: 'off', label: '$(circle-slash) Turn remote access off', detail: 'She stops dialling out. The keys stay until you say to forget them.' });
+    const picked = await vscode.window.showQuickPick(items, { title: `Deskfish remote access — ${where}`, ignoreFocusOut: true, placeHolder: state.lastError ? `Last: ${state.lastError}` : 'Her computer opens no port either way' });
+    if (!picked) return;
+    try {
+      if (picked.id === 'enroll') return await this.remoteEnroll();
+      if (picked.id === 'password') return await this.remotePassword(state);
+      if (picked.id === 'copy') {
+        await vscode.env.clipboard.writeText(state.username);
+        void vscode.window.showInformationMessage(`Copied "${state.username}". Open the remote page in any browser and sign in with it and the password.`);
+        return;
+      }
+      const forget = await vscode.window.showWarningMessage('Turn remote access off?', { modal: true, detail: 'She stops dialling out at once. Forgetting the keys as well means enrolling again later with a new code.' }, 'Turn it off', 'Turn it off and forget the keys');
+      if (!forget) return;
+      const after = await this.client.call('remote.off', { forget: forget.includes('forget') });
+      this.output.appendLine(`▶ remote access off${after.enrolled ? '' : ' (keys forgotten)'}`);
+      void vscode.window.showInformationMessage('Remote access is off.');
+    } catch (err) {
+      void vscode.window.showErrorMessage(`Deskfish: ${msg(err)}`);
+    }
+  }
+
+  private async remoteEnroll(): Promise<void> {
+    const relay = (
+      await vscode.window.showInputBox({
+        title: 'Deskfish remote access (1 of 3)',
+        prompt: 'The relay she should dial out to, e.g. wss://relay.example.com. It forwards sealed frames and cannot read them.',
+        placeHolder: 'wss://relay.example.com',
+        ignoreFocusOut: true,
+      })
+    )?.trim();
+    if (!relay) return;
+    const username = (
+      await vscode.window.showInputBox({
+        title: 'Deskfish remote access (2 of 3)',
+        prompt: 'A name for her on that relay — what you type on the sign-in page. Lowercase letters, digits and dashes.',
+        ignoreFocusOut: true,
+        validateInput: (v) => (/^[a-z0-9][a-z0-9-]{2,31}$/.test(v.trim().toLowerCase()) ? undefined : '3 to 32 characters: lowercase letters, digits and dashes, starting with a letter or a digit'),
+      })
+    )?.trim();
+    if (!username) return;
+    const code = (
+      await vscode.window.showInputBox({
+        title: 'Deskfish remote access (3 of 3)',
+        prompt: 'The one-time enrolment code from whoever runs the relay (your own relay mints one with its admin key).',
+        password: true,
+        ignoreFocusOut: true,
+      })
+    )?.trim();
+    if (!code) return;
+    const state = await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: `Enrolling at ${relay}…` }, () => this.client.call('remote.enroll', { relay, username, code }));
+    this.output.appendLine(`▶ remote access enrolled as ${state.username} at ${state.relay}`);
+    if (!state.hasPassword) return this.remotePassword(state);
+    void vscode.window.showInformationMessage(`She is enrolled as ${state.username}. Sign in from any browser with that name and her password.`);
+  }
+
+  private async remotePassword(state: RemoteStatus): Promise<void> {
+    const username = state.username;
+    const first = await vscode.window.showInputBox({
+      title: 'Deskfish remote access — the password',
+      prompt: `What the sign-in page asks for, together with "${username}". It is turned into a record here and never sent anywhere.`,
+      password: true,
+      ignoreFocusOut: true,
+      validateInput: (v) => (v.length >= 8 ? undefined : 'Eight characters or more.'),
+    });
+    if (!first) return;
+    const again = await vscode.window.showInputBox({ title: 'Deskfish remote access — the password', prompt: 'Once more, to be sure.', password: true, ignoreFocusOut: true });
+    if (again === undefined) return;
+    if (again !== first) {
+      void vscode.window.showErrorMessage('Deskfish: those two are not the same. Nothing was changed.');
+      return;
+    }
+    const made = await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: 'Setting her remote password…' }, () => register(username, first));
+    await this.client.call('remote.password', { serverSetup: made.serverSetup, record: made.record });
+    this.output.appendLine('▶ remote access password set');
+    void vscode.window.showInformationMessage(`Done. From any browser, sign in as "${username}" with that password — her computer still opens no port.`);
   }
 
   /** "Deskfish: Set Gateway Token" — for a gateway on another machine. */

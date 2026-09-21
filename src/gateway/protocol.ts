@@ -7,6 +7,7 @@ import type { DesktopStatus } from '../desktop/supervisor';
 import type { DesktopFile } from '../webview/protocol';
 import type { DeskfishConfig } from './config';
 import type { MemoryBundle } from './service';
+import type { RemoteStatus } from './uplink';
 import type { SettingsSchema } from './settingsSchema';
 
 /**
@@ -23,7 +24,12 @@ export const MAX_FRAME = 64 * 1024 * 1024;
 /** Largest file copied into or out of the tank. */
 export const MAX_TRANSFER = 100 * 1024 * 1024;
 
-export type ClientKind = 'vscode' | 'web' | 'cli' | 'app' | 'mcp';
+/**
+ * `remote` is the browser that reached her through a relay (`src/gateway/uplink.ts`): it carries no
+ * token, because the sealed channel it arrived in is the authentication and nothing weaker could
+ * have opened one.
+ */
+export type ClientKind = 'vscode' | 'web' | 'cli' | 'app' | 'mcp' | 'remote';
 
 /**
  * A run request. `unattended` marks a run nobody asked for and nobody is watching (a schedule,
@@ -163,6 +169,16 @@ export interface Commands {
   export: [Record<string, never>, MemoryBundle];
   import: [{ bundle: MemoryBundle }, null];
   'log.tail': [{ lines?: number }, string[]];
+  /**
+   * Reaching her from anywhere (`13-relay-plan.md`). `remote.enroll` spends a one-time code at a
+   * relay and keeps the Ed25519 key here; `remote.password` stores the OPAQUE record the client
+   * made from a password it never sent; `remote.status` is what the settings view and `deskfish
+   * remote status` show; `remote.off` stops the uplink (`forget` also drops the keys).
+   */
+  'remote.enroll': [{ relay: string; username: string; code: string }, RemoteStatus];
+  'remote.password': [{ serverSetup: string; record: string }, RemoteStatus];
+  'remote.status': [Record<string, never>, RemoteStatus];
+  'remote.off': [{ forget?: boolean }, RemoteStatus];
   /** Stop the gateway process (the tank keeps running). */
   shutdown: [Record<string, never>, null];
 }
@@ -262,6 +278,10 @@ const SPEC: { [K in CommandName]: Record<string, Field> } = {
   export: NONE,
   import: { bundle: 'object' },
   'log.tail': { lines: 'number?' },
+  'remote.enroll': { relay: 'string', username: 'string', code: 'string' },
+  'remote.password': { serverSetup: 'string', record: 'string' },
+  'remote.status': NONE,
+  'remote.off': { forget: 'boolean?' },
   shutdown: NONE,
 };
 
@@ -285,7 +305,7 @@ function fieldOk(type: Field, v: unknown): boolean {
     case 'editable':
       return v === 'memory.md' || v === 'charter.md';
     case 'client':
-      return v === 'vscode' || v === 'web' || v === 'cli' || v === 'app' || v === 'mcp';
+      return v === 'vscode' || v === 'web' || v === 'cli' || v === 'app' || v === 'mcp' || v === 'remote';
     case 'provider':
       return v === 'anthropic' || v === 'openai-compatible' || v === 'mock';
     case 'autonomy':

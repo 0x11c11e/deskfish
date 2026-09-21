@@ -80,7 +80,13 @@ deskfish status                # is it running, on what, with which model — an
 deskfish run "book a table"    # give her a task and watch it; Ctrl+C detaches, she keeps going
 deskfish stop                  # stop the gateway (the tank keeps running)
 deskfish mcp                   # an MCP server on stdio, for a coding agent to use her
+deskfish remote status         # is she reachable from a browser anywhere, and from where
 ```
+
+Reaching her from away from home is `deskfish remote`: `enroll --relay wss://… --username NAME
+--code CODE` once, then `password` to set what the sign-in page asks for, and `off` when you want
+it to stop. She dials *out* to the relay, so nothing here opens a port —
+[Reaching her from anywhere](remote-access) is the whole story.
 
 `serve` takes `--data-dir DIR`, `--port N`, `--host H` and `--allow-remote`; the others take
 `--data-dir` and `--port` so they can reach a gateway that is not on the default one.

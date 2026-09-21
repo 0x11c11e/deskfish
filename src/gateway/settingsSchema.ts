@@ -39,22 +39,25 @@ export const SETTINGS_KEYS: Record<keyof DeskfishConfig, string> = {
   ledgerEvery: 'deskfish.ledgerEvery',
   ledgerTokens: 'deskfish.ledgerTokens',
   scheduleGraceMinutes: 'deskfish.scheduleGraceMinutes',
+  remoteRelay: 'deskfish.remote.relay',
+  remoteUsername: 'deskfish.remote.username',
 };
 
 /** Every config key, in the order the dialog shows them. */
 export const CONFIG_KEYS = Object.keys(SETTINGS_KEYS) as (keyof DeskfishConfig)[];
 
 /** `model`: listed, not rendered (the model dialog owns provider, model and base URL). `advanced` is folded. */
-export type SettingsGroup = 'model' | 'work' | 'desktop' | 'advanced';
+export type SettingsGroup = 'model' | 'work' | 'desktop' | 'remote' | 'advanced';
 
 const GROUPS: [SettingsGroup, (keyof DeskfishConfig)[]][] = [
   ['model', ['provider', 'model', 'baseUrl', 'auth']],
   ['work', ['autonomy', 'maxSteps', 'maxCostUsd', 'unattendedMaxCostUsd', 'effort', 'reflectEvery', 'userName']],
   ['desktop', ['containerCli', 'screen', 'autoStart', 'openDesktopOnRun', 'screenshotWidth', 'settleMs', 'vncPassword']],
+  ['remote', ['remoteRelay', 'remoteUsername']],
   ['advanced', ['daemonUrl', 'daemonToken', 'vncUrl', 'composeFile', 'anthropicWorkspaceId', 'temperature', 'promptCaching', 'cacheTtl', 'ledgerEvery', 'ledgerTokens', 'scheduleGraceMinutes']],
 ];
 
-export const GROUP_TITLES: Record<Exclude<SettingsGroup, 'model'>, string> = { work: 'How she works', desktop: 'Her desktop', advanced: 'Advanced' };
+export const GROUP_TITLES: Record<Exclude<SettingsGroup, 'model'>, string> = { work: 'How she works', desktop: 'Her desktop', remote: 'Reaching her from anywhere', advanced: 'Advanced' };
 
 export interface SettingsEntry {
   key: keyof DeskfishConfig;

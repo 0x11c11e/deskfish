@@ -41,6 +41,7 @@ the title bar and the **…** menu — see [Running without VS Code](running-wit
 | **Deskfish: Save a File from the Desktop…** | Lists the files in the tank's Downloads folder and saves the one you pick to your computer |
 | **Deskfish: Install Podman…** | Opens a terminal with the installation command for this system. Same as the Install button on the setup card |
 | **Deskfish: Set Gateway Token** | For a Deskfish running on another machine (`deskfish.gateway.placement` = `remote`): asks for that gateway's token and connects with it straight away, no reload. If the token is refused it asks again. See [Advanced setups](advanced#a-gateway-on-another-machine) |
+| **Deskfish: Remote Access…** | Reaching her from a browser anywhere: the relay address, a username and a one-time enrolment code, then a password, all in one flow. It shows where she stands, changes the password, or turns it off again. Nothing here opens a port on this computer — she dials out. See [Reaching her from anywhere](remote-access) |
 | **Deskfish: Keep Running When VS Code Is Closed** | A toggle: writes (or removes) the entry that starts Deskfish when you log in, and shows it to you in a terminal. Only for a Deskfish on this computer; with the `remote` placement it says so and writes nothing. See [Settings](settings#where-deskfish-runs) |
 | **Deskfish: Show Log** | Opens the Deskfish output channel: every step of every task, unfolded |
 | **Deskfish: Open Documentation** | Opens this documentation in your browser |

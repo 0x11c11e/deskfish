@@ -146,6 +146,10 @@
         "title": "Deskfish: Keep Running When VS Code Is Closed"
       },
       {
+        "command": "deskfish.remoteAccess",
+        "title": "Deskfish: Remote Access…"
+      },
+      {
         "command": "deskfish.scheduledTasks",
         "title": "Deskfish: Scheduled Tasks…"
       },
@@ -414,6 +418,16 @@
           "type": "string",
           "default": "1280x800x24",
           "description": "Screen size of the bot's desktop (Xvfb geometry WIDTHxHEIGHTxDEPTH). Applied the next time the desktop is turned on."
+        },
+        "deskfish.remote.relay": {
+          "type": "string",
+          "default": "",
+          "description": "The relay this gateway dials out to, so you can reach her from a browser anywhere (wss://relay.example.com). Empty = off; your computer opens no port either way. Set it with Deskfish: Remote Access… — the keys and the password never leave this machine."
+        },
+        "deskfish.remote.username": {
+          "type": "string",
+          "default": "",
+          "description": "The name she answers to on that relay. Set with Deskfish: Remote Access…; the sign-in page asks for it together with the password."
         },
         "deskfish.desktop.composeFile": {
           "type": "string",

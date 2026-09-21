@@ -1,0 +1,397 @@
+// The uplink (src/gateway/uplink.ts) — the whole road from a browser to her, in one process: the
+// step-2 relay on a free port, a real `startGateway` on a temp data dir with a mock daemon, a fake
+// websockify and a fake model, and a fake page made of `ws` + step 1's channel.
+//
+// `deskfish remote`'s three moves over the wire (enroll spends a code and keeps the key here,
+// password stores a record the client made from a password it never sent, off stops the dialling);
+// the uplink dials out and the relay holds it; a page signs in with the right password and gets the
+// snapshot, runs a task and hears its events; the live view is a byte pipe to websockify; a file
+// goes into the tank and comes back out; a wrong password is refused five times and the sixth is
+// told to wait; `remote off` drops the uplink and a page is told she is not connected; a relay that
+// restarts is dialled again; and the relay's tap of everything it carried holds none of the
+// plaintext — not the protocol's words, not the chat, not the file, and not the gateway token.
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import http from 'node:http';
+import os from 'node:os';
+import path from 'node:path';
+import type { AddressInfo } from 'node:net';
+import { fileURLToPath } from 'node:url';
+import { PNG } from 'pngjs';
+import WebSocket, { WebSocketServer } from 'ws';
+import { GatewayClient } from '../src/gateway/client';
+import type { DeskfishConfig } from '../src/gateway/config';
+import { startGateway } from '../src/gateway/start';
+import { Channel, LoginRefused, StreamKind, loginClient, register, type Stream } from '../src/remote/channel';
+// @ts-expect-error — the relay is its own plain-JavaScript package; it has no types and imports nothing of ours.
+import { startRelay } from '../relay/server.mjs';
+
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+let n = 0;
+const ok = (c: unknown, m: string) => { assert.ok(c, m); n++; };
+const sleep = (ms = 0) => new Promise((r) => setTimeout(r, ms));
+const te = new TextEncoder();
+const td = new TextDecoder();
+async function until(pred: () => boolean, what: string, timeoutMs = 15_000): Promise<void> {
+  const t0 = Date.now();
+  while (!pred()) {
+    if (Date.now() - t0 > timeoutMs) throw new Error(`timed out waiting for: ${what}`);
+    await sleep(20);
+  }
+}
+
+const USER = 'iman';
+const PASSWORD = 'a long enough passphrase for her tank';
+const ADMIN = 'an-admin-key-only-the-operator-has';
+
+/* ---------- the tank, the screen and the model, all faked ---------- */
+
+const png = PNG.sync.write(new PNG({ width: 64, height: 40 })).toString('base64');
+const UPLOADED: { path: string; data: string }[] = [];
+const REPORT = Buffer.from('%PDF-1.4 the quarterly report, which the relay must never see');
+const daemon = http.createServer((req, res) => {
+  if (req.method === 'GET') { res.writeHead(200); res.end('mock daemon'); return; }
+  let raw = '';
+  req.on('data', (c) => (raw += c));
+  req.on('end', () => {
+    const body = JSON.parse(raw || '{}');
+    const reply = (r: unknown) => { res.writeHead(200, { 'content-type': 'application/json' }); res.end(JSON.stringify(r)); };
+    switch (body.action) {
+      case 'screenshot': return reply({ success: true, data: { image: png } });
+      case 'cursor_position': return reply({ success: true, data: { x: 1, y: 1 } });
+      case 'list_files': return reply({ success: true, data: { entries: [] } });
+      case 'write_file': UPLOADED.push({ path: body.path, data: body.data }); return reply({ success: true });
+      case 'read_file': return body.path === '/home/bot/Downloads/report.pdf' ? reply({ success: true, data: { name: 'report.pdf', data: REPORT.toString('base64') } }) : reply({ success: false, error: 'no such file' });
+      default: return reply({ success: true, data: {} });
+    }
+  });
+});
+await new Promise<void>((r) => daemon.listen(0, '127.0.0.1', r));
+const daemonUrl = `http://127.0.0.1:${(daemon.address() as AddressInfo).port}`;
+
+// A websockify that echoes every frame, so the live view's pipe is provable end to end.
+const vncHttp = http.createServer();
+const vncWss = new WebSocketServer({ server: vncHttp, path: '/websockify', handleProtocols: (p) => (p.has('binary') ? 'binary' : false) });
+const vncProtocols: string[] = [];
+vncWss.on('connection', (ws) => {
+  vncProtocols.push(ws.protocol);
+  ws.on('message', (d) => ws.send(d, { binary: true }));
+});
+await new Promise<void>((r) => vncHttp.listen(0, '127.0.0.1', r));
+const vncUrl = `ws://127.0.0.1:${(vncHttp.address() as AddressInfo).port}/websockify`;
+
+const ANSWER = 'Looked at the screen; nothing needed doing.';
+const model = http.createServer((req, res) => {
+  req.resume();
+  req.on('end', () => {
+    res.writeHead(200, { 'content-type': 'application/json' });
+    res.end(JSON.stringify({ id: 'x', object: 'chat.completion', choices: [{ index: 0, message: { role: 'assistant', content: ANSWER }, finish_reason: 'stop' }], usage: { prompt_tokens: 1, completion_tokens: 1 } }));
+  });
+});
+await new Promise<void>((r) => model.listen(0, '127.0.0.1', r));
+const baseUrl = `http://127.0.0.1:${(model.address() as AddressInfo).port}/v1`;
+
+/* ---------- the relay, with a tap of every frame it carried ---------- */
+
+const tap: { from: string; clientId: number; bytes: Buffer }[] = [];
+const relayData = fs.mkdtempSync(path.join(os.tmpdir(), 'deskfish-uplink-relay-'));
+let relay = startRelay({ port: 0, host: '127.0.0.1', adminKey: ADMIN, dataDir: relayData, log: 'quiet', env: {}, onFrame: (f: any) => tap.push(f) });
+let relayPort: number = await relay.listening;
+const relayWs = () => `ws://127.0.0.1:${relayPort}`;
+
+const mintCode = async () => {
+  const res = await fetch(`http://127.0.0.1:${relayPort}/admin/codes`, {
+    method: 'POST',
+    headers: { authorization: `Bearer ${ADMIN}`, 'content-type': 'application/json' },
+    body: JSON.stringify({ username: USER }),
+  });
+  return (await res.json()).code as string;
+};
+
+/* ---------- the gateway ---------- */
+
+const config: Partial<DeskfishConfig> = {
+  provider: 'openai-compatible', model: 'model-a', baseUrl, daemonUrl, vncUrl,
+  autoStart: false, settleMs: 0, screenshotWidth: 64, maxSteps: 1, containerCli: 'docker', reflectEvery: 0,
+};
+const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'deskfish-uplink-'));
+fs.writeFileSync(path.join(dir, 'config.json'), JSON.stringify(config));
+const gatewayLog: string[] = [];
+const gateway = await startGateway({ dir, port: 0, resourceDir: ROOT, quiet: true, onLog: (l) => gatewayLog.push(l) });
+const home = new GatewayClient({ url: gateway.url, token: gateway.token, client: 'vscode', version: 'test' });
+await home.connect();
+
+/* ---------- a page, in Node ---------- */
+
+interface Page {
+  socket: WebSocket;
+  channel: Channel;
+  /** One JSON frame of the wire protocol; resolves with the reply to that id. */
+  call(cmd: string, args?: unknown): Promise<any>;
+  events: { event: string; data: any }[];
+  stream(kind: StreamKind): Stream;
+  close(): void;
+}
+
+/** Open a browser's socket at the relay and run OPAQUE across it; throws what the page would show. */
+async function signIn(password: string, username = USER): Promise<Page> {
+  const socket = new WebSocket(`${relayWs()}/client?user=${username}`);
+  const inbox: Uint8Array[] = [];
+  let waiter: ((b: Uint8Array) => void) | undefined;
+  let channel: Channel | undefined;
+  let pumping = false;
+  let said: any;
+  const pump = () => {
+    if (pumping) return;
+    pumping = true;
+    void (async () => {
+      try {
+        while (inbox.length) {
+          if (channel) { await channel.receive(inbox.shift()!); continue; }
+          if (waiter) { const w = waiter; waiter = undefined; w(inbox.shift()!); continue; }
+          break;
+        }
+      } finally { pumping = false; }
+    })();
+  };
+  const opened = new Promise<void>((resolve, reject) => {
+    socket.once('open', () => resolve());
+    socket.once('error', (e) => reject(e));
+  });
+  socket.on('message', (data, isBinary) => {
+    const buf = Buffer.isBuffer(data) ? data : Buffer.from(data as ArrayBuffer);
+    // Text is the relay speaking for itself ({offline}, {busy}); binary is her gateway, forwarded.
+    if (!isBinary) { said = JSON.parse(buf.toString('utf8')); return; }
+    inbox.push(new Uint8Array(buf));
+    pump();
+  });
+  const closed = new Promise<void>((resolve) => socket.once('close', () => resolve()));
+  await Promise.race([opened, sleep(3000)]);
+  const next = () => new Promise<Uint8Array>((resolve) => { waiter = resolve; pump(); });
+  const recv = async (): Promise<string> => {
+    const bytes = await Promise.race([next(), closed.then(() => undefined)]);
+    if (!bytes) throw new LoginRefused(said?.offline ? 'She is not connected right now.' : said?.busy ? 'Too many windows are open on her.' : 'The relay closed the connection.');
+    const text = td.decode(bytes);
+    // Her gateway's own sentence, when it can refuse before there are any keys to refuse with.
+    if (text.startsWith('{')) throw new LoginRefused(JSON.parse(text).refused ?? text);
+    return text;
+  };
+  // A page whose own password turns out to be wrong closes at once, as the real one does: OPAQUE
+  // tells the client first, and leaving the socket open would hold a slot at her gateway for nothing.
+  let sessionKey: string;
+  try {
+    ({ sessionKey } = await loginClient(username, password, (m) => socket.send(Buffer.from(te.encode(m)), { binary: true }), recv));
+  } catch (err) {
+    socket.close();
+    throw err;
+  }
+  channel = await Channel.create(sessionKey, 'page', (frame) => socket.send(Buffer.from(frame), { binary: true }));
+  // The carrier going away ends the channel: the page must not go on believing it is connected.
+  void closed.then(() => channel?.fail('The connection to her ended.'));
+  pump();
+
+  const protocol = channel.mux.open(StreamKind.PROTOCOL);
+  let id = 0;
+  const pending = new Map<number, { resolve: (v: any) => void; reject: (e: Error) => void }>();
+  const events: { event: string; data: any }[] = [];
+  protocol.onData((data) => {
+    const msg = JSON.parse(td.decode(data));
+    if (msg.event) return void events.push(msg);
+    const p = pending.get(msg.id);
+    pending.delete(msg.id);
+    if (p) msg.ok ? p.resolve(msg.result) : p.reject(new Error(msg.error));
+  });
+  const call = (cmd: string, args?: unknown) =>
+    new Promise<any>((resolve, reject) => {
+      const mine = ++id;
+      pending.set(mine, { resolve, reject });
+      protocol.send(te.encode(JSON.stringify({ id: mine, cmd, ...(args ? { args } : {}) })));
+      setTimeout(() => { if (pending.delete(mine)) reject(new Error(`${cmd} was never answered`)); }, 15_000);
+    });
+  await call('hello', { client: 'remote', version: 'test' }); // the first call is the snapshot
+  return { socket, channel: channel!, call, events, stream: (kind) => channel!.mux.open(kind), close: () => socket.close() };
+}
+
+/** A sign-in that is expected to fail: the sentence a person would be shown. */
+async function refusedSentence(password: string, username = USER): Promise<string> {
+  try {
+    const p = await signIn(password, username);
+    p.close();
+    return '';
+  } catch (err) {
+    return err instanceof LoginRefused ? err.sentence : err instanceof Error ? err.message : String(err);
+  }
+}
+
+const dirs = [dir, relayData];
+try {
+  // ---------- 1. before anything: off, and the settings say so ----------
+  {
+    const s = await home.call('remote.status');
+    ok(s.state === 'off' && !s.enrolled && !s.hasPassword && s.relay === '' && s.username === '', `a fresh gateway dials nothing (${JSON.stringify(s)})`);
+    await assert.rejects(home.call('remote.enroll', { relay: relayWs(), username: 'NO', code: 'x' }), /3 to 32 characters/);
+    n++;
+    await assert.rejects(home.call('remote.enroll', { relay: relayWs(), username: USER, code: 'not-a-code' }), /refused the enrolment/);
+    n++;
+    ok((await home.call('remote.status')).state === 'off', 'a refused enrolment changes nothing');
+  }
+
+  // ---------- 2. enroll: the code is spent, the private key stays here ----------
+  {
+    const code = await mintCode();
+    const s = await home.call('remote.enroll', { relay: relayWs(), username: USER, code });
+    ok(s.enrolled && !s.hasPassword && s.relay === relayWs() && s.username === USER, `enrolled, no password yet (${s.state})`);
+    const secrets = JSON.parse(fs.readFileSync(path.join(dir, 'secrets.json'), 'utf8'));
+    ok(typeof secrets.remote?.key === 'string' && secrets.remote.key.length > 40 && secrets.remote.username === USER, 'the private key is in secrets.json');
+    ok(!JSON.stringify(JSON.parse(fs.readFileSync(path.join(relayData, 'users.json'), 'utf8'))).includes(secrets.remote.key), 'and is nowhere in the relay’s store');
+    ok((await home.call('config.get')).remoteRelay === relayWs(), 'the relay is a setting, not a secret');
+    ok(relay.connected.length === 0, 'with no password set, nothing is dialled yet');
+    ok(gatewayLog.some((l) => l.includes('no password is set yet')), 'and the log says what is missing');
+    const again = await mintCode();
+    await assert.rejects(home.call('remote.enroll', { relay: relayWs(), username: USER, code: again }), /taken on this relay/);
+    n++;
+  }
+
+  // ---------- 3. the password: made here, sent as a record, and the uplink comes up ----------
+  {
+    const made = await register(USER, PASSWORD);
+    const s = await home.call('remote.password', { serverSetup: made.serverSetup, record: made.record });
+    ok(s.hasPassword && s.enrolled, 'the record is kept');
+    const secrets = JSON.parse(fs.readFileSync(path.join(dir, 'secrets.json'), 'utf8'));
+    ok(!JSON.stringify(secrets).includes(PASSWORD) && !fs.readFileSync(path.join(dir, 'config.json'), 'utf8').includes(PASSWORD), 'the password itself is in no file of hers');
+    await until(() => relay.connected.includes(USER), 'the uplink to reach the relay');
+    ok((await home.call('remote.status')).state === 'connected', 'remote.status says connected');
+    ok(gatewayLog.some((l) => l.includes('the uplink to') && l.includes(USER)), 'the log has one line per state change');
+  }
+
+  // ---------- 4. a page signs in, sees the snapshot, runs a task and hears its events ----------
+  let page: Page;
+  {
+    page = await signIn(PASSWORD);
+    const snap = await page.call('snapshot');
+    ok(snap.name === 'deskfish' && snap.dataDir === dir && snap.config.model === 'model-a', 'the page gets the snapshot of this very gateway');
+    ok((await home.call('remote.status')).clients === 1, 'the gateway counts one browser');
+    await page.call('run', { task: 'Have a look at the screen.' });
+    await until(() => page.events.some((e) => e.event === 'event' && e.data?.type === 'status' && e.data.status === 'done'), 'the task to finish at the page');
+    ok(page.events.some((e) => e.event === 'event' && e.data?.type === 'assistant' && e.data.text.includes('nothing needed doing')), 'her answer arrived as an event, through the relay');
+    ok(page.events.some((e) => e.event === 'task'), 'so did the task event every client gets');
+    // The channel is the authentication: no token was typed, sent or asked for.
+    ok(!JSON.stringify(page.events).includes(gateway.token), 'no gateway token in anything the page was sent');
+  }
+
+  // ---------- 5. the live view is a byte pipe, and a file goes both ways ----------
+  {
+    const vnc = page.stream(StreamKind.VNC);
+    const back: Uint8Array[] = [];
+    vnc.onData((d) => back.push(d));
+    vnc.send(te.encode('RFB 003.008\n'));
+    await until(() => back.length > 0, 'the live view to echo');
+    ok(td.decode(back[0]) === 'RFB 003.008\n', 'the VNC bytes went to websockify and came back unchanged');
+    ok(vncProtocols[0] === 'binary', 'and were asked for over the binary subprotocol, as noVNC does');
+
+    const put = page.stream(StreamKind.FILE);
+    const answers: any[] = [];
+    put.onData((d) => answers.push(JSON.parse(td.decode(d))));
+    const bytes = te.encode('a note for her tank');
+    put.send(te.encode(JSON.stringify({ put: { name: 'note.txt', size: bytes.length } })));
+    put.send(bytes);
+    await until(() => answers.length > 0, 'the upload to be answered');
+    ok(answers[0].ok?.path === '/home/bot/Uploads/note.txt' && UPLOADED.some((f) => f.path === '/home/bot/Uploads/note.txt' && Buffer.from(f.data, 'base64').toString() === 'a note for her tank'), 'an upload lands in the tank’s Uploads, byte for byte');
+    put.close();
+
+    const get = page.stream(StreamKind.FILE);
+    let header: any;
+    const got: Uint8Array[] = [];
+    get.onData((d) => (header ? got.push(d) : (header = JSON.parse(td.decode(d)))));
+    get.send(te.encode(JSON.stringify({ get: { name: 'report.pdf', path: '/home/bot/Downloads/report.pdf', size: REPORT.length } })));
+    await until(() => header && got.reduce((s, b) => s + b.length, 0) >= REPORT.length, 'the download to arrive');
+    ok(header.ok?.size === REPORT.length && Buffer.concat(got.map((b) => Buffer.from(b))).equals(REPORT), 'a download comes back byte for byte');
+    get.close();
+
+    const bad = page.stream(StreamKind.FILE);
+    const said: any[] = [];
+    bad.onData((d) => said.push(JSON.parse(td.decode(d))));
+    bad.send(te.encode(JSON.stringify({ get: { name: 'nope.pdf', path: '/home/bot/Downloads/nope.pdf', size: 1 } })));
+    await until(() => said.length > 0, 'the refusal');
+    ok(typeof said[0].error === 'string' && said[0].error.length > 0, `a file that is not there is refused in words (${said[0].error})`);
+    bad.close();
+  }
+
+  // ---------- 6. the relay's tap: everything it carried, and none of it readable ----------
+  {
+    const all = Buffer.concat(tap.map((f) => f.bytes));
+    const secrets = JSON.parse(fs.readFileSync(path.join(dir, 'secrets.json'), 'utf8'));
+    const hidden = ['"cmd"', 'snapshot', 'deskfish', ANSWER, 'Have a look at the screen', 'RFB 003.008', 'a note for her tank', 'the quarterly report', PASSWORD, gateway.token, secrets.remote.record, secrets.remote.key];
+    const seen = hidden.filter((needle) => all.includes(needle) || all.includes(Buffer.from(needle).toString('base64').replace(/=+$/, '')));
+    ok(seen.length === 0, `the relay carried ${tap.length} frames and ${all.length} bytes and can read none of it${seen.length ? `: ${seen.join(', ')}` : ''}`);
+    ok(tap.some((f) => f.from === 'client') && tap.some((f) => f.from === 'gateway'), 'both directions went through it');
+    ok(!fs.readFileSync(path.join(relayData, 'users.json'), 'utf8').includes(gateway.token), 'the gateway token is not in the relay’s store either');
+  }
+
+  // ---------- 7. a wrong password: five refusals, then a wait ----------
+  {
+    // The page learns first that the password is wrong (that is what OPAQUE does) and closes; her
+    // gateway counts the attempt when the relay tells it the browser is gone, so each one is waited
+    // for rather than raced.
+    const counted = () => gatewayLog.filter((l) => l.includes('a sign-in did not complete')).length;
+    let last = '';
+    for (let i = 0; i < 5; i++) {
+      const before = counted();
+      last = await refusedSentence('not her password');
+      if (i === 0) ok(/not right|not hers/.test(last), `a wrong password is refused in a sentence (${last})`);
+      await until(() => counted() > before, 'the gateway to count the wrong password');
+    }
+    last = await refusedSentence('not her password');
+    ok(/Too many wrong passwords/.test(last), `the sixth attempt in a minute is told to wait (${last})`);
+    ok(gatewayLog.some((l) => l.includes('wrong-password wait')), 'and the wait is logged');
+    ok((await home.call('remote.status')).state === 'connected', 'the uplink itself is untouched by the guessing');
+    ok(page.channel.isClosed === false, 'and so is the browser that is already signed in');
+  }
+
+  // ---------- 8. off, and the page is told she is not connected ----------
+  {
+    const s = await home.call('remote.off', {});
+    ok(s.state === 'off' && s.relay === '' && s.enrolled, 'off clears the settings and keeps the keys');
+    await until(() => relay.connected.length === 0, 'the relay to lose the uplink');
+    ok(page.channel.isClosed, 'the browser that was signed in was let go, not left hanging');
+    ok((await refusedSentence(PASSWORD)) === 'She is not connected right now.', 'a page that calls now is told she is not connected');
+    ok(gatewayLog.some((l) => l.includes('remote access is off')), 'the log says so');
+
+    // Back on: the same keys, no new code, and the uplink returns.
+    await home.call('config.set', { patch: { remoteRelay: relayWs(), remoteUsername: USER } });
+    await until(() => relay.connected.includes(USER), 'the uplink to come back from a settings change alone');
+    ok(true, 'turning it back on is a settings change; the keys were kept');
+  }
+
+  // ---------- 9. the relay restarts: the gateway dials again by itself ----------
+  {
+    await relay.close();
+    await until(() => (home.call('remote.status'), true), 'the close to settle');
+    await sleep(200);
+    relay = startRelay({ port: relayPort, host: '127.0.0.1', adminKey: ADMIN, dataDir: relayData, log: 'quiet', env: {}, onFrame: (f: any) => tap.push(f) });
+    relayPort = await relay.listening;
+    await until(() => relay.connected.includes(USER), 'the uplink to find the relay again', 20_000);
+    const back = await signIn(PASSWORD);
+    ok((await back.call('snapshot')).dataDir === dir, 'and a page signs in again with nothing re-entered');
+    back.close();
+  }
+
+  // ---------- 10. forget: the keys go too ----------
+  {
+    const s = await home.call('remote.off', { forget: true });
+    ok(!s.enrolled && !s.hasPassword && s.state === 'off', 'off --forget drops the key and the record');
+    ok(!JSON.parse(fs.readFileSync(path.join(dir, 'secrets.json'), 'utf8')).remote, 'secrets.json has no remote entry left');
+    ok(JSON.parse(fs.readFileSync(path.join(dir, 'secrets.json'), 'utf8')).keys !== undefined, 'and her API keys are untouched');
+  }
+
+  console.log(`uplink: ${n} checks passed`);
+} finally {
+  home.close();
+  await gateway.stop('test over');
+  await relay.close().catch(() => {});
+  await new Promise<void>((r) => daemon.close(() => r()));
+  await new Promise<void>((r) => vncHttp.close(() => r()));
+  vncWss.close();
+  await new Promise<void>((r) => model.close(() => r()));
+  for (const d of dirs) fs.rmSync(d, { recursive: true, force: true });
+}

@@ -95,11 +95,30 @@ export class LogFile {
   }
 }
 
+/**
+ * Everything the remote uplink needs and nothing a relay may have: the Ed25519 key the relay
+ * checks at every connect, and the OPAQUE record — enough to tell a right password from a wrong
+ * one, never enough to learn what it is. The password itself is nowhere, here or anywhere.
+ */
+export interface RemoteSecrets {
+  /** Ed25519 private key, PKCS8 DER as base64. */
+  key?: string;
+  /** Its public half, base64url of the 32 raw bytes, kept so enrolment can be shown again. */
+  publicKey?: string;
+  /** The username this pair was enrolled under. */
+  username?: string;
+  /** The OPAQUE server setup (OPRF seed + server keypair) and the registration record. */
+  serverSetup?: string;
+  record?: string;
+}
+
 interface SecretsData {
   /** API keys by slot: `deskfish.apiKey.anthropic`, `deskfish.apiKey.<endpoint host>`. */
   keys: Record<string, string>;
   /** The per-install HMAC secret that signs her self file. */
   selfKey?: string;
+  /** The remote access keys (`deskfish remote`). */
+  remote?: RemoteSecrets;
 }
 
 /** `secrets.json` (0600): read from disk on every call, so a key written by another process is seen. */
@@ -109,7 +128,11 @@ export class SecretsFile {
   private read(): SecretsData {
     try {
       const d = JSON.parse(fs.readFileSync(this.file, 'utf8')) as Partial<SecretsData>;
-      return { keys: d.keys && typeof d.keys === 'object' ? { ...d.keys } : {}, selfKey: typeof d.selfKey === 'string' ? d.selfKey : undefined };
+      return {
+        keys: d.keys && typeof d.keys === 'object' ? { ...d.keys } : {},
+        selfKey: typeof d.selfKey === 'string' ? d.selfKey : undefined,
+        remote: d.remote && typeof d.remote === 'object' ? { ...d.remote } : undefined,
+      };
     } catch {
       return { keys: {} };
     }
@@ -156,6 +179,26 @@ export class SecretsFile {
     const key = newSelfKey();
     this.setSelfKey(key);
     return key;
+  }
+
+  /** What `deskfish remote` has put here: the uplink key, and the record a password was turned into. */
+  get remote(): RemoteSecrets {
+    return this.read().remote ?? {};
+  }
+
+  /** Add to (or overwrite in) the remote entry; the rest of it, and the API keys, are untouched. */
+  setRemote(patch: RemoteSecrets): void {
+    const d = this.read();
+    d.remote = { ...(d.remote ?? {}), ...patch };
+    this.write(d);
+  }
+
+  /** Forget the uplink key and the record. The relay still holds the public key until it is revoked there. */
+  clearRemote(): void {
+    const d = this.read();
+    if (!d.remote) return;
+    delete d.remote;
+    this.write(d);
   }
 }
 

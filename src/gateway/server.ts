@@ -9,6 +9,7 @@ import { formatSize } from '../desktop/files';
 import { vncUrlWithToken } from './config';
 import { DEFAULT_PORT, EVENT_NAMES, MAX_FRAME, validate, type CommandName, type EventName, type Request } from './protocol';
 import { MAX_TRANSFER, type DeskfishService, type MemoryBundle } from './service';
+import { RemoteUplink, enrollAtRelay, newUplinkKey, relayUrls, type ClientLink, type RemoteStatus } from './uplink';
 import { VERSION } from './version';
 import { WebClient, type WebResponse } from './web';
 
@@ -44,12 +45,23 @@ export interface GatewayServerOptions {
   webRoot?: string;
 }
 
+/**
+ * One client, as the protocol sees it: something that frames text both ways. A WebSocket is one
+ * (`onConnection`); so is a browser at the far end of the relay, whose frames arrive sealed inside
+ * the uplink's channel (`uplink.ts`). Nothing below this line knows which it is talking to.
+ */
 interface Conn {
-  ws: WebSocket;
+  send(text: string): void;
+  /** Cut it off without ceremony (the gateway is closing). */
+  end(): void;
+  open(): boolean;
   hello: boolean;
   client?: string;
   poll: boolean;
 }
+
+/** A username on a relay: lowercase, starts with a letter or digit, 3 to 32 characters (the relay's own rule). */
+const RELAY_USERNAME = /^[a-z0-9][a-z0-9-]{2,31}$/;
 
 const LOOPBACK = new Set(['127.0.0.1', '::1', 'localhost']);
 
@@ -72,6 +84,10 @@ export class GatewayServer {
   private readonly web?: WebClient;
   /** Open `/vnc` pipes: detached from the HTTP server once upgraded, so `close()` ends them itself. */
   private readonly pipes = new Set<() => void>();
+  /** The one outbound connection to a relay, when `remote.*` is set up. Never an inbound anything. */
+  private uplink?: RemoteUplink;
+  /** The relay and username the live uplink was made for, so a settings change is noticed. */
+  private uplinkFor?: string;
 
   constructor(private readonly opts: GatewayServerOptions) {
     this.service = opts.service;
@@ -91,6 +107,11 @@ export class GatewayServer {
     relay('desktop.hostNetwork', this.service.desktop, 'hostNetwork');
     relay('desktop.startFailed', this.service.desktop, 'startFailed');
     relay('desktop.stopFailed', this.service.desktop, 'stopFailed');
+
+    // A relay address typed in the settings view is a change like any other: the uplink follows it.
+    const onConfig = () => this.syncUplink();
+    this.service.on('config', onConfig);
+    this.off.push(() => this.service.off('config', onConfig));
   }
 
   /** Listen; resolves with the port (useful with port 0). */
@@ -103,6 +124,7 @@ export class GatewayServer {
       this.http.once('error', reject);
       this.http.listen(this.opts.port ?? DEFAULT_PORT, host, () => {
         this.http.off('error', reject);
+        this.syncUplink();
         resolve((this.http.address() as net.AddressInfo).port);
       });
     });
@@ -115,7 +137,9 @@ export class GatewayServer {
 
   close(): Promise<void> {
     this.off.forEach((f) => f());
-    for (const c of this.conns) c.ws.terminate();
+    this.uplink?.stop('the gateway is stopping');
+    this.uplink = undefined;
+    for (const c of this.conns) c.end();
     this.conns.clear();
     // A live view still open would otherwise keep the server's close waiting forever (the gateway never exits).
     for (const end of [...this.pipes]) end();
@@ -135,6 +159,104 @@ export class GatewayServer {
     this.log(`— opening a terminal with the install command: ${rt.install.command} —`);
     await this.opts.openTerminal(rt.install.command);
     return true;
+  }
+
+  /* ---------- reaching her from anywhere (13-relay-plan.md) ---------- */
+
+  /**
+   * Start, stop or replace the uplink so it matches the settings and the keys on disk. Called at
+   * every `config` event and whenever the `remote.*` commands change something; doing nothing when
+   * nothing changed is the common case.
+   */
+  private syncUplink(restart = false): void {
+    const cfg = this.service.config;
+    const kept = this.service.secrets.remote;
+    const ready = !!(cfg.remoteRelay && cfg.remoteUsername && kept.key && kept.record && kept.serverSetup && kept.username === cfg.remoteUsername);
+    const wanted = ready ? `${cfg.remoteRelay}|${cfg.remoteUsername}` : undefined;
+    if (this.uplink && (!wanted || restart || wanted !== this.uplinkFor)) {
+      this.uplink.stop(restart ? 'the settings changed' : 'remote access was turned off');
+      this.uplink = undefined;
+      this.uplinkFor = undefined;
+      if (!wanted) this.log('— remote access is off —');
+    }
+    if (!wanted || this.uplink) {
+      // A relay with no password yet is a half-finished setup, and saying so beats silence.
+      if (!ready && cfg.remoteRelay && !this.uplink) this.log(`— remote access is not ready: ${cfg.remoteUsername ? (kept.key ? 'no password is set yet' : 'this gateway is not enrolled at the relay') : 'no username is set'} —`);
+      return;
+    }
+    this.uplink = new RemoteUplink({
+      relay: cfg.remoteRelay,
+      username: cfg.remoteUsername,
+      privateKey: kept.key!,
+      record: { username: cfg.remoteUsername, serverSetup: kept.serverSetup!, record: kept.record! },
+      host: {
+        attach: (_kind, send) => this.attach(send),
+        config: () => this.service.config,
+        uploadFile: (name, data) => this.service.uploadFile(name, data),
+        readFile: (file) => this.service.readFile(file),
+        log: (line) => this.log(line),
+      },
+    });
+    this.uplinkFor = wanted;
+    this.uplink.start();
+  }
+
+  /** What the settings view and `deskfish remote status` show. Never a key, never the password. */
+  private remoteStatus(): RemoteStatus {
+    const cfg = this.service.config;
+    const kept = this.service.secrets.remote;
+    const live = this.uplink?.status;
+    return {
+      relay: cfg.remoteRelay,
+      username: cfg.remoteUsername,
+      enrolled: !!(kept.key && kept.username),
+      hasPassword: !!(kept.record && kept.serverSetup),
+      state: live?.state ?? 'off',
+      clients: live?.clients ?? 0,
+      lastError: live?.lastError,
+      since: live?.since ?? 0,
+    };
+  }
+
+  /** Spend a one-time enrolment code at a relay. The key is made here and its private half stays here. */
+  private async remoteEnroll(a: { relay: string; username: string; code: string }): Promise<RemoteStatus> {
+    const relay = a.relay.trim();
+    const username = a.username.trim().toLowerCase();
+    if (!RELAY_USERNAME.test(username)) throw new Error('a username is 3 to 32 characters: lowercase letters, digits and dashes, starting with a letter or a digit');
+    if (!a.code.trim()) throw new Error('an enrolment code is needed: the person who runs the relay mints one');
+    relayUrls(relay); // throws the sentence when it is not an address
+    const kept = this.service.secrets.remote;
+    // The same name keeps its key, so enrolling twice at a new relay does not strand the old one.
+    const key = kept.key && kept.publicKey && kept.username === username ? { privateKey: kept.key, publicKey: kept.publicKey } : newUplinkKey();
+    await enrollAtRelay(relay, username, a.code.trim(), key.publicKey);
+    this.service.secrets.setRemote({ key: key.privateKey, publicKey: key.publicKey, username });
+    this.service.patchConfig({ remoteRelay: relay, remoteUsername: username });
+    this.log(`— enrolled at ${relay} as ${username} —`);
+    this.syncUplink(true);
+    return this.remoteStatus();
+  }
+
+  /**
+   * Keep the record a password was turned into. The password itself never reaches this process:
+   * whoever typed it ran both OPAQUE roles where it was typed and sent only what cannot be read
+   * backwards (requirement 5).
+   */
+  private remotePassword(a: { serverSetup: string; record: string }): RemoteStatus {
+    const username = this.service.config.remoteUsername || this.service.secrets.remote.username;
+    if (!username) throw new Error('enrol at a relay first: a password is kept against the name she answers to');
+    if (!a.serverSetup || !a.record) throw new Error('that is not a password record');
+    this.service.secrets.setRemote({ serverSetup: a.serverSetup, record: a.record, username });
+    this.log('— the remote access password was set —');
+    this.syncUplink(true);
+    return this.remoteStatus();
+  }
+
+  /** Stop dialling out. `forget` also drops the keys; the relay keeps the public one until it is revoked there. */
+  private remoteOff(forget: boolean): RemoteStatus {
+    this.service.patchConfig({ remoteRelay: '', remoteUsername: '' });
+    if (forget) this.service.secrets.clearRemote();
+    this.syncUplink();
+    return this.remoteStatus();
   }
 
   /* ---------- auth ---------- */
@@ -290,36 +412,55 @@ export class GatewayServer {
   /* ---------- the protocol ---------- */
 
   private onConnection(ws: WebSocket): void {
-    const conn: Conn = { ws, hello: false, poll: false };
-    this.conns.add(conn);
-    ws.on('message', (raw, isBinary) => {
-      if (isBinary) return this.reply(conn, null, false, 'binary frames are not part of the protocol');
-      let msg: unknown;
-      try {
-        msg = JSON.parse(raw.toString());
-      } catch {
-        return this.reply(conn, null, false, 'not JSON');
-      }
-      const v = validate(msg);
-      if (!v.ok) return this.reply(conn, v.id, false, v.error);
-      this.handle(conn, v.req);
-    });
-    ws.on('close', () => {
-      this.conns.delete(conn);
-      this.setPoll(conn, false);
-    });
+    const link = this.attach(
+      (text) => {
+        if (ws.readyState === ws.OPEN) ws.send(text);
+      },
+      () => ws.readyState === ws.OPEN,
+      () => ws.terminate(),
+    );
+    ws.on('message', (raw, isBinary) => (isBinary ? link.refuse('binary frames are not part of the protocol') : link.message(raw.toString())));
+    ws.on('close', () => link.close());
     ws.on('error', () => ws.terminate());
   }
 
+  /**
+   * Attach a client that is not a WebSocket — today the browsers the relay hands to the uplink, one
+   * per sealed channel. It gets exactly what a socket gets: the same validation, the same snapshot,
+   * the same events, and the same refusals.
+   */
+  attach(send: (text: string) => void, open: () => boolean = () => true, end: () => void = () => {}): ClientLink {
+    const conn: Conn = { send, open, end, hello: false, poll: false };
+    this.conns.add(conn);
+    return {
+      message: (text) => {
+        let msg: unknown;
+        try {
+          msg = JSON.parse(text);
+        } catch {
+          return this.reply(conn, null, false, 'not JSON');
+        }
+        const v = validate(msg);
+        if (!v.ok) return this.reply(conn, v.id, false, v.error);
+        this.handle(conn, v.req);
+      },
+      refuse: (why) => this.reply(conn, null, false, why),
+      close: () => {
+        this.conns.delete(conn);
+        this.setPoll(conn, false);
+      },
+    };
+  }
+
   private reply(conn: Conn, id: number | null, ok: boolean, payload: unknown): void {
-    if (conn.ws.readyState !== conn.ws.OPEN) return;
-    conn.ws.send(JSON.stringify(ok ? { id, ok: true, result: payload ?? null } : { id, ok: false, error: String(payload) }));
+    if (!conn.open()) return;
+    conn.send(JSON.stringify(ok ? { id, ok: true, result: payload ?? null } : { id, ok: false, error: String(payload) }));
   }
 
   private broadcast(event: EventName, data: unknown): void {
     if (!this.conns.size) return;
     const frame = JSON.stringify({ event, data });
-    for (const c of this.conns) if (c.hello && c.ws.readyState === c.ws.OPEN) c.ws.send(frame);
+    for (const c of this.conns) if (c.hello && c.open()) c.send(frame);
   }
 
   private setPoll(conn: Conn, on: boolean): void {
@@ -473,6 +614,14 @@ export class GatewayServer {
       }
       case 'log.tail':
         return this.opts.logTail?.(Math.max(1, Math.min(5000, a.lines ?? 200))) ?? [];
+      case 'remote.enroll':
+        return this.remoteEnroll({ relay: a.relay, username: a.username, code: a.code });
+      case 'remote.password':
+        return this.remotePassword({ serverSetup: a.serverSetup, record: a.record });
+      case 'remote.status':
+        return this.remoteStatus();
+      case 'remote.off':
+        return this.remoteOff(!!a.forget);
       case 'shutdown':
         this.log('— shutdown asked by a client —');
         return null;

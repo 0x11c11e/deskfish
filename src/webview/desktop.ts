@@ -40,7 +40,14 @@ let screenFree = false;
 let desktop: DesktopStatus = { state: 'unknown' };
 let conn: { url: string; password?: string } | undefined;
 /** The address as shown on screen: without its query, which carries the gateway's token. */
-const shownUrl = (url: string) => url.replace(/[?#].*$/, '');
+const shownUrl = (url: string) => (url.startsWith(CHANNEL) ? 'her own connection' : url.replace(/[?#].*$/, ''));
+/**
+ * The live view has no address of its own when this page reached her through a relay: there is one
+ * sealed channel and the screen is a stream inside it. noVNC takes a raw channel in place of a URL
+ * (`core/rfb.js`: "Must specify URL, WebSocket or RTCDataChannel"), so the host hands one over.
+ */
+const CHANNEL = 'deskfish-channel:';
+const rawChannel = (url: string): unknown => (url.startsWith(CHANNEL) ? (window.parent as unknown as { deskfishVncChannel?: () => unknown })?.deskfishVncChannel?.() : undefined);
 /* Automatic reconnect: a socket that drops while the desktop stays on (suspend/resume, a
  * websockify hiccup) is retried with backoff instead of waiting for the Reconnect button. */
 let connecting = false;
@@ -120,7 +127,9 @@ function connect(force = false): void {
   setStatusText(`connecting to ${shownUrl(conn.url)}…`);
   cancelRetry();
   try {
-    rfb = new RFB(screen, conn.url, conn.password ? { credentials: { password: conn.password } } : undefined);
+    const channel = rawChannel(conn.url);
+    if (conn.url.startsWith(CHANNEL) && !channel) throw new Error('this page has no open connection to her');
+    rfb = new RFB(screen, (channel ?? conn.url) as never, conn.password ? { credentials: { password: conn.password } } : undefined);
   } catch (err) {
     setStatusText(`VNC error: ${String(err)}`, 'error');
     post({ type: 'log', level: 'error', message: `RFB constructor failed: ${String(err)}` });
