@@ -187,6 +187,16 @@ log, the saved transcripts, the journal and the tank's own request log. It is a 
 so treat it as a net with holes rather than a guarantee: keep secrets out of the chat, and let
 Firefox in the tank hold the logins.
 
+**A login the model never sees.** The one thing that is a guarantee rather than a net is the
+[sign-in card](knocking-on-the-glass): when a site wants a login the tank's browser has not
+saved, the agent asks for a card in your chat instead of a password in the conversation. What
+you type there goes into the page as keystrokes and exists in exactly four places — the card
+until you press Fill in, the connection between the card and Deskfish (loopback at home, or
+the sealed channel through a relay), Deskfish itself for the seconds the typing takes, and
+the tank's keyboard. It is never sent to the model, never written to the chat transcript, the
+journal, any log or the agent's memory, and never put on the clipboard, which is shared with
+your own computer: a value that cannot be typed is reported as an error rather than pasted.
+
 ## Credentials and accounts
 
 Everything inside the tank is the agent's to use: the browser, the logins Firefox has saved,
@@ -197,11 +207,12 @@ is yours, not the agent's:
   remembers logins, so this is a one-time setup, and it means that whatever the agent does,
   or whatever a malicious page talks it into, happens to an account you created for the
   purpose.
-- **Do not put passwords in the chat.** The chat goes to the model provider. When a login is
-  needed, let the agent knock on the glass and type it yourself in the Desktop tab; those
-  keystrokes never pass through the model. If you let Firefox in the tank save it, the agent
-  can read it back from the password manager later, and it will then also appear on the
-  agent's screen, which the model provider sees.
+- **Do not put passwords in the chat's message box.** What you write there goes to the model
+  provider. When a login is needed the agent puts a **sign-in card** in the chat: type it
+  there, or take the desktop and type it in the Desktop tab. Either way the keystrokes never
+  pass through the model. If you let Firefox in the tank save the login, the agent can read
+  it back from the password manager later, and it will then also appear on the agent's
+  screen, which the model provider sees.
 
 If you want the agent to ask before anything irreversible and never to use credentials you
 did not give it, set `deskfish.autonomy` to `guided`; see [Knocking on the glass](knocking-on-the-glass).

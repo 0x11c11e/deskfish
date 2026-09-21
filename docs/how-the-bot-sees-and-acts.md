@@ -45,6 +45,7 @@ The model is given a small set of tools, the same on every provider:
 | `select_option` | Choose an option of a native dropdown on the page by its text, without opening it. See below |
 | `run_command` | Run a shell command in the tank's terminal environment and get its output back as text, without the screen: reading and editing files, git, tests, scripts. Time-limited, and cut at about 20,000 characters |
 | `ask_user` | Stop and hand the desktop to you, with a reason. See [Knocking on the glass](knocking-on-the-glass) |
+| `ask_fill` | Ask for a login through a card in your chat, and have what you type typed into the page's fields. The agent is told which fields were filled and never the values. See [the sign-in card](knocking-on-the-glass) |
 | `read_docs` | Read a page of this documentation, so it can answer questions about Deskfish accurately. Changes nothing |
 | `remember` / `forget` | Save one durable fact to its [long-term memory](memory), or delete matching ones |
 | `note_to_self` / `recall` | Leave a line in its journal; search the journal and past chats |
