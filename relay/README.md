@@ -63,8 +63,9 @@ unless you build with `--format docker`; `GET /status` is the check either way.)
 
 It listens on `127.0.0.1:8080` and expects **your own TLS proxy** in front of it, because browsers
 need `wss://` and so does the gateway. Do not publish 8080 straight to the internet: besides the
-missing certificate, the connection rate limit counts `x-forwarded-for`, which only a proxy you run
-can be trusted to set. One of these, with a name you own pointed at the machine:
+missing certificate, the connection rate limit counts `x-forwarded-for` — the last address in it,
+the one your proxy appended — which only a proxy you run can be trusted to set. One of these, with
+a name you own pointed at the machine:
 
 **Caddy** — the whole of it:
 

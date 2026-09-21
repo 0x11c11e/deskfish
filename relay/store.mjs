@@ -25,8 +25,9 @@ import { dirname } from 'node:path';
 /** A username: lowercase, starts with a letter or digit, 3 to 32 characters. */
 export const USERNAME = /^[a-z0-9][a-z0-9-]{2,31}$/;
 
-/** An Ed25519 public key as base64url of 32 raw bytes, or a base64 SPKI — both are 40-90 characters. */
-const PUBLIC_KEY = /^[A-Za-z0-9+/_-]{40,120}={0,2}$/;
+/** An Ed25519 public key: the 32 raw bytes as base64url (base64 is accepted too), 43 or 44 characters. */
+const PUBLIC_KEY = /^[A-Za-z0-9+/_-]{40,48}={0,2}$/;
+const isPublicKey = (s) => PUBLIC_KEY.test(s) && Buffer.from(s, 'base64url').length === 32;
 
 const today = () => new Date().toISOString().slice(0, 10);
 
@@ -93,7 +94,7 @@ export class JsonUsers {
    */
   claim(username, publicKey, code) {
     if (!USERNAME.test(username)) throw new Error('a username is 3 to 32 characters: lowercase letters, digits and dashes, starting with a letter or a digit');
-    if (!PUBLIC_KEY.test(publicKey)) throw new Error('that is not a public key');
+    if (!isPublicKey(publicKey)) throw new Error('that is not a public key: an Ed25519 public key is 32 bytes, sent as base64url');
     const entry = code && Object.prototype.hasOwnProperty.call(this.#data.codes, code) ? this.#data.codes[code] : undefined;
     if (!entry) throw new Error('that enrolment code is not one of ours, or it has been used already');
     if (entry.username && entry.username !== username) throw new Error(`that enrolment code is for ${entry.username}`);

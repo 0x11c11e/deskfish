@@ -88,12 +88,15 @@ function publicKeyFrom(raw) {
 /**
  * The address a connection came from, as far as a reverse proxy tells us. Counted for the rate
  * limit, never stored. `x-forwarded-for` is trusted because this program is meant to sit behind a
- * proxy you run; exposed directly to the internet a client could set it and slip the limit, which
- * is one more reason the README puts TLS in front rather than in here.
+ * proxy you run — and it is the *last* address in that header that is read, because that is the
+ * one your proxy appended; the first is whatever the client itself put there (nginx's
+ * `$proxy_add_x_forwarded_for` appends, it does not replace), so keying on it would let a client
+ * pick its own bucket. Exposed directly to the internet a client could set the whole header and
+ * slip the limit, which is one more reason the README puts TLS in front rather than in here.
  */
 function addressOf(req) {
   const forwarded = req.headers['x-forwarded-for'];
-  if (typeof forwarded === 'string' && forwarded.length) return forwarded.split(',')[0].trim();
+  if (typeof forwarded === 'string' && forwarded.length) return forwarded.split(',').pop().trim();
   return req.socket.remoteAddress ?? '?';
 }
 

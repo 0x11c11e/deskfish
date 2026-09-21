@@ -1,7 +1,8 @@
 // The relay (relay/server.mjs + store.mjs), started in this process on a free port, with a real
 // gateway uplink and real browser clients made of `ws`. It refuses to start without an admin key;
-// enrolment needs a minted code and spends it; the admin endpoints refuse a wrong key; an uplink
-// with a bad signature, an unknown username or no answer is closed; two browsers on one uplink get
+// enrolment needs a minted code and spends it, and refuses a key that is not 32 bytes; the admin
+// endpoints refuse a wrong key; an uplink with a bad signature or an unknown username is closed
+// (silence is closed after ten seconds, not waited for here); two browsers on one uplink get
 // their own numbers and only their own frames; a browser for a user who is not connected is told
 // `{offline:true}`; a second uplink replaces the first and the first's browsers are dropped; a text
 // frame from a browser closes it; the gateway can ask for a browser to be closed. The tap — every
@@ -128,6 +129,10 @@ try {
   ok(taken.status === 400 && /taken on this relay/.test(taken.body.error), 'a username is claimed once, even with a fresh code');
   const badName = await enroll({ username: 'X!', publicKey, code: second.code });
   ok(badName.status === 400 && /3 to 32 characters/.test(badName.body.error), 'a username that is not one is refused in a sentence');
+  const spki = Buffer.from(pair.publicKey.export({ format: 'der', type: 'spki' })).toString('base64url');
+  const wrongKey = await enroll({ username: 'someone-else', publicKey: spki, code: second.code });
+  ok(wrongKey.status === 400 && /32 bytes/.test(wrongKey.body.error), `a key that is not the 32 raw bytes is refused at enrolment, not at the first uplink: ${wrongKey.body.error}`);
+  ok(relay.users.get('someone-else') === undefined, 'and nothing was enrolled by it');
 
   // 4. A browser for a user who is not connected is told so
   {
@@ -322,11 +327,13 @@ try {
       if (m.challenge) socket.send(JSON.stringify({ username: USER, signature: answerChallenge(m.challenge, m.context, USER) }));
     });
     await sleep(200);
-    const browserSocket = new WebSocket(`ws://127.0.0.1:${port2}/client?user=${USER}`);
+    // Behind a proxy that appends (nginx, Traefik) the client's own `x-forwarded-for` comes first; the address counted is the last one.
+    const browserSocket = new WebSocket(`ws://127.0.0.1:${port2}/client?user=${USER}`, { headers: { 'x-forwarded-for': '203.0.113.9, 10.0.0.9' } });
     await sleep(100);
     browserSocket.send(Buffer.from('a frame nobody will ever read'), { binary: true });
     await sleep(100);
-    ok(loud.some((l) => /uplink up/.test(l)) && loud.some((l) => /browser 1/.test(l)), `events names the connections (${loud.length} lines)`);
+    ok(loud.some((l) => /uplink up/.test(l)) && loud.some((l) => /browser 1 from 10\.0\.0\.9$/.test(l)), `events names the connections, by the address the proxy appended (${loud.length} lines)`);
+    ok(!loud.some((l) => /203\.0\.113\.9/.test(l)), 'not by the one the client wrote');
     ok(!loud.some((l) => /nobody will ever read/.test(l)), 'and never a frame');
     browserSocket.close();
     socket.close();
