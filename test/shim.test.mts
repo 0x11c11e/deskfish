@@ -9,7 +9,10 @@
 // panels live in the chat view: its `ask` becomes the command when VIEW_COMMANDS names it (answered in
 // the frame that carried it) and is refused without reaching the gateway otherwise; the title bar posts
 // `open`; the … menu reflects, exports into the downloads, imports only after the confirm (then rebuilds
-// from a snapshot) and deletes past chats after a confirm with the count.
+// from a snapshot) and deletes past chats after a confirm with the count. Last, the relay page's two
+// rules for finding a relay (web/remote.ts): what it takes as an address, and where it looks when
+// nobody has told it one. The rest of that page is tested where it can be: the transports end to end
+// in `uplink.test.mts`, the built file in `webpage.test.mts`.
 import assert from 'node:assert/strict';
 import { validate } from '../src/gateway/protocol';
 import type { Snapshot } from '../src/gateway/protocol';
@@ -481,6 +484,20 @@ class FakeSocket implements SocketLike {
   await p;
   ok(toasts.at(-1) === 'There are no past chats.', 'none: nothing to ask');
   (host as any).retry && clearTimeout((host as any).retry);
+}
+
+// ---------- the relay page: which relay, and where it looks ----------
+{
+  const { normalizeRelay, relayAddress } = await import('../web/remote');
+  ok(normalizeRelay('relay.example.com') === 'wss://relay.example.com', 'a bare name means TLS: a relay without it is a relay that reads the handshake');
+  ok(normalizeRelay('  wss://relay.example.com/  ') === 'wss://relay.example.com', 'trimmed, and no trailing slash to double up on /client');
+  ok(normalizeRelay('https://relay.example.com') === 'wss://relay.example.com' && normalizeRelay('http://127.0.0.1:8080') === 'ws://127.0.0.1:8080', 'an https:// or http:// address is the WebSocket address it means');
+  ok(normalizeRelay('   ') === '', 'nothing typed is nothing, and the page says it does not know which relay to call');
+
+  ok(relayAddress('remote.deskfish.sh', '', '') === 'wss://relay.deskfish.sh', 'a page at remote.<apex> looks for relay.<apex>: the file in the release is the file on the site');
+  ok(relayAddress('remote.deskfish.sh', '', 'relay.mine.example') === 'wss://relay.mine.example', 'a relay this browser was told once wins over the default');
+  ok(relayAddress('remote.deskfish.sh', '?relay=ws://127.0.0.1:8080', 'relay.mine.example') === 'ws://127.0.0.1:8080', 'and ?relay= wins over both, which is what the live check uses');
+  ok(relayAddress('example.com', '', '') === '' && relayAddress('localhost', '', '') === '', 'a page anywhere else knows no relay until somebody types one');
 }
 
 console.log(`shim: ${n} checks passed`);

@@ -64,6 +64,27 @@ const builds = [
     format: 'iife',
     target: 'es2022',
   },
+  // The relay page's own entry: the shim plus the sealed channel and the sign-in (web/remote.ts).
+  // It carries the OPAQUE library's WebAssembly, which is why it is not simply part of the shim —
+  // the page at home has a token and needs none of it.
+  {
+    ...common,
+    entryPoints: ['web/remote.ts'],
+    outfile: 'dist/web/remote.js',
+    platform: 'browser',
+    format: 'iife',
+    target: 'es2022',
+  },
+  // The two view bodies, for `scripts/build-remote.mjs` to build the static page from the same
+  // source the gateway serves (`src/ui/bodies.ts` is the one implementation, ring 1).
+  {
+    ...common,
+    entryPoints: ['src/ui/bodies.ts'],
+    outfile: 'dist/web/bodies.mjs',
+    platform: 'node',
+    format: 'esm',
+    target: 'node20',
+  },
   {
     ...common,
     entryPoints: ['src/smoke.ts', 'src/smokeDesktop.ts'],
@@ -106,4 +127,8 @@ if (watch) {
   console.log('watching…');
 } else {
   await Promise.all(builds.map((b) => esbuild.build(b)));
+  // Last, because it inlines what the others just wrote: the one static file the relay page is.
+  const { buildRemote } = await import('./scripts/build-remote.mjs');
+  const remote = await buildRemote();
+  console.log(`remote page: ${remote.scripts} inline scripts → dist/web/remote.html (${Math.round(remote.bytes / 1024)} KB)`);
 }

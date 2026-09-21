@@ -1,0 +1,43 @@
+<!--
+  The sign-in card of the page at remote.deskfish.sh, and nothing else: everything below it is
+  `web/index.html`, which `scripts/build-remote.mjs` splices this into at build time. One page, one
+  set of views, two ways in — the rule from 2026-09-16, "the UI must not be written twice".
+-->
+<style>
+  #signin { position: fixed; inset: 0; z-index: 30; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; padding: 16px; overflow: auto; background: var(--vscode-sideBar-background); }
+  #signin form { width: min(400px, 100%); padding: 24px 22px; border: 1px solid var(--vscode-widget-border); border-radius: 12px; background: var(--vscode-editor-background); }
+  #signin .mascot { width: 40px; height: 40px; color: var(--vscode-button-background); }
+  #signin h1 { margin: 10px 0 8px; font-size: 18px; font-weight: 600; }
+  #signin p { margin: 0 0 14px; line-height: 1.5; font-size: 13px; color: var(--vscode-descriptionForeground); }
+  #signin label { display: block; margin: 12px 0 4px; font-size: 12px; color: var(--vscode-descriptionForeground); }
+  #signin input { width: 100%; padding: 9px 10px; font: inherit; font-size: 15px; border: 1px solid var(--vscode-input-border); border-radius: 6px; color: var(--vscode-input-foreground); background: var(--vscode-input-background); }
+  #signin input:focus { outline: 1px solid var(--vscode-focusBorder); border-color: var(--vscode-focusBorder); }
+  #signin button { margin-top: 18px; width: 100%; padding: 11px 14px; font: inherit; font-size: 14px; font-weight: 600; border: 0; border-radius: 6px; cursor: pointer; color: var(--vscode-button-foreground); background: var(--vscode-button-background); }
+  #signin button:hover { background: var(--vscode-button-hoverBackground); }
+  #signin button[disabled] { opacity: 0.7; cursor: default; }
+  #signin summary { margin-top: 16px; font-size: 12px; cursor: pointer; color: var(--vscode-descriptionForeground); }
+  #signin details p { margin: 6px 0 0; font-size: 12px; }
+  #signin details input { margin-top: 6px; font-size: 13px; }
+  #signinError { margin: 0 0 4px; color: var(--vscode-errorForeground); }
+  #signin .foot { margin: 0; font-size: 12px; text-align: center; color: var(--vscode-descriptionForeground); }
+  #signin .foot a { color: var(--vscode-textLink-foreground); }
+</style>
+<div id="signin" hidden>
+  <form id="signinForm" autocomplete="on">
+    <svg class="mascot" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4.5 12c1.9-2.6 4.4-3.7 6.6-3.3 2.3.4 3.9 1.9 4.6 3.3-.7 1.4-2.3 2.9-4.6 3.3-2.2.4-4.7-.7-6.6-3.3z"/><path d="M15.7 12l3.8-2.5v5z"/><circle cx="7.4" cy="11.4" r="1" fill="currentColor" stroke="none"/><circle cx="17.5" cy="6" r="1"/><circle cx="19.8" cy="3.6" r=".7"/></svg>
+    <h1>Deskfish</h1>
+    <p>Her name and her password. The relay that carries this cannot read a word of it, and there is no token to copy from anywhere.</p>
+    <p id="signinError" role="alert" hidden></p>
+    <label for="user">Her name</label>
+    <input id="user" name="username" autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false" required>
+    <label for="pass">Password</label>
+    <input id="pass" name="password" type="password" autocomplete="current-password" required>
+    <details>
+      <summary>Relay</summary>
+      <input id="relay" name="relay" inputmode="url" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="wss://relay.example.com">
+      <p>Where her gateway dials out to. Remembered in this browser.</p>
+    </details>
+    <button id="signinGo" type="submit">Open Deskfish</button>
+  </form>
+  <p class="foot">Her computer opens no port. <a href="https://deskfish.sh/docs/remote-access" target="_blank" rel="noreferrer noopener">How this works</a></p>
+</div>

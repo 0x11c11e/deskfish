@@ -1094,9 +1094,18 @@ export function boot(): void {
     ui,
   });
   (window as unknown as { deskfishHost: WebHost }).deskfishHost = host;
+  wireTitleBar(host, ui);
+  host.start();
+}
+
+/**
+ * The title bar, for both pages: the panels open inside the chat view, and the `…` menu holds what
+ * VS Code has as commands. Everything is looked up when it is used, so this may be wired before the
+ * page's body exists — which is what the page at a relay does, where the views appear after a
+ * sign-in. New chat's answer is a `reset` event, like everywhere else.
+ */
+export function wireTitleBar(host: WebHost, ui: HostUi): void {
   document.addEventListener('visibilitychange', () => host.visibility());
-  // The title bar (VS Code has these in the view's title bar and as commands): the panels open inside the chat view; New chat's answer is `reset`.
-  // Looked up when used: this script runs before the page's body exists.
   const showMenu = (open: boolean) => {
     const menu = document.getElementById('menu');
     if (!menu) return;
@@ -1131,7 +1140,7 @@ export function boot(): void {
   document.addEventListener('keydown', (ev) => {
     if (ev.key === 'Escape' && menuOpen()) showMenu(false);
   });
-  host.start();
 }
 
-if (typeof window !== 'undefined' && typeof document !== 'undefined' && typeof location !== 'undefined') boot();
+// The page a relay serves boots itself after a sign-in (`web/remote.ts`) and says so on <html>.
+if (typeof window !== 'undefined' && typeof document !== 'undefined' && typeof location !== 'undefined' && document.documentElement?.dataset.page !== 'remote') boot();

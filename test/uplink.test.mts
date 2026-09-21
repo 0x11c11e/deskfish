@@ -10,6 +10,10 @@
 // told to wait; `remote off` drops the uplink and a page is told she is not connected; a relay that
 // restarts is dialled again; and the relay's tap of everything it carried holds none of the
 // plaintext — not the protocol's words, not the chat, not the file, and not the gateway token.
+//
+// The page here is the page that ships: `web/remote.ts`'s own `signIn`, `protocolSocket`,
+// `vncChannel` and `fileTransfer`, run in Node against the real relay and the real gateway. Only
+// its DOM is left out (`webpage.test.mts` has the built file).
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import http from 'node:http';
@@ -22,7 +26,8 @@ import WebSocket, { WebSocketServer } from 'ws';
 import { GatewayClient } from '../src/gateway/client';
 import type { DeskfishConfig } from '../src/gateway/config';
 import { startGateway } from '../src/gateway/start';
-import { Channel, LoginRefused, StreamKind, loginClient, register, type Stream } from '../src/remote/channel';
+import { Channel, LoginRefused, StreamKind, readMessages, register, writeMessage, type Stream } from '../src/remote/channel';
+import { fileTransfer, protocolSocket, signIn as pageSignIn, vncChannel, type Live } from '../web/remote';
 // @ts-expect-error — the relay is its own plain-JavaScript package; it has no types and imports nothing of ours.
 import { startRelay } from '../relay/server.mjs';
 
@@ -121,95 +126,39 @@ const gateway = await startGateway({ dir, port: 0, resourceDir: ROOT, quiet: tru
 const home = new GatewayClient({ url: gateway.url, token: gateway.token, client: 'vscode', version: 'test' });
 await home.connect();
 
-/* ---------- a page, in Node ---------- */
+/* ---------- a page, in Node: the shipped one, without its DOM ---------- */
 
 interface Page {
-  socket: WebSocket;
-  channel: Channel;
+  live: Live;
   /** One JSON frame of the wire protocol; resolves with the reply to that id. */
   call(cmd: string, args?: unknown): Promise<any>;
   events: { event: string; data: any }[];
-  stream(kind: StreamKind): Stream;
   close(): void;
 }
 
-/** Open a browser's socket at the relay and run OPAQUE across it; throws what the page would show. */
+/** Sign in exactly as the page does, then talk to her over stream 1 as `WebHost` would. */
 async function signIn(password: string, username = USER): Promise<Page> {
-  const socket = new WebSocket(`${relayWs()}/client?user=${username}`);
-  const inbox: Uint8Array[] = [];
-  let waiter: ((b: Uint8Array) => void) | undefined;
-  let channel: Channel | undefined;
-  let pumping = false;
-  let said: any;
-  const pump = () => {
-    if (pumping) return;
-    pumping = true;
-    void (async () => {
-      try {
-        while (inbox.length) {
-          if (channel) { await channel.receive(inbox.shift()!); continue; }
-          if (waiter) { const w = waiter; waiter = undefined; w(inbox.shift()!); continue; }
-          break;
-        }
-      } finally { pumping = false; }
-    })();
-  };
-  const opened = new Promise<void>((resolve, reject) => {
-    socket.once('open', () => resolve());
-    socket.once('error', (e) => reject(e));
-  });
-  socket.on('message', (data, isBinary) => {
-    const buf = Buffer.isBuffer(data) ? data : Buffer.from(data as ArrayBuffer);
-    // Text is the relay speaking for itself ({offline}, {busy}); binary is her gateway, forwarded.
-    if (!isBinary) { said = JSON.parse(buf.toString('utf8')); return; }
-    inbox.push(new Uint8Array(buf));
-    pump();
-  });
-  const closed = new Promise<void>((resolve) => socket.once('close', () => resolve()));
-  await Promise.race([opened, sleep(3000)]);
-  const next = () => new Promise<Uint8Array>((resolve) => { waiter = resolve; pump(); });
-  const recv = async (): Promise<string> => {
-    const bytes = await Promise.race([next(), closed.then(() => undefined)]);
-    if (!bytes) throw new LoginRefused(said?.offline ? 'She is not connected right now.' : said?.busy ? 'Too many windows are open on her.' : 'The relay closed the connection.');
-    const text = td.decode(bytes);
-    // Her gateway's own sentence, when it can refuse before there are any keys to refuse with.
-    if (text.startsWith('{')) throw new LoginRefused(JSON.parse(text).refused ?? text);
-    return text;
-  };
-  // A page whose own password turns out to be wrong closes at once, as the real one does: OPAQUE
-  // tells the client first, and leaving the socket open would hold a slot at her gateway for nothing.
-  let sessionKey: string;
-  try {
-    ({ sessionKey } = await loginClient(username, password, (m) => socket.send(Buffer.from(te.encode(m)), { binary: true }), recv));
-  } catch (err) {
-    socket.close();
-    throw err;
-  }
-  channel = await Channel.create(sessionKey, 'page', (frame) => socket.send(Buffer.from(frame), { binary: true }));
-  // The carrier going away ends the channel: the page must not go on believing it is connected.
-  void closed.then(() => channel?.fail('The connection to her ended.'));
-  pump();
-
-  const protocol = channel.mux.open(StreamKind.PROTOCOL);
+  const live = await pageSignIn(relayWs(), username, password);
+  const socket = protocolSocket(live.channel);
   let id = 0;
   const pending = new Map<number, { resolve: (v: any) => void; reject: (e: Error) => void }>();
   const events: { event: string; data: any }[] = [];
-  protocol.onData((data) => {
-    const msg = JSON.parse(td.decode(data));
+  socket.onmessage = (ev) => {
+    const msg = JSON.parse(String(ev.data));
     if (msg.event) return void events.push(msg);
     const p = pending.get(msg.id);
     pending.delete(msg.id);
     if (p) msg.ok ? p.resolve(msg.result) : p.reject(new Error(msg.error));
-  });
+  };
   const call = (cmd: string, args?: unknown) =>
     new Promise<any>((resolve, reject) => {
       const mine = ++id;
       pending.set(mine, { resolve, reject });
-      protocol.send(te.encode(JSON.stringify({ id: mine, cmd, ...(args ? { args } : {}) })));
+      socket.send(JSON.stringify({ id: mine, cmd, ...(args ? { args } : {}) }));
       setTimeout(() => { if (pending.delete(mine)) reject(new Error(`${cmd} was never answered`)); }, 15_000);
     });
   await call('hello', { client: 'remote', version: 'test' }); // the first call is the snapshot
-  return { socket, channel: channel!, call, events, stream: (kind) => channel!.mux.open(kind), close: () => socket.close() };
+  return { live, call, events, close: () => live.socket.close() };
 }
 
 /** A sign-in that is expected to fail: the sentence a person would be shown. */
@@ -281,40 +230,29 @@ try {
 
   // ---------- 5. the live view is a byte pipe, and a file goes both ways ----------
   {
-    const vnc = page.stream(StreamKind.VNC);
+    // noVNC's raw channel, as `core/websock.js` will use it: the eight properties, binaryType, a
+    // message event carrying an ArrayBuffer.
+    const raw = vncChannel(page.live.channel) as any;
+    ok(['send', 'close', 'binaryType', 'onerror', 'onmessage', 'onopen', 'protocol', 'readyState'].every((k) => k in raw), 'the live view is handed a channel with every property noVNC demands');
     const back: Uint8Array[] = [];
-    vnc.onData((d) => back.push(d));
-    vnc.send(te.encode('RFB 003.008\n'));
+    raw.onmessage = (ev: { data: ArrayBuffer }) => back.push(new Uint8Array(ev.data));
+    raw.binaryType = 'arraybuffer';
+    raw.send(te.encode('RFB 003.008\n'));
     await until(() => back.length > 0, 'the live view to echo');
     ok(td.decode(back[0]) === 'RFB 003.008\n', 'the VNC bytes went to websockify and came back unchanged');
     ok(vncProtocols[0] === 'binary', 'and were asked for over the binary subprotocol, as noVNC does');
 
-    const put = page.stream(StreamKind.FILE);
-    const answers: any[] = [];
-    put.onData((d) => answers.push(JSON.parse(td.decode(d))));
-    const bytes = te.encode('a note for her tank');
-    put.send(te.encode(JSON.stringify({ put: { name: 'note.txt', size: bytes.length } })));
-    put.send(bytes);
-    await until(() => answers.length > 0, 'the upload to be answered');
-    ok(answers[0].ok?.path === '/home/bot/Uploads/note.txt' && UPLOADED.some((f) => f.path === '/home/bot/Uploads/note.txt' && Buffer.from(f.data, 'base64').toString() === 'a note for her tank'), 'an upload lands in the tank’s Uploads, byte for byte');
-    put.close();
+    const files = fileTransfer(page.live.channel);
+    const note = new File([te.encode('a note for her tank')], 'note.txt');
+    const put = await files.upload('note.txt', note);
+    ok(put.path === '/home/bot/Uploads/note.txt' && UPLOADED.some((f) => f.path === '/home/bot/Uploads/note.txt' && Buffer.from(f.data, 'base64').toString() === 'a note for her tank'), 'an upload lands in the tank’s Uploads, byte for byte');
 
-    const get = page.stream(StreamKind.FILE);
-    let header: any;
-    const got: Uint8Array[] = [];
-    get.onData((d) => (header ? got.push(d) : (header = JSON.parse(td.decode(d)))));
-    get.send(te.encode(JSON.stringify({ get: { name: 'report.pdf', path: '/home/bot/Downloads/report.pdf', size: REPORT.length } })));
-    await until(() => header && got.reduce((s, b) => s + b.length, 0) >= REPORT.length, 'the download to arrive');
-    ok(header.ok?.size === REPORT.length && Buffer.concat(got.map((b) => Buffer.from(b))).equals(REPORT), 'a download comes back byte for byte');
-    get.close();
+    const got = await files.download({ name: 'report.pdf', path: '/home/bot/Downloads/report.pdf', size: REPORT.length });
+    ok(Buffer.from(await got.arrayBuffer()).equals(REPORT), 'a download comes back byte for byte');
 
-    const bad = page.stream(StreamKind.FILE);
-    const said: any[] = [];
-    bad.onData((d) => said.push(JSON.parse(td.decode(d))));
-    bad.send(te.encode(JSON.stringify({ get: { name: 'nope.pdf', path: '/home/bot/Downloads/nope.pdf', size: 1 } })));
-    await until(() => said.length > 0, 'the refusal');
-    ok(typeof said[0].error === 'string' && said[0].error.length > 0, `a file that is not there is refused in words (${said[0].error})`);
-    bad.close();
+    let refusal = '';
+    await files.download({ name: 'nope.pdf', path: '/home/bot/Downloads/nope.pdf', size: 1 }).catch((err: Error) => (refusal = err.message));
+    ok(refusal.length > 0, `a file that is not there is refused in words (${refusal})`);
   }
 
   // ---------- 6. the relay's tap: everything it carried, and none of it readable ----------
@@ -345,7 +283,7 @@ try {
     ok(/Too many wrong passwords/.test(last), `the sixth attempt in a minute is told to wait (${last})`);
     ok(gatewayLog.some((l) => l.includes('wrong-password wait')), 'and the wait is logged');
     ok((await home.call('remote.status')).state === 'connected', 'the uplink itself is untouched by the guessing');
-    ok(page.channel.isClosed === false, 'and so is the browser that is already signed in');
+    ok(page.live.channel.isClosed === false, 'and so is the browser that is already signed in');
   }
 
   // ---------- 8. off, and the page is told she is not connected ----------
@@ -353,8 +291,8 @@ try {
     const s = await home.call('remote.off', {});
     ok(s.state === 'off' && s.relay === '' && s.enrolled, 'off clears the settings and keeps the keys');
     await until(() => relay.connected.length === 0, 'the relay to lose the uplink');
-    ok(page.channel.isClosed, 'the browser that was signed in was let go, not left hanging');
-    ok((await refusedSentence(PASSWORD)) === 'She is not connected right now.', 'a page that calls now is told she is not connected');
+    ok(page.live.channel.isClosed, 'the browser that was signed in was let go, not left hanging');
+    ok(/She is not connected right now/.test(await refusedSentence(PASSWORD)), 'a page that calls now is told she is not connected');
     ok(gatewayLog.some((l) => l.includes('remote access is off')), 'the log says so');
 
     // Back on: the same keys, no new code, and the uplink returns.

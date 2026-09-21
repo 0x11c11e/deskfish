@@ -191,11 +191,18 @@ is `~/.local/share/deskfish` on Linux, `~/Library/Application Support/deskfish` 
 
 ## Can I use her from my phone?
 
-Yes, on your own network. Her page is an ordinary web page: reach her machine over Tailscale or
-an SSH tunnel and open the address in the phone's browser, sign in once with the token, and you
-have the chat, the live view and the rest. The layout stacks at phone width. Checked in Firefox
-and Chrome at that width, not yet on a real phone — and never expose her port to the internet to
-make this easier; see [Security and privacy](security-and-privacy#one-port-one-token).
+Yes, from anywhere. Her gateway dials *out* to a relay and holds that connection; you open one
+page, type her name and a password, and you are in the same chat that is open at your desk — with
+the live view, the files and the rest. Your computer opens no port for this, and the relay carries
+frames it cannot read. Setting it up takes four steps and a small server: [Reaching her from
+anywhere](remote-access).
+
+If you would rather not have a relay in the middle at all, the older way still works on your own
+network: reach her machine over Tailscale or an SSH tunnel and open her address in the phone's
+browser, signing in with the token. Either way the layout stacks at phone width — checked in
+Firefox and Chrome at that width, and on the relay page at 390 px with touch emulation, not yet on
+a real phone. Never expose her port to the internet to make this easier; see
+[Security and privacy](security-and-privacy#one-port-one-token).
 
 ## Where is the full log?
 

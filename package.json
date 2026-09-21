@@ -539,9 +539,10 @@
   },
   "files": [
     "dist/cli.js",
-    "dist/web/*.js",
+    "dist/web/shim.js",
     "dist/webview/*.js",
-    "web/*.html",
+    "web/index.html",
+    "web/signin.html",
     "web/*.css",
     "media/",
     "docs/*.md",

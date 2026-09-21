@@ -6,6 +6,11 @@
 // under a policy whose nonce is the one on every script; the token itself is never in the page.
 // `/docs` needs the token and its inline scripts are allowed by hash. Then the shim itself, in Node,
 // against the real gateway: hello and the snapshot, a key saved through the real validator, New chat.
+// Last, the *other* page — `dist/web/remote.html`, the one static file a relay's browser loads
+// (scripts/build-remote.mjs): no token, no relay address of anybody's, a policy with no
+// `unsafe-inline` and no nonce whose hashes are exactly the hashes of the scripts in the file
+// (the two views' among them, as the parser will see them inside `srcdoc`), and the views held in
+// a template until a password has been typed.
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -173,6 +178,51 @@ try {
   await server.close();
   service.dispose();
   fs.rmSync(tmp, { recursive: true, force: true });
+}
+
+// ---------- the page a relay's browser loads ----------
+{
+  const { buildRemote, pageScripts, sha256 } = await import('../scripts/build-remote.mjs');
+  const needed = ['dist/web/remote.js', 'dist/web/bodies.mjs', 'dist/webview/chat.js', 'dist/webview/desktop.js'];
+  if (!needed.every((f) => fs.existsSync(path.join(ROOT, f)))) {
+    const pkg = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8'));
+    const real = { absWorkingDir: ROOT, bundle: true, logLevel: 'silent' as const, target: 'es2022', define: { __DESKFISH_VERSION__: JSON.stringify(pkg.version), __DESKFISH_BUILD__: '"suite"' } };
+    await Promise.all([
+      esbuild.build({ ...real, entryPoints: ['web/remote.ts'], outfile: 'dist/web/remote.js', platform: 'browser', format: 'iife' }),
+      esbuild.build({ ...real, entryPoints: ['src/ui/bodies.ts'], outfile: 'dist/web/bodies.mjs', platform: 'node', format: 'esm' }),
+      esbuild.build({ ...real, entryPoints: ['src/webview/chat.ts', 'src/webview/desktop.ts'], outdir: 'dist/webview', platform: 'browser', format: 'esm' }),
+    ]);
+  }
+  const built = await buildRemote();
+  const html = fs.readFileSync(built.file, 'utf8');
+  const csp = /content-security-policy" content="([^"]+)"/.exec(html)?.[1] ?? '';
+
+  ok(html.startsWith('<!DOCTYPE html>') && / data-page="remote"/.test(html), 'one document, and it says which page it is so the shared shim does not boot over the sign-in');
+  // `boot()` travels in the bundle (the shared shim is one file) but is guarded off on this page,
+  // so the *word* token appears; what must not is a token — any 32 random bytes as hex.
+  ok(!html.includes(TOKEN) && !/\b[0-9a-f]{64}\b/.test(html) && !/localStorage\.getItem\("deskfish\.token"\)/.test(html.replace(/\s+/g, '')), 'no token anywhere in it — there is none to have');
+  // `relay.example.com` is the input's placeholder; what must not be here is a working address.
+  ok(!html.includes('wss://relay.deskfish.sh') && !/wss:\/\/relay\.[a-z0-9-]+\.[a-z]{2,}/.test(html.replace(/placeholder="[^"]*"/g, '')), 'and no relay of anybody’s baked in: the page finds its own, or is told one');
+
+  const hashes = pageScripts(html).map(sha256);
+  ok(hashes.length === 5, `five scripts: the page’s own and two in each view (${hashes.length})`);
+  ok(hashes.every((h) => csp.includes(h)), 'every script in the file is named by the policy — the views’ two as the parser will see them, not as the file escapes them');
+  ok((csp.match(/'sha256-/g) ?? []).length === hashes.length, 'and the policy names nothing else');
+  const scriptSrc = /script-src ([^;]+)/.exec(csp)?.[1] ?? '';
+  ok(!/unsafe-inline|'nonce-/.test(scriptSrc) && !/'unsafe-eval'/.test(scriptSrc), `script-src: hashes only — no unsafe-inline, no nonce, no unsafe-eval (${scriptSrc.slice(0, 40)}…)`);
+  // The one `unsafe-inline` left is for styles, and it is fenced in: with `default-src 'none'` and
+  // `img-src data: blob:` a stylesheet has nowhere to send anything, and the markup the views share
+  // with VS Code carries one `style="display:none"` that a hash cannot cover.
+  ok((csp.match(/unsafe-inline/g) ?? []).length === 1 && /style-src 'unsafe-inline'/.test(csp), 'the only unsafe-inline is style-src, where nothing can be fetched');
+  ok(csp.includes("default-src 'none'") && csp.includes("'wasm-unsafe-eval'") && /connect-src wss:/.test(csp) && csp.includes("frame-ancestors 'none'"), 'default-src none, wasm allowed (the OPAQUE library compiles inlined WebAssembly), wss: reachable, never framed');
+  ok(!/https:\/\/fonts\./.test(csp), 'and no font host: this page’s documentation button goes to the site');
+
+  ok(/<template id="page">[\s\S]*<main id="panes">/.test(html) && /<\/main><\/template>/.test(html), 'the views wait in a template: nothing asks for the bridge before there is one');
+  ok(/<input id="user"/.test(html) && /<input id="pass"[^>]*type="password"/.test(html) && /<input id="relay"/.test(html) && /id="signinGo"/.test(html), 'the sign-in card asks for her name, a password and (folded away) a relay');
+  ok(html.includes('https://deskfish.sh/docs'), 'the documentation button points at the site, not at a gateway’s /docs');
+  ok(html.includes('@media (max-width: 760px)'), 'the phone-width layout is in it (the same stylesheet the page at home uses)');
+  ok(html.includes('acquireVsCodeApi') && html.includes('deskfishHost.api('), 'the views get the same bridge as at home: one implementation, two ways in');
+  ok(built.bytes < 4 * 1024 * 1024, `one file, ${Math.round(built.bytes / 1024)} KB, with the WebAssembly inlined`);
 }
 
 console.log(`webpage: ${n} checks passed`);

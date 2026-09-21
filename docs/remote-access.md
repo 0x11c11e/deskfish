@@ -45,6 +45,22 @@ certificate — a cheap VPS is plenty. You can run your own; the whole program i
 Deskfish repository, with a README, a Dockerfile and a compose file. One container, one dependency,
 one small JSON file of state.
 
+### Where the page goes
+
+The sign-in page is one file, `remote.html`, attached to every [release](https://github.com/0x11c11e/deskfish/releases/latest).
+Put it **anywhere except the relay's own machine** — that separation is what the third point above
+is about. Three ways that cost nothing:
+
+- **GitHub Pages**, from a repository of your own: commit the file as `index.html`, turn Pages on,
+  and your address is `https://<you>.github.io/<repo>/`.
+- **Any static host you already use** — the same place a personal site lives.
+- **On the phone itself.** Save the file to the phone and open it from its Files app. A page opened
+  that way still reaches a relay over `wss://`, and nothing can tamper with a file that never
+  travels. The plainest answer, and the least convenient.
+
+Wherever it lands, the page asks for the relay address once and remembers it in that browser. Put it
+at `remote.<your domain>` and it finds `wss://relay.<your domain>` by itself.
+
 ## Setting it up, in four steps
 
 **1. Run the relay** on your server and put your TLS proxy in front of it, so it answers at a name
@@ -74,7 +90,10 @@ deskfish remote password
 
 The password is turned into a record on your own machine — both halves of the exchange run
 locally — and then forgotten. It is not stored anywhere, so choose one you will remember: there is
-nobody to reset it for you. Run `deskfish remote password` again to change it.
+nobody to reset it for you, and no code can mint a new one (a code enrols a gateway; only your own
+computer can set a password). Run `deskfish remote password` again to change it. The sign-in page
+asks for the name and the password as an ordinary login form, so your phone's password manager
+offers to keep them — which is the practical answer to remembering a long one.
 
 **4. Open the page** on your phone, type the username and the password, and you are in the same
 chat that is open at your desk. A task you started at the computer is running in front of you; a

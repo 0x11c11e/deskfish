@@ -1,7 +1,7 @@
 import * as crypto from 'node:crypto';
 import WebSocket from 'ws';
 import { formatSize, safeFileName } from '../desktop/files';
-import { Channel, LoginRefused, StreamKind, loginServer, type RemoteRecord, type Stream } from '../remote/channel';
+import { Channel, LoginRefused, StreamKind, loginServer, readMessages, writeMessage, type RemoteRecord, type Stream } from '../remote/channel';
 import { vncUrlWithToken, type DeskfishConfig } from './config';
 import { MAX_TRANSFER } from './protocol';
 import type { DesktopFile } from '../webview/protocol';
@@ -316,11 +316,9 @@ class Session {
    * arrived in *is* the authentication, and nothing weaker could have opened it.
    */
   private serveProtocol(stream: Stream): void {
-    const te = new TextEncoder();
-    const link = this.host.attach('remote', (text) => stream.send(te.encode(text)));
+    const link = this.host.attach('remote', (text) => writeMessage(stream, text));
     this.link = link;
-    const td = new TextDecoder();
-    stream.onData((data) => link.message(td.decode(data)));
+    readMessages(stream, (text) => link.message(text));
     stream.onClose(() => {
       if (this.link === link) this.link = undefined;
       link.close();

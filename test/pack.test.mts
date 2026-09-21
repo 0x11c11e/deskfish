@@ -66,6 +66,8 @@ const forbidden: [RegExp, string][] = [
   [/smoke/i, 'a smoke runner'],
   [/^app\//, 'the app'],
   [/^relay\//, 'the relay (its own package and its own container)'],
+  [/^(dist\/)?web\/remote\./, 'the relay page (its own artifact, attached to the release)'],
+  [/^dist\/web\/bodies\.mjs$/, 'the view bodies bundle (only the relay page’s build reads it)'],
   [/^dist\/app\//, "the app's main process"],
   [/^src\//, 'the sources'],
   [/^test\//, 'the tests'],

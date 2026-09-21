@@ -113,6 +113,12 @@ three passes — rather than the RFC's 2 GiB recommendation, because a phone bro
 allocate two gigabytes, and the phone is the point. Registration and sign-in must agree on that
 setting, so it is one constant in one file for both.
 
+Said plainly, because it is the one place this is weaker than the RFC: **somebody who steals
+`secrets.json` off your computer can guess at your remote password offline**, at 64 MiB and three
+passes a guess. A long password makes that hopeless and a short one does not. It is worth keeping
+in proportion, though — the same file holds your model API key, and her data folder holds the
+gateway token, so anybody who can read it already has her.
+
 ## Network exposure
 
 The tank's control API and live-view connection listen on `127.0.0.1` only, port 9990.

@@ -1,5 +1,3 @@
-import * as opaque from '@serenity-kit/opaque';
-
 /**
  * The sealed channel between the remote page and her gateway — the one piece of code both ends run,
  * so neither can be fooled into speaking something weaker. Three layers, in order:
@@ -52,8 +50,24 @@ const KEY_STRETCHING = 'memory-constrained' as const;
 
 const identifiers = (username: string) => ({ client: username, server: SERVER_ID });
 
-/** The library's WASM is inlined; this resolves once and is cheap to await again. */
-export const opaqueReady: Promise<void> = opaque.ready;
+/**
+ * The OPAQUE library, loaded the first time something needs it and not before. Its WebAssembly is
+ * inlined as base64 and **compiled when the module is evaluated**, so importing it at the top of
+ * this file would have every gateway start, and every VS Code window, pay for a password nobody is
+ * typing. Awaiting it again after the first time is free.
+ */
+let library: Promise<typeof import('@serenity-kit/opaque')> | undefined;
+function opaque(): Promise<typeof import('@serenity-kit/opaque')> {
+  return (library ??= import('@serenity-kit/opaque').then(async (module) => {
+    await module.ready;
+    return module;
+  }));
+}
+
+/** Start compiling it now, for a page that knows a password is about to be typed into it. */
+export function warmOpaque(): Promise<unknown> {
+  return opaque();
+}
 
 /**
  * Both OPAQUE roles, locally: the password is turned into a record her gateway can check and then
@@ -61,11 +75,11 @@ export const opaqueReady: Promise<void> = opaque.ready;
  * `serverSetup` from an earlier call is reused so her Ed25519 enrolment and her record stay a pair.
  */
 export async function register(username: string, password: string, serverSetup?: string): Promise<RemoteRecord> {
-  await opaqueReady;
-  const setup = serverSetup || opaque.server.createSetup();
-  const started = opaque.client.startRegistration({ password });
-  const { registrationResponse } = opaque.server.createRegistrationResponse({ serverSetup: setup, userIdentifier: username, registrationRequest: started.registrationRequest });
-  const { registrationRecord } = opaque.client.finishRegistration({
+  const lib = await opaque();
+  const setup = serverSetup || lib.server.createSetup();
+  const started = lib.client.startRegistration({ password });
+  const { registrationResponse } = lib.server.createRegistrationResponse({ serverSetup: setup, userIdentifier: username, registrationRequest: started.registrationRequest });
+  const { registrationRecord } = lib.client.finishRegistration({
     clientRegistrationState: started.clientRegistrationState,
     registrationResponse,
     password,
@@ -94,11 +108,11 @@ export class LoginRefused extends Error {
  * sentence names both.
  */
 export async function loginClient(username: string, password: string, send: Send, recv: Recv): Promise<{ sessionKey: string; exportKey: string }> {
-  await opaqueReady;
-  const started = opaque.client.startLogin({ password });
+  const lib = await opaque();
+  const started = lib.client.startLogin({ password });
   await send(started.startLoginRequest);
   const loginResponse = await recv();
-  const finished = opaque.client.finishLogin({
+  const finished = lib.client.finishLogin({
     clientLoginState: started.clientLoginState,
     loginResponse,
     password,
@@ -112,9 +126,9 @@ export async function loginClient(username: string, password: string, send: Send
 
 /** Her gateway's half. A wrong password fails here too, at the third message, and throws. */
 export async function loginServer(record: RemoteRecord, send: Send, recv: Recv): Promise<{ sessionKey: string }> {
-  await opaqueReady;
+  const lib = await opaque();
   const startLoginRequest = await recv();
-  const started = opaque.server.startLogin({
+  const started = lib.server.startLogin({
     serverSetup: record.serverSetup,
     registrationRecord: record.record,
     startLoginRequest,
@@ -124,7 +138,7 @@ export async function loginServer(record: RemoteRecord, send: Send, recv: Recv):
   await send(started.loginResponse);
   const finishLoginRequest = await recv();
   try {
-    const { sessionKey } = opaque.server.finishLogin({ serverLoginState: started.serverLoginState, finishLoginRequest, identifiers: identifiers(record.username) });
+    const { sessionKey } = lib.server.finishLogin({ serverLoginState: started.serverLoginState, finishLoginRequest, identifiers: identifiers(record.username) });
     return { sessionKey };
   } catch {
     throw new LoginRefused('That password is not right.');
@@ -518,6 +532,43 @@ class MuxStream implements Stream {
  * (open, close, ack, ping) ride stream 0 and name the stream they are about in their first four
  * bytes, so a reader never has to guess what a frame belongs to.
  */
+/**
+ * Stream 1 carries **messages**, not bytes: one JSON frame of the gateway's protocol at a time.
+ * A snapshot with a screenshot in it is far bigger than `CHUNK`, so the stream splits it and the
+ * far end has to know where one message ends and the next begins — a four-byte length in front of
+ * each is how. Both ends call these two, so they cannot disagree about the framing. Streams 2 and
+ * up stay plain byte pipes, which is what a screen and a file want.
+ */
+export function writeMessage(stream: Stream, text: string): void {
+  const body = te.encode(text);
+  const out = new Uint8Array(4 + body.length);
+  new DataView(out.buffer).setUint32(0, body.length);
+  out.set(body, 4);
+  stream.send(out);
+}
+
+/** The other side's messages, whole, in order. Attach once, before anything can arrive. */
+export function readMessages(stream: Stream, fn: (text: string) => void): void {
+  let held: Uint8Array = EMPTY;
+  stream.onData((data) => {
+    if (held.length) {
+      const joined = new Uint8Array(held.length + data.length);
+      joined.set(held, 0);
+      joined.set(data, held.length);
+      held = joined;
+    } else {
+      held = data;
+    }
+    for (;;) {
+      if (held.length < 4) return;
+      const size = new DataView(held.buffer, held.byteOffset, held.byteLength).getUint32(0);
+      if (held.length < 4 + size) return;
+      fn(td.decode(held.subarray(4, 4 + size)));
+      held = held.subarray(4 + size);
+    }
+  });
+}
+
 export class Mux {
   private readonly streams = new Map<number, MuxStream>();
   private nextFile = STREAM.FIRST_FILE;

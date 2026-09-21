@@ -222,23 +222,46 @@ async function mcp(dir: string, port: number, url?: string): Promise<number> {
 
 /* ---------- remote access (13-relay-plan.md) ---------- */
 
-/** Ask for something nobody should see typed. Falls back to a visible prompt where there is no TTY. */
-function askSecret(question: string): Promise<string> {
-  return new Promise((resolve) => {
-    const rl = readline.createInterface({ input: process.stdin, output: process.stdout, terminal: true });
-    const muted = { on: false };
-    // `_writeToOutput` is readline's own hook for exactly this; the prompt is written once, the answer never.
-    (rl as unknown as { _writeToOutput(s: string): void })._writeToOutput = function (text: string) {
-      if (!muted.on || text.includes(question)) process.stdout.write(text);
-    };
-    rl.question(question, (answer) => {
-      muted.on = false;
-      process.stdout.write('\n');
-      rl.close();
-      resolve(answer);
-    });
-    muted.on = true;
+/**
+ * Ask for things nobody should see typed. One readline for all of them, and the lines are taken
+ * from a queue rather than from `rl.question`: input that arrives all at once — a pipe, a paste —
+ * is turned into `line` events the moment it lands, and a second `question` registered a microtask
+ * later would never see the line that was already emitted. Nothing typed is echoed; the prompts are
+ * written here instead.
+ */
+async function askSecrets(questions: string[]): Promise<string[]> {
+  const rl = readline.createInterface({ input: process.stdin, output: process.stdout, terminal: true });
+  (rl as unknown as { _writeToOutput(s: string): void })._writeToOutput = () => {};
+  const lines: string[] = [];
+  const waiting: ((line: string) => void)[] = [];
+  let ended = false;
+  rl.on('line', (line) => {
+    const next = waiting.shift();
+    if (next) next(line);
+    else lines.push(line);
   });
+  // A closed input (Ctrl+D, or a pipe that ended) answers nothing rather than waiting forever.
+  rl.on('close', () => {
+    ended = true;
+    for (const next of waiting.splice(0)) next('');
+  });
+  try {
+    const answers: string[] = [];
+    for (const question of questions) {
+      process.stdout.write(question);
+      const answer = await new Promise<string>((resolve) => {
+        const have = lines.shift();
+        if (have !== undefined) return resolve(have);
+        if (ended) return resolve('');
+        waiting.push(resolve);
+      });
+      process.stdout.write('\n');
+      answers.push(answer);
+    }
+    return answers;
+  } finally {
+    rl.close();
+  }
 }
 
 /** One line a person can act on: where she is reachable, or what is still missing. */
@@ -293,12 +316,12 @@ async function remote(dir: string, port: number, what: string, o: { relay?: stri
       console.error('Enrol first: deskfish remote enroll --relay wss://… --username NAME --code CODE');
       return 1;
     }
-    const password = await askSecret(`A password for reaching ${username} from a browser: `);
+    const [password, again] = await askSecrets([`A password for reaching ${username} from a browser: `, 'And again: ']);
     if (password.length < 8) {
       console.error('That is shorter than eight characters. Nothing was changed.');
       return 1;
     }
-    if ((await askSecret('And again: ')) !== password) {
+    if (again !== password) {
       console.error('Those two are not the same. Nothing was changed.');
       return 1;
     }

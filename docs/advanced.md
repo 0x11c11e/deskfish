@@ -164,6 +164,15 @@ with its Tailscale address, and use `http://100.x.y.z:9980` as the address in th
 > your two machines, and then nothing else is needed. Deskfish refuses a non-loopback `--host`
 > unless you pass `--allow-remote`, precisely so that this is a decision and not an accident.
 
+**Through a relay, with no port open anywhere.** The third way needs no tunnel, no VPN and no
+client on the device you are holding: her gateway dials *out* to a small server you run, your
+browser dials the same server, and it passes sealed frames between the two without being able to
+read them. In VS Code it is **Deskfish: Remote Access…**; without VS Code it is `deskfish remote
+enroll --relay wss://… --username NAME --code CODE` and then `deskfish remote password`, which
+write `deskfish.remote.relay` and `deskfish.remote.username` and nothing secret. This works for a
+gateway on a rented server exactly as it does for one at home — it opens no port there either.
+See [Reaching her from anywhere](remote-access).
+
 ### What lives on that machine
 
 Everything of hers except the screenshots:

@@ -2,6 +2,12 @@
 node_modules/**
 src/**
 web/*.ts
+# The relay page is its own artifact: one static file a person publishes themselves, attached to the
+# release. Neither the extension nor the gateway serves it, and it carries a megabyte of WebAssembly.
+web/remote.html
+dist/web/remote.js
+dist/web/remote.html
+dist/web/bodies.mjs
 scripts/mock-daemon.mjs
 scripts/build-docs.mjs
 esbuild.mjs
