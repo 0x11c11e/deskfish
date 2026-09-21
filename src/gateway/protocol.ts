@@ -97,6 +97,13 @@ export interface Commands {
   say: [{ text: string; attachments?: DesktopFile[] }, null];
   pause: [Record<string, never>, null];
   resume: [Record<string, never>, null];
+  /**
+   * The sign-in card in the chat was submitted (`needs_fill`): one value per field, by the label
+   * the card showed. They go to the loop, which types them into the page — they are not stored, not
+   * logged, not journaled and never sent to the model. Refused in a sentence when no card is
+   * waiting or the labels do not match the one that is; the values are then dropped unread.
+   */
+  fill: [{ values: { label: string; value: string }[] }, null];
   stop: [Record<string, never>, null];
   newChat: [Record<string, never>, null];
   reflect: [Record<string, never>, 'busy' | 'started' | 'failed'];
@@ -224,7 +231,7 @@ export interface EventFrame<K extends EventName = EventName> {
 
 /* ---------- validation (hand-written: unknown commands, unknown fields and wrong types are refused) ---------- */
 
-type Field = 'string' | 'string?' | 'number?' | 'boolean' | 'boolean?' | 'object' | 'files?' | 'when' | 'editable' | 'client' | 'provider' | 'autonomy?' | 'auth?';
+type Field = 'string' | 'string?' | 'number?' | 'boolean' | 'boolean?' | 'object' | 'files?' | 'fill' | 'when' | 'editable' | 'client' | 'provider' | 'autonomy?' | 'auth?';
 
 const NONE: Record<string, Field> = {};
 const SPEC: { [K in CommandName]: Record<string, Field> } = {
@@ -234,6 +241,7 @@ const SPEC: { [K in CommandName]: Record<string, Field> } = {
   say: { text: 'string', attachments: 'files?' },
   pause: NONE,
   resume: NONE,
+  fill: { values: 'fill' },
   stop: NONE,
   newChat: NONE,
   reflect: NONE,
@@ -300,6 +308,9 @@ function fieldOk(type: Field, v: unknown): boolean {
       return isObject(v);
     case 'files':
       return Array.isArray(v) && v.length <= 100 && v.every((f) => isObject(f) && typeof f.name === 'string' && typeof f.path === 'string' && typeof f.size === 'number' && Object.keys(f).length === 3);
+    case 'fill':
+      // A sign-in card: at most six fields, each exactly a label and a value, both strings.
+      return Array.isArray(v) && v.length >= 1 && v.length <= 6 && v.every((f) => isObject(f) && typeof f.label === 'string' && typeof f.value === 'string' && Object.keys(f).length === 2);
     case 'when':
       return isObject(v) && ['once', 'daily', 'weekly', 'every'].includes(v.kind as string);
     case 'editable':

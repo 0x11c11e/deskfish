@@ -13,6 +13,9 @@ export const VIEW_COMMANDS = [
   'chats.open',
   'chats.delete',
   'chats.continue',
+  // The sign-in card: the only command the view sends that carries a credential, and the reason the
+  // whole path exists — it goes from the input to the gateway and into the page, through no model.
+  'fill',
   'config.get',
   'config.schema',
   'config.set',

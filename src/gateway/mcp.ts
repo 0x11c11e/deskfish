@@ -100,6 +100,9 @@ export class ItemLog {
         break;
       }
       case 'needs_user':
+      case 'needs_fill':
+        // A sign-in card is a knock too: a teacher watching through `wait` is told she is waiting
+        // for a person, in her own words. What the person then types never comes through here.
         this.push({ kind: 'needs_user', text: e.reason });
         break;
       case 'status':
@@ -160,7 +163,7 @@ export class DeskfishMcp {
     });
     client.on('event', (e: AgentEvent) => {
       this.log.absorb(e);
-      if (e.type === 'needs_user') {
+      if (e.type === 'needs_user' || e.type === 'needs_fill') {
         this.knock = e.reason;
         this.knockPaused = false;
       }

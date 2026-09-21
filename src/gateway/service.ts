@@ -730,6 +730,8 @@ export class DeskfishService extends EventEmitter {
         break;
       }
       case 'needs_user':
+      case 'needs_fill':
+        // Both knocks read the same in the transcript: what she asked for, never what was answered.
         t.needsUser(e.reason);
         break;
       case 'status':
@@ -892,6 +894,17 @@ export class DeskfishService extends EventEmitter {
 
   resume(): void {
     this.runner?.resume();
+  }
+
+  /**
+   * The sign-in card was submitted. The values go straight to the loop and are never held here:
+   * this method writes one line to the log saying it happened, and that line has no value in it.
+   * A refusal (no card waiting, labels that do not match) is thrown, so the client says it in words.
+   */
+  fill(values: { label: string; value: string }[]): void {
+    const r = this.runner?.fill(values);
+    if (!r || !r.ok) throw new Error(r ? r.error : 'no task is running, so no sign-in card is waiting.');
+    this.log(`— the sign-in card was filled into the page (${values.length} field${values.length === 1 ? '' : 's'}; the values are written nowhere) —`);
   }
 
   /** Stop: the running task ends and the tasks waiting behind it are dropped (Stop means stop). */
@@ -1300,6 +1313,8 @@ export class DeskfishService extends EventEmitter {
       this.lastScreenshot = { dataUrl: `data:image/jpeg;base64,${e.jpegBase64}`, width: e.width, height: e.height, step: e.step };
     } else if (e.type === 'needs_user') {
       this.log(`✋ needs you: ${e.reason}`);
+    } else if (e.type === 'needs_fill') {
+      this.log(`✋ needs a login: ${e.reason} (${e.fields.map((f) => f.label).join(', ')})`);
     }
     this.fire('event', e);
     // After the clients have seen the end: a message held during a reflection, or the next queued task, starts now.

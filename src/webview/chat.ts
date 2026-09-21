@@ -659,6 +659,116 @@ function needsUserCard(reason: string, jpegBase64: string): HTMLDivElement {
   return card;
 }
 
+/**
+ * The other knock: a login the model never sees. One input per field the bot named, `password` for
+ * a secret one so the browser masks it and offers to save it, and the knock's own two buttons for
+ * someone who would rather type on the desktop. Submit sends the values as one `fill` command and
+ * clears the inputs at once — from there they live only on the wire, in the gateway for the seconds
+ * of the typing, and in the tank's keyboard. Nothing in this view keeps them.
+ */
+function needsFillCard(e: { reason: string; fields: { label: string; secret?: boolean }[]; jpegBase64: string }): HTMLDivElement {
+  const card = document.createElement('div');
+  card.className = 'needs-user fill';
+
+  const title = document.createElement('h4');
+  title.textContent = '✋ Deskfish needs a login';
+  card.appendChild(title);
+
+  const text = document.createElement('div');
+  text.textContent = e.reason;
+  card.appendChild(text);
+
+  const form = document.createElement('form');
+  form.className = 'fields';
+  const inputs: HTMLInputElement[] = [];
+  let firstPlain = true;
+  for (const f of e.fields) {
+    const row = document.createElement('label');
+    row.className = 'field';
+    const name = document.createElement('span');
+    name.textContent = f.label;
+    const input = document.createElement('input');
+    input.type = f.secret ? 'password' : 'text';
+    input.autocomplete = f.secret ? 'current-password' : firstPlain ? 'username' : 'off';
+    if (!f.secret) firstPlain = false;
+    input.spellcheck = false;
+    input.placeholder = f.label;
+    row.append(name, input);
+    form.appendChild(row);
+    inputs.push(input);
+  }
+  card.appendChild(form);
+
+  const hint = document.createElement('div');
+  hint.className = 'hint';
+  hint.textContent = 'These are typed straight into the page on the bot\'s desktop. The model never sees them, and they are written nowhere. You can also type them on the desktop yourself and click Resume.';
+  form.appendChild(hint);
+
+  const note = document.createElement('div');
+  note.className = 'note';
+  note.hidden = true;
+  form.appendChild(note);
+
+  const actions = document.createElement('div');
+  actions.className = 'actions';
+  const submit = document.createElement('button');
+  submit.type = 'submit';
+  submit.textContent = 'Fill in';
+  submit.className = 'primary';
+  const open = document.createElement('button');
+  open.type = 'button';
+  open.textContent = 'Open desktop';
+  open.addEventListener('click', () => post({ type: 'openDesktop' }));
+  const resume = document.createElement('button');
+  resume.type = 'button';
+  resume.textContent = 'Resume';
+  resume.addEventListener('click', () => post({ type: 'resume' }));
+  actions.append(submit, open, resume);
+  form.appendChild(actions);
+
+  const clear = () => {
+    for (const i of inputs) i.value = '';
+  };
+  form.addEventListener('submit', (ev) => {
+    ev.preventDefault();
+    const values = e.fields.map((f, i) => ({ label: f.label, value: inputs[i].value }));
+    clear();
+    submit.disabled = true;
+    submit.textContent = 'Filling in…';
+    note.hidden = true;
+    ask('fill', { values }).then(
+      () => {
+        for (const i of inputs) i.disabled = true;
+        submit.textContent = 'Filled in';
+        note.hidden = false;
+        note.classList.remove('error');
+        note.textContent = 'Typed into the page. The values were never shown to the bot.';
+        scrollToBottom();
+      },
+      (err: Error) => {
+        submit.disabled = false;
+        submit.textContent = 'Fill in';
+        note.hidden = false;
+        note.classList.add('error');
+        note.textContent = `Not filled in: ${err.message}`;
+        scrollToBottom();
+      },
+    );
+  });
+
+  if (e.jpegBase64) {
+    const img = document.createElement('img');
+    img.src = `data:image/jpeg;base64,${e.jpegBase64}`;
+    img.title = 'The screen when the bot asked — click to open the live desktop';
+    img.addEventListener('click', () => post({ type: 'openDesktop' }));
+    img.addEventListener('load', () => scrollToBottom());
+    card.appendChild(img);
+  }
+  // The person is here to type: put the caret in the first field as soon as the card is on screen.
+  setTimeout(() => inputs[0]?.focus(), 0);
+  return card;
+}
+
 function onEvent(e: AgentEvent): void {
   switch (e.type) {
     case 'status':
@@ -740,6 +850,9 @@ function onEvent(e: AgentEvent): void {
     }
     case 'needs_user':
       append(needsUserCard(e.reason, e.jpegBase64));
+      break;
+    case 'needs_fill':
+      append(needsFillCard(e));
       break;
     case 'standby':
       startStandby(e);
@@ -1047,7 +1160,7 @@ function showPast(info: ChatInfo, items: ReplayItem[]): void {
   clearLog();
   renderReplay(items, '');
   // A knock in a past chat is history: its Resume and Open desktop would act on the live task.
-  for (const el of Array.from(log.querySelectorAll('.needs-user .actions, .needs-user .hint'))) el.remove();
+  for (const el of Array.from(log.querySelectorAll('.needs-user .actions, .needs-user .hint, .needs-user .fields'))) el.remove();
   if (!items.length) empty.hidden = false;
   log.scrollTop = 0;
   pinned = false;

@@ -529,6 +529,10 @@ export class GatewayServer {
         return s.pause(), null;
       case 'resume':
         return s.resume(), null;
+      case 'fill':
+        // The one command whose arguments are never logged, here or anywhere below it: the values
+        // live in this call, in the loop's hands for the seconds of the typing, and nowhere else.
+        return s.fill(a.values), null;
       case 'stop':
         return s.stop(), null;
       case 'newChat':

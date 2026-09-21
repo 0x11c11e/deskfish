@@ -747,6 +747,51 @@ svg {
   color: var(--vscode-button-foreground);
 }
 
+/* the sign-in card: the same card with inputs in it (the values go to the page, never to the model) */
+
+.needs-user .fields {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.needs-user .field {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 11px;
+  opacity: 0.9;
+}
+
+.needs-user .field input {
+  padding: 5px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-family: inherit;
+  border: 1px solid var(--vscode-input-border, var(--border));
+  background: var(--vscode-input-background);
+  color: var(--vscode-input-foreground);
+}
+
+.needs-user .field input:focus {
+  outline: 1px solid var(--vscode-focusBorder);
+  outline-offset: -1px;
+}
+
+.needs-user .field input:disabled {
+  opacity: 0.6;
+}
+
+.needs-user .note {
+  font-size: 11px;
+  opacity: 0.85;
+}
+
+.needs-user .note.error {
+  color: var(--vscode-errorForeground);
+  opacity: 1;
+}
+
 /* ---------- setup card (no podman/docker) ---------- */
 
 .setup {
