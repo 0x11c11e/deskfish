@@ -8,7 +8,7 @@
 // of the password. The mux: three interleaved streams arrive in order, the window is honoured, an
 // unknown frame type or an open from the wrong end closes the channel.
 import assert from 'node:assert/strict';
-import { CHUNK, Channel, FrameType, LoginRefused, STREAM, StreamKind, WINDOW, deriveKeys, loginClient, loginServer, register, type Stream } from '../src/remote/channel';
+import { CHUNK, Channel, FrameType, LoginRefused, STREAM, StreamKind, WINDOW, deriveKeys, handleOf, loginClient, loginServer, register, type Stream } from '../src/remote/channel';
 
 let n = 0;
 const ok = (c: unknown, m: string) => { assert.ok(c, m); n++; };
@@ -299,6 +299,18 @@ const keys = await (async () => { const { client, server } = await handshake(rec
   const fromPage = await a.seal(STREAM.PROTOCOL, FrameType.DATA, te.encode('same counter, other way'));
   await assert.rejects(b.open(await b.seal(STREAM.PROTOCOL, FrameType.DATA, te.encode('x'))).then(() => { throw new Error('opened its own frame'); }), /refused|opened its own/); n++;
   ok(fromPage.length > 0, 'a side cannot open a frame it sealed itself: the direction is in the key and the AAD');
+}
+
+// 11. The handle: the name the relay is given, which both ends must derive identically forever
+{
+  // Pinned. The page and her gateway derive this separately, in different runtimes, and a change
+  // here would silently stop every enrolled gateway from being reachable under its own name.
+  ok((await handleOf('iman')) === 'nbh5le2y5dbrwtsx', `the handle of a name is fixed: ${await handleOf('iman')}`);
+  ok((await handleOf('  IMAN  ')) === (await handleOf('iman')), 'trimmed and lowercased first, so a capital is not a second identity');
+  ok((await handleOf('someone-else')) !== (await handleOf('iman')), 'a second name is a second handle');
+  const handle = await handleOf('yourname');
+  ok(/^[a-z0-9][a-z0-9-]{2,31}$/.test(handle) && handle.length === 16, `a handle is a username by the relay's own rule: ${handle}`);
+  ok(/^[a-z2-7]{16}$/.test(handle), 'written in base32, so it carries nothing of the name it came from');
 }
 
 console.log(`channel: ${n} checks passed in ${((Date.now() - t0) / 1000).toFixed(1)}s`);

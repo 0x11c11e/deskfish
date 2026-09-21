@@ -1,5 +1,5 @@
 import { MAX_TRANSFER } from '../src/gateway/protocol';
-import { Channel, LoginRefused, StreamKind, loginClient, readMessages, warmOpaque, writeMessage, type Stream } from '../src/remote/channel';
+import { Channel, LoginRefused, StreamKind, handleOf, loginClient, readMessages, warmOpaque, writeMessage, type Stream } from '../src/remote/channel';
 import type { DesktopFile } from '../src/webview/protocol';
 import { WebHost, browserUi, wireTitleBar, type FileTransfer, type HostEnv, type SocketLike } from './shim';
 
@@ -12,7 +12,8 @@ import { WebHost, browserUi, wireTitleBar, type FileTransfer, type HostEnv, type
  * published from somewhere the relay's owner does not control, and the relay only ever sees
  * ciphertext going past.
  *
- * What happens when you sign in: a WebSocket to the relay naming her username, three plaintext
+ * What happens when you sign in: a WebSocket to the relay naming her *handle* — a hash of her name
+ * that this page and her gateway both derive, so the relay is never told the name itself — three plaintext
  * messages of OPAQUE (the password itself never leaves this tab — not as a password, not as a hash,
  * not as anything a recording could be worked backwards from), and then one sealed channel. The
  * page's whole life lives in that channel: stream 1 is the gateway's JSON protocol, which the
@@ -92,7 +93,9 @@ export async function signIn(relay: string, username: string, password: string, 
   if (!username || !password) throw new LoginRefused('Her name and the password, please.');
   let socket: WebSocket;
   try {
-    socket = open(`${relay}/client?user=${encodeURIComponent(username)}`);
+    // The relay is given the handle, never the name. The password exchange below still binds to the
+    // name itself, which both ends know and the relay does not.
+    socket = open(`${relay}/client?user=${encodeURIComponent(await handleOf(username))}`);
   } catch {
     throw new LoginRefused(`${relay} is not an address this browser can open.`);
   }

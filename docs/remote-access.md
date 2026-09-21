@@ -33,8 +33,15 @@ people say loosely.
 - **The page is not served by the relay.** Sealing frames would be worth nothing if the same
   machine could hand your browser altered code that leaks the key. The sign-in page is one static
   file, published separately.
+- **It is not told her name either.** A relay has to key its post boxes on something, so the page
+  and her gateway each turn the username into a **handle** — a hash, the same at both ends, 16
+  characters like `nbh5le2y5dbrwtsx` — and send that. The name you type stays in the browser and on
+  your computer; the relay's records, its logs and its usage counters hold the handle. Its limit,
+  said plainly: nothing secret goes into the hash, so somebody who suspects a name can hash it and
+  see whether that handle is the one connecting. It keeps names out of a relay's records; it does
+  not hide a guessable name from somebody who guesses it.
 
-What a relay does see, unavoidably, is metadata: your username, when you connect, from what
+What a relay does see, unavoidably, is metadata: that handle, when you connect, from what
 address, and how many bytes go by. It is a post box. It knows an envelope arrived; it cannot open
 one.
 
@@ -73,12 +80,13 @@ printf 'RELAY_ADMIN_KEY=%s\n' "$(openssl rand -base64 32)" > relay.env
 ```
 
 **2. Mint an enrolment code** with that key. The admin key stays on the server; a code is what
-travels:
+travels. On your own relay, mint one with no name attached — the gateway that spends it claims its
+handle:
 
 ```bash
 curl -s -X POST https://relay.example.com/admin/codes \
   -H "authorization: Bearer $RELAY_ADMIN_KEY" \
-  -H 'content-type: application/json' -d '{"username":"yourname"}'
+  -H 'content-type: application/json' -d '{}'
 ```
 
 **3. Enrol at home.** In VS Code, run **Deskfish: Remote Access…** and give it the relay address,
@@ -100,7 +108,9 @@ offers to keep them — which is the practical answer to remembering a long one.
 chat that is open at your desk. A task you started at the computer is running in front of you; a
 task you start on the phone is waiting when you get back.
 
-`deskfish remote status` says whether she is connected and how many windows are on her.
+`deskfish remote status` says whether she is connected, how many windows are on her, and — as
+*known to the relay as* — the handle. That is the only name the relay has for her, so it is what
+you give an operator who asks what to mint a code for; **Deskfish: Remote Access…** copies it.
 `deskfish remote off` stops the dial-out; she stays exactly where she is, reachable from your own
 computer as before.
 

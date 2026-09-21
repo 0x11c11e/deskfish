@@ -340,6 +340,9 @@ export class AgentController implements vscode.Disposable {
     if (!state.relay || !state.enrolled) items.push({ id: 'enroll', label: '$(key) Connect her to a relay…', detail: 'The relay address, a name for her, and the one-time code from whoever runs it' });
     if (state.relay) items.push({ id: 'password', label: state.hasPassword ? '$(lock) Change the password' : '$(lock) Set the password…', detail: 'What the sign-in page asks for, together with her name. It never leaves this computer.' });
     if (ready) items.push({ id: 'copy', label: '$(link) Copy her sign-in name', detail: `Open the page and sign in as ${state.username}` });
+    // The relay is never told her name; this is what its operator mints a code for, and the one
+    // thing on this list nobody could work out from the settings.
+    if (state.handle) items.push({ id: 'handle', label: '$(eye) Copy the name the relay knows', detail: `known to the relay as: ${state.handle} — tell whoever runs it that, never "${state.username}"` });
     if (state.relay) items.push({ id: 'off', label: '$(circle-slash) Turn remote access off', detail: 'She stops dialling out. The keys stay until you say to forget them.' });
     const picked = await vscode.window.showQuickPick(items, { title: `Deskfish remote access — ${where}`, ignoreFocusOut: true, placeHolder: state.lastError ? `Last: ${state.lastError}` : 'Her computer opens no port either way' });
     if (!picked) return;
@@ -349,6 +352,11 @@ export class AgentController implements vscode.Disposable {
       if (picked.id === 'copy') {
         await vscode.env.clipboard.writeText(state.username);
         void vscode.window.showInformationMessage(`Copied "${state.username}". Open the remote page in any browser and sign in with it and the password.`);
+        return;
+      }
+      if (picked.id === 'handle') {
+        await vscode.env.clipboard.writeText(state.handle);
+        void vscode.window.showInformationMessage(`Copied "${state.handle}". That is all the relay is ever told; her name stays on this computer.`);
         return;
       }
       const forget = await vscode.window.showWarningMessage('Turn remote access off?', { modal: true, detail: 'She stops dialling out at once. Forgetting the keys as well means enrolling again later with a new code.' }, 'Turn it off', 'Turn it off and forget the keys');
@@ -392,7 +400,7 @@ export class AgentController implements vscode.Disposable {
     const state = await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: `Enrolling at ${relay}…` }, () => this.client.call('remote.enroll', { relay, username, code }));
     this.output.appendLine(`▶ remote access enrolled as ${state.username} at ${state.relay}`);
     if (!state.hasPassword) return this.remotePassword(state);
-    void vscode.window.showInformationMessage(`She is enrolled as ${state.username}. Sign in from any browser with that name and her password.`);
+    void vscode.window.showInformationMessage(`She is enrolled as ${state.username} (the relay knows her only as ${state.handle}). Sign in from any browser with that name and her password.`);
   }
 
   private async remotePassword(state: RemoteStatus): Promise<void> {

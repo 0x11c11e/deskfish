@@ -186,6 +186,46 @@ export function fromBase64Url(s: string): Uint8Array {
   return out;
 }
 
+/* ---------- the name the relay is given, which is not her name ---------- */
+
+/** The label that makes this hash this hash and nothing else's. */
+const HANDLE_LABEL = 'deskfish-relay handle v1';
+/** base32 as RFC 4648 writes it, in lowercase: a handle is a username by the relay's own rule. */
+const BASE32 = 'abcdefghijklmnopqrstuvwxyz234567';
+
+/**
+ * The name a relay is told, derived from hers by both ends and known to neither relay nor operator.
+ *
+ * A relay has to key its users on *something*, and a username is the one piece of metadata a person
+ * chose for themselves. Hashing it in the store would gain nothing — it is in every connection URL
+ * and in the proxy's log beside it — so the page and the gateway send this instead and the name
+ * never arrives at all. SHA-256 over a fixed label and the name (trimmed, lowercased), the first 80
+ * bits written as 16 base32 characters.
+ *
+ * The OPAQUE identifiers stay the **username**: both ends know it, and binding the handshake to a
+ * name the relay could also compute would be binding it to nothing.
+ *
+ * Said plainly, because it is the limit of this: no secret goes into it, so anyone who suspects a
+ * name can hash it and see whether that handle is the one connecting. It keeps the name out of the
+ * relay's records; it does not hide a guessable name from somebody who guesses it.
+ */
+export async function handleOf(username: string): Promise<string> {
+  const name = username.trim().toLowerCase();
+  const digest = new Uint8Array(await subtle().digest('SHA-256', te.encode(HANDLE_LABEL + name) as unknown as ArrayBuffer));
+  let out = '';
+  let value = 0;
+  let bits = 0;
+  for (let i = 0; i < 10; i++) {
+    value = (value << 8) | digest[i];
+    bits += 8;
+    while (bits >= 5) {
+      out += BASE32[(value >>> (bits - 5)) & 31];
+      bits -= 5;
+    }
+  }
+  return out;
+}
+
 /** The two direction keys from one session key. Each side derives both and uses them opposite ways. */
 export async function deriveKeys(sessionKey: string): Promise<Record<Role, CryptoKey>> {
   const s = subtle();

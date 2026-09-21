@@ -21,7 +21,14 @@ at its front. There is no log level that prints a frame, because there is no cod
 machine — a server here cannot finish the password exchange. A page that reaches an impostor is
 told so and shows you a refusal instead of a chat.
 
-**What it does know**: the usernames enrolled on it, which of them is connected right now, the
+**It is not told anybody's name.** What this program calls a username is a **handle**: the page and
+the gateway each derive it from the real name (SHA-256, the first 80 bits in base32) and send only
+that. It is what appears in `users.json`, in the connection URL, in the log and in the usage
+counters, and nothing here can turn it back into a name. The limit, plainly: no secret goes into it,
+so somebody who suspects a name can hash it and see whether that handle is the one connecting — it
+keeps names out of your records, it does not hide a guessable name from somebody who guesses.
+
+**What it does know**: the handles enrolled on it, which of them is connected right now, the
 addresses connections come from, how many bytes went by, and when. That is unavoidable for a post
 box, and it is what the usage counters are made of.
 
@@ -34,9 +41,9 @@ relay; if you host your own, host it somewhere other than this container.
 
 One file, `/data/users.json`:
 
-- the users list — a username against the Ed25519 public key allowed to hold its uplink;
+- the users list — a handle against the Ed25519 public key allowed to hold its uplink;
 - enrolment codes that have been minted and not yet spent;
-- daily totals per username: seconds connected, bytes each way.
+- daily totals per handle: seconds connected, bytes each way.
 
 No chat, no message, no frame, no screenshot, no addresses. Deleting the file forgets every
 enrolment; nothing else is lost.
@@ -134,12 +141,17 @@ Enrolment is by a **one-time code**, not by the admin key, so the key never has 
 machine it runs on — and so that a relay serving other people later works the same way.
 
 ```bash
-# On the relay's machine (or anywhere, with the key):
+# On the relay's machine (or anywhere, with the key). For your own relay, mint a code with no name
+# at all — the first gateway to spend it claims a handle:
 curl -s -X POST https://relay.example.com/admin/codes \
   -H "authorization: Bearer $RELAY_ADMIN_KEY" \
-  -H 'content-type: application/json' -d '{"username":"yourname"}'
-# → {"code":"…","username":"yourname"}
+  -H 'content-type: application/json' -d '{}'
+# → {"code":"…","username":null}
 ```
+
+Minting for somebody else, tie the code to their **handle** — what `deskfish remote status` prints
+as *known to the relay as*, and what the VS Code command copies. Their own name would not match
+anything here: `-d '{"username":"nbh5le2y5dbrwtsx"}'`.
 
 Then, at home, in VS Code: **Deskfish: Remote Access…**, which asks for the relay address, the
 username and that code, and then for a password twice. Or, without VS Code:
@@ -155,7 +167,8 @@ The code is spent the moment it is used, and a username is taken once on a relay
 
 ```
 GET    /status                 { "name": "deskfish-relay", "version": … } and nothing else
-POST   /admin/codes            (admin key) { "username": … } → a one-time code
+POST   /admin/codes            (admin key) { "username": … } → a one-time code; the name is a
+                               handle and is optional (no name = whoever spends it claims one)
 DELETE /admin/users/:name      (admin key) revoke a username; its uplink is dropped
 GET    /admin/usage/:name      (admin key) { "days": { "2026-09-20": { seconds, up, down } } }
 POST   /enroll                 { code, username, publicKey } — no admin key; the code is spent
@@ -166,9 +179,10 @@ WS     /client?user=<name>     a browser; { "offline": true } and a close when s
 
 ## Running it for others
 
-Nothing in this program is specific to one person: usernames are independent, enrolment is by a
+Nothing in this program is specific to one person: handles are independent, enrolment is by a
 code an operator mints, and the usage counters exist because an operator has to bill and cap
-something. What the code does **not** give you, and what a paid relay needs beyond it:
+something. Note what you are taking on: you will be billing people you cannot name from this
+machine's records — tie payment to your own account of them, not to what is stored here. What the code does **not** give you, and what a paid relay needs beyond it:
 
 - an entity to take money, a payment processor, terms and a privacy statement that say plainly
   what is and is not visible to you (this README's first section is the honest version);

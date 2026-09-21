@@ -1,7 +1,7 @@
 import * as crypto from 'node:crypto';
 import WebSocket from 'ws';
 import { formatSize, safeFileName } from '../desktop/files';
-import { Channel, LoginRefused, StreamKind, loginServer, readMessages, writeMessage, type RemoteRecord, type Stream } from '../remote/channel';
+import { Channel, LoginRefused, StreamKind, handleOf, loginServer, readMessages, writeMessage, type RemoteRecord, type Stream } from '../remote/channel';
 import { vncUrlWithToken, type DeskfishConfig } from './config';
 import { MAX_TRANSFER } from './protocol';
 import type { DesktopFile } from '../webview/protocol';
@@ -58,6 +58,8 @@ export interface UplinkHost {
 export interface RemoteStatus {
   relay: string;
   username: string;
+  /** The name the relay knows her by: derived from the username, which never reaches the relay. */
+  handle: string;
   /** A key is enrolled at the relay. */
   enrolled: boolean;
   /** A password has been set (the OPAQUE record is here). */
@@ -101,12 +103,17 @@ export function newUplinkKey(): { privateKey: string; publicKey: string } {
   };
 }
 
-/** Spend an enrolment code at a relay: it learns a username and a public key, and nothing else. */
+/**
+ * Spend an enrolment code at a relay: it learns a **handle** and a public key, and nothing else.
+ * Her name does not go — the relay's `username` field carries `handleOf(username)`, which nothing on
+ * that machine can turn back into a name (`channel.ts`).
+ */
 export async function enrollAtRelay(relay: string, username: string, code: string, publicKey: string): Promise<void> {
   const { http } = relayUrls(relay);
+  const handle = await handleOf(username);
   let res: Response;
   try {
-    res = await fetch(`${http}/enroll`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ code, username, publicKey }) });
+    res = await fetch(`${http}/enroll`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ code, username: handle, publicKey }) });
   } catch (err) {
     throw new Error(`the relay at ${http} did not answer (${err instanceof Error ? err.message : String(err)})`);
   }
@@ -531,10 +538,12 @@ export class RemoteUplink {
    * named another relay — so `lost` reports that sentence rather than a close code, and says it once.
    */
   private ownReason?: string;
+  /** The handle this uplink enrols and connects under, derived from her name the first time it is needed. */
+  private derived?: Promise<string>;
 
   constructor(private readonly o: UplinkOptions) {}
 
-  get status(): Omit<RemoteStatus, 'enrolled' | 'hasPassword'> {
+  get status(): Omit<RemoteStatus, 'enrolled' | 'hasPassword' | 'handle'> {
     return { relay: this.o.relay, username: this.o.username, state: this.state, clients: this.sessions.size, lastError: this.lastError, since: this.since };
   }
 
@@ -651,33 +660,7 @@ export class RemoteUplink {
       return;
     }
     if (message.challenge) {
-      // Signed over the name this end *dialled*, never the one the answer claims. Without that, a
-      // relay could fetch another relay's challenge for this username (anyone may ask for one), hand
-      // it over as its own and forward the signature: the other relay would accept it and give away
-      // that username's uplink slot. Never content — the sealed channel needs a record only this
-      // gateway holds — but a denial of service and a false presence, and this is what closes it.
-      const dialled = this.dialledHost();
-      const claimed = String(message.host ?? '').toLowerCase();
-      if (claimed !== dialled) {
-        const sentence = `the relay at ${dialled} says its name is ${claimed || 'nothing at all (a relay older than 0.3 does not say)'}; not signing for a name I did not dial`;
-        this.ownReason = sentence;
-        this.setState('error', sentence);
-        this.o.host.log(`remote: ${sentence}`);
-        socket.close();
-        return;
-      }
-      let signature: string;
-      try {
-        const key = crypto.createPrivateKey({ key: Buffer.from(this.o.privateKey, 'base64'), format: 'der', type: 'pkcs8' });
-        const signed = Buffer.concat([Buffer.from(message.challenge, 'base64url'), Buffer.from(String(message.context ?? '')), Buffer.from(this.o.username), Buffer.from(dialled)]);
-        signature = crypto.sign(null, signed, key).toString('base64url');
-      } catch (err) {
-        this.setState('error', `the uplink key could not be used: ${err instanceof Error ? err.message : String(err)}`);
-        this.o.host.log(`remote: ${this.lastError}`);
-        socket.close();
-        return;
-      }
-      socket.send(JSON.stringify({ username: this.o.username, signature }));
+      void this.answerChallenge(socket, message);
       return;
     }
     if (message.ok) {
@@ -686,6 +669,47 @@ export class RemoteUplink {
       this.setState('connected');
       this.o.host.log(`remote: the uplink to ${this.o.relay} is up as ${this.o.username}`);
     }
+  }
+
+  /**
+   * The challenge, answered with the **handle** — never her name, which no relay is told — and a
+   * signature over the name this end *dialled*, never the one the answer claims. Without the latter,
+   * a relay could fetch another relay's challenge for this handle (anyone may ask for one), hand it
+   * over as its own and forward what came back: the other relay would accept it and give that
+   * handle's uplink slot away. Never content — the sealed channel needs a record only this gateway
+   * holds — but a denial of service and a false presence, and this is what closes it.
+   */
+  private async answerChallenge(socket: WebSocket, message: { challenge?: string; context?: string; host?: string }): Promise<void> {
+    const dialled = this.dialledHost();
+    const claimed = String(message.host ?? '').toLowerCase();
+    if (claimed !== dialled) {
+      const sentence = `the relay at ${dialled} says its name is ${claimed || 'nothing at all (a relay older than 0.3 does not say)'}; not signing for a name I did not dial`;
+      this.ownReason = sentence;
+      this.setState('error', sentence);
+      this.o.host.log(`remote: ${sentence}`);
+      socket.close();
+      return;
+    }
+    let handle: string;
+    let signature: string;
+    try {
+      handle = await this.handle();
+      if (this.socket !== socket) return; // it went while the handle was being derived
+      const key = crypto.createPrivateKey({ key: Buffer.from(this.o.privateKey, 'base64'), format: 'der', type: 'pkcs8' });
+      const signed = Buffer.concat([Buffer.from(String(message.challenge), 'base64url'), Buffer.from(String(message.context ?? '')), Buffer.from(handle), Buffer.from(dialled)]);
+      signature = crypto.sign(null, signed, key).toString('base64url');
+    } catch (err) {
+      this.setState('error', `the uplink key could not be used: ${err instanceof Error ? err.message : String(err)}`);
+      this.o.host.log(`remote: ${this.lastError}`);
+      socket.close();
+      return;
+    }
+    socket.send(JSON.stringify({ username: handle, signature }));
+  }
+
+  /** Her name as the relay knows it. Derived once; the same for the life of this uplink. */
+  private handle(): Promise<string> {
+    return (this.derived ??= handleOf(this.o.username));
   }
 
   /** `{open: id}` and `{close: id}` — the only thing the relay ever says about a browser. */

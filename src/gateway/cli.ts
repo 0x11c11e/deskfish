@@ -272,6 +272,8 @@ function printRemote(r: RemoteStatus, dir: string): void {
     return;
   }
   console.log(`Remote access: ${r.username} at ${r.relay}`);
+  // The relay is never told her name, so this is the one an operator mints a code for.
+  if (r.handle) console.log(`  known to the relay as: ${r.handle}`);
   console.log(`  enrolled: ${r.enrolled ? 'yes' : 'no — run deskfish remote enroll'}`);
   console.log(`  password: ${r.hasPassword ? 'set' : 'not set — run deskfish remote password'}`);
   const since = r.since ? ` since ${new Date(r.since).toLocaleString()}` : '';

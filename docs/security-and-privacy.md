@@ -81,8 +81,14 @@ The relay is a server in the middle, usually one you rent. Two things are true o
 - **It cannot read a word.** Everything between the page and her gateway — the chat, the live
   view, the files — is sealed with AES-256-GCM before it enters the relay, with keys the relay
   never sees. It forwards ciphertext and a four-byte client number, and the code that forwards
-  never looks inside. What it *can* see is metadata: your username, when you connected, from
-  what address, how many bytes went by and when. Never content.
+  never looks inside. What it *can* see is metadata: when you connected, from what address, how
+  many bytes went by and when. Never content.
+- **It is not told her name.** The page and her gateway each derive a *handle* from the username —
+  SHA-256, the first 80 bits, 16 characters — and that is what enrols, connects and appears in the
+  relay's store, its logs and its usage counters. The name itself never reaches the machine. What
+  this does not do, said plainly: the hash has no secret in it, so somebody who suspects a name can
+  hash it and see whether that handle is the one connecting. It keeps names out of a relay
+  operator's records; it is not a disguise against somebody who guesses.
 - **It cannot pretend to be her.** You sign in with a username and a password, through
   [OPAQUE](https://www.rfc-editor.org/rfc/rfc9807.html), a password-authenticated key exchange.
   The password never crosses the wire in any form, not even hashed; a relay that records the
@@ -104,7 +110,8 @@ origin matters here):
 | --- | --- | --- |
 | The password exchange | [`@serenity-kit/opaque`](https://github.com/serenity-kit/opaque), an implementation of OPAQUE (RFC 9807) over ristretto255, with argon2id stretching the password first | Serenity Kit, Austria; a WebAssembly build of [`opaque-ke`](https://github.com/facebook/opaque-ke), Meta, United States |
 | The seal on every frame | AES-256-GCM, keys from HKDF-SHA256, one per direction, nonces from a counter that is never reused | Your runtime's own WebCrypto — Node and the browser, no library |
-| The gateway's proof to the relay | Ed25519 over a challenge, at connection time | Node's built-in `crypto`, no library |
+| The gateway's proof to the relay | Ed25519 over a challenge — and over the relay's own name, so a signature is worth nothing at any other relay | Node's built-in `crypto`, no library |
+| The handle the relay knows her by | SHA-256 of a fixed label and the username, the first 80 bits in base32 | Your runtime's own WebCrypto, no library |
 | The relay itself | A few hundred lines of Node with one dependency, `ws`, for WebSockets | [`ws`](https://github.com/websockets/ws), United States |
 
 Nothing in that chain comes from China, per the rule this project keeps for anything that stands

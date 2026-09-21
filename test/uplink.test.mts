@@ -27,7 +27,7 @@ import { GatewayClient } from '../src/gateway/client';
 import type { DeskfishConfig } from '../src/gateway/config';
 import { startGateway } from '../src/gateway/start';
 import { RemoteUplink, newUplinkKey, type ClientLink, type UplinkHost } from '../src/gateway/uplink';
-import { Channel, LoginRefused, StreamKind, readMessages, register, writeMessage, type RemoteRecord, type Stream } from '../src/remote/channel';
+import { Channel, LoginRefused, StreamKind, handleOf, readMessages, register, writeMessage, type RemoteRecord, type Stream } from '../src/remote/channel';
 import { fileTransfer, protocolSocket, signIn as pageSignIn, vncChannel, type Live } from '../web/remote';
 // @ts-expect-error — the relay is its own plain-JavaScript package; it has no types and imports nothing of ours.
 import { startRelay } from '../relay/server.mjs';
@@ -47,6 +47,8 @@ async function until(pred: () => boolean, what: string, timeoutMs = 15_000): Pro
 }
 
 const USER = 'iman';
+/** What the relay is told instead of her name, derived by both ends (`channel.ts`). */
+const HANDLE = await handleOf(USER);
 const PASSWORD = 'a long enough passphrase for her tank';
 const ADMIN = 'an-admin-key-only-the-operator-has';
 
@@ -100,8 +102,13 @@ const baseUrl = `http://127.0.0.1:${(model.address() as AddressInfo).port}/v1`;
 /* ---------- the relay, with a tap of every frame it carried ---------- */
 
 const tap: { from: string; clientId: number; bytes: Buffer }[] = [];
+// Everything the relay would print at RELAY_LOG=events, kept so it can be read for her name.
+const relaySaid: string[] = [];
+const realLog = console.log;
+console.log = (...a: unknown[]) => void relaySaid.push(a.join(' '));
 const relayData = fs.mkdtempSync(path.join(os.tmpdir(), 'deskfish-uplink-relay-'));
-let relay = startRelay({ port: 0, host: '127.0.0.1', adminKey: ADMIN, dataDir: relayData, log: 'quiet', env: {}, onFrame: (f: any) => tap.push(f) });
+const relayOptions = { host: '127.0.0.1', adminKey: ADMIN, dataDir: relayData, log: 'events', env: {}, onFrame: (f: any) => tap.push(f) };
+let relay = startRelay({ port: 0, ...relayOptions });
 let relayPort: number = await relay.listening;
 const relayWs = () => `ws://127.0.0.1:${relayPort}`;
 
@@ -109,7 +116,7 @@ const mintCode = async () => {
   const res = await fetch(`http://127.0.0.1:${relayPort}/admin/codes`, {
     method: 'POST',
     headers: { authorization: `Bearer ${ADMIN}`, 'content-type': 'application/json' },
-    body: JSON.stringify({ username: USER }),
+    body: JSON.stringify({ username: HANDLE }),
   });
   return (await res.json()).code as string;
 };
@@ -211,7 +218,7 @@ try {
     ok(s.hasPassword && s.enrolled, 'the record is kept');
     const secrets = JSON.parse(fs.readFileSync(path.join(dir, 'secrets.json'), 'utf8'));
     ok(!JSON.stringify(secrets).includes(PASSWORD) && !fs.readFileSync(path.join(dir, 'config.json'), 'utf8').includes(PASSWORD), 'the password itself is in no file of hers');
-    await until(() => relay.connected.includes(USER), 'the uplink to reach the relay');
+    await until(() => relay.connected.includes(HANDLE), 'the uplink to reach the relay');
     ok((await home.call('remote.status')).state === 'connected', 'remote.status says connected');
     ok(gatewayLog.some((l) => l.includes('the uplink to') && l.includes(USER)), 'the log has one line per state change');
   }
@@ -267,6 +274,15 @@ try {
     ok(seen.length === 0, `the relay carried ${tap.length} frames and ${all.length} bytes and can read none of it${seen.length ? `: ${seen.join(', ')}` : ''}`);
     ok(tap.some((f) => f.from === 'client') && tap.some((f) => f.from === 'gateway'), 'both directions went through it');
     ok(!fs.readFileSync(path.join(relayData, 'users.json'), 'utf8').includes(gateway.token), 'the gateway token is not in the relay’s store either');
+
+    // Her *name* is not the relay's business either: it is told a handle, at enrolment, on every
+    // connection URL and in every line it logs, and the name is nowhere on that machine.
+    const store = fs.readFileSync(path.join(relayData, 'users.json'), 'utf8');
+    ok(!store.includes(USER) && store.includes(HANDLE), `the relay’s store holds the handle and not her name (${HANDLE})`);
+    ok(relaySaid.length > 0 && !relaySaid.some((l) => l.includes(USER)), `nor do its ${relaySaid.length} event lines`);
+    ok(relaySaid.some((l) => l.includes(HANDLE)), 'which do name the handle');
+    ok(!all.includes(USER) && !all.includes(Buffer.from(USER).toString('base64').replace(/=+$/, '')), 'and no frame it carried holds her name in the clear');
+    ok(relay.connected.join() === HANDLE, `the relay thinks it is holding "${HANDLE}"`);
   }
 
   // ---------- 7. a wrong password: five refusals, then a wait ----------
@@ -300,7 +316,7 @@ try {
 
     // Back on: the same keys, no new code, and the uplink returns.
     await home.call('config.set', { patch: { remoteRelay: relayWs(), remoteUsername: USER } });
-    await until(() => relay.connected.includes(USER), 'the uplink to come back from a settings change alone');
+    await until(() => relay.connected.includes(HANDLE), 'the uplink to come back from a settings change alone');
     ok(true, 'turning it back on is a settings change; the keys were kept');
   }
 
@@ -309,9 +325,9 @@ try {
     await relay.close();
     await until(() => (home.call('remote.status'), true), 'the close to settle');
     await sleep(200);
-    relay = startRelay({ port: relayPort, host: '127.0.0.1', adminKey: ADMIN, dataDir: relayData, log: 'quiet', env: {}, onFrame: (f: any) => tap.push(f) });
+    relay = startRelay({ port: relayPort, ...relayOptions });
     relayPort = await relay.listening;
-    await until(() => relay.connected.includes(USER), 'the uplink to find the relay again', 20_000);
+    await until(() => relay.connected.includes(HANDLE), 'the uplink to find the relay again', 20_000);
     const back = await signIn(PASSWORD);
     ok((await back.call('snapshot')).dataDir === dir, 'and a page signs in again with nothing re-entered');
     back.close();
@@ -327,7 +343,7 @@ try {
     const quietPort: number = await quiet.listening;
     const key = newUplinkKey();
     const code = await (await fetch(`http://127.0.0.1:${quietPort}/admin/codes`, { method: 'POST', headers: { authorization: `Bearer ${ADMIN}`, 'content-type': 'application/json' }, body: '{}' })).json();
-    await fetch(`http://127.0.0.1:${quietPort}/enroll`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ username: USER, publicKey: key.publicKey, code: code.code }) });
+    await fetch(`http://127.0.0.1:${quietPort}/enroll`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ username: HANDLE, publicKey: key.publicKey, code: code.code }) });
 
     // `idleMs` is 75 s in life; only a test lowers it, so only a test constructs the uplink itself.
     const said: string[] = [];
@@ -348,7 +364,7 @@ try {
     }, 20);
     lonely.start();
     await until(() => lonely.status.state === 'connected', 'the uplink to reach the quiet relay');
-    ok(quiet.connected.includes(USER), 'the relay holds it');
+    ok(quiet.connected.includes(HANDLE), 'the relay holds it');
     await until(() => said.some((l) => /went quiet/.test(l)), 'the gateway to notice the silence', 10_000);
     ok(/the relay went quiet for 2 s; dialling again/.test(said.find((l) => /went quiet/.test(l)) ?? ''), `one line says what happened: ${said.find((l) => /went quiet/.test(l))}`);
     await until(() => lonely.status.state === 'connected' && states.lastIndexOf('connected') > states.indexOf('error'), 'the uplink to dial again by itself', 10_000);
@@ -385,7 +401,7 @@ try {
     ok(heard.length === 0, `the gateway said nothing at all to it (${heard.length} frames)`);
     ok(seen.some((e) => /relay.other.example/.test(e)), `and the sentence names the two: ${seen.find((e) => /not signing/.test(e))}`);
     await home.call('config.set', { patch: { remoteRelay: relayWs() } });
-    await until(() => relay.connected.includes(USER), 'the uplink to come back to the relay it was enrolled at', 20_000);
+    await until(() => relay.connected.includes(HANDLE), 'the uplink to come back to the relay it was enrolled at', 20_000);
     ok((await home.call('remote.status')).state === 'connected', 'the real relay, whose name it did dial, is connected to as before');
     fake.close();
     await new Promise<void>((r) => fakeHttp.close(() => r()));
@@ -399,7 +415,7 @@ try {
     ok(JSON.parse(fs.readFileSync(path.join(dir, 'secrets.json'), 'utf8')).keys !== undefined, 'and her API keys are untouched');
   }
 
-  console.log(`uplink: ${n} checks passed`);
+  realLog(`uplink: ${n} checks passed`);
 } finally {
   home.close();
   await gateway.stop('test over');
@@ -409,4 +425,5 @@ try {
   vncWss.close();
   await new Promise<void>((r) => model.close(() => r()));
   for (const d of dirs) fs.rmSync(d, { recursive: true, force: true });
+  console.log = realLog;
 }

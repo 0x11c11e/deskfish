@@ -9,6 +9,7 @@ import { formatSize } from '../desktop/files';
 import { vncUrlWithToken } from './config';
 import { DEFAULT_PORT, EVENT_NAMES, MAX_FRAME, validate, type CommandName, type EventName, type Request } from './protocol';
 import { MAX_TRANSFER, type DeskfishService, type MemoryBundle } from './service';
+import { handleOf } from '../remote/channel';
 import { RemoteUplink, enrollAtRelay, newUplinkKey, relayUrls, type ClientLink, type RemoteStatus } from './uplink';
 import { VERSION } from './version';
 import { WebClient, type WebResponse } from './web';
@@ -88,6 +89,8 @@ export class GatewayServer {
   private uplink?: RemoteUplink;
   /** The relay and username the live uplink was made for, so a settings change is noticed. */
   private uplinkFor?: string;
+  /** Her name and the handle derived from it, so `remote.status` does not hash at every call. */
+  private handleOfName?: { username: string; handle: string };
 
   constructor(private readonly opts: GatewayServerOptions) {
     this.service = opts.service;
@@ -201,14 +204,19 @@ export class GatewayServer {
     this.uplink.start();
   }
 
-  /** What the settings view and `deskfish remote status` show. Never a key, never the password. */
-  private remoteStatus(): RemoteStatus {
+  /**
+   * What the settings view and `deskfish remote status` show. Never a key, never the password — and
+   * the handle beside her name, because that is what an operator must be told to mint a code for
+   * (the relay is never given the name itself).
+   */
+  private async remoteStatus(): Promise<RemoteStatus> {
     const cfg = this.service.config;
     const kept = this.service.secrets.remote;
     const live = this.uplink?.status;
     return {
       relay: cfg.remoteRelay,
       username: cfg.remoteUsername,
+      handle: await this.relayHandle(cfg.remoteUsername),
       enrolled: !!(kept.key && kept.username),
       hasPassword: !!(kept.record && kept.serverSetup),
       state: live?.state ?? 'off',
@@ -216,6 +224,13 @@ export class GatewayServer {
       lastError: live?.lastError,
       since: live?.since ?? 0,
     };
+  }
+
+  /** The handle for a name, kept because every status asks for it and the answer never changes. */
+  private async relayHandle(username: string): Promise<string> {
+    if (!username) return '';
+    if (this.handleOfName?.username !== username) this.handleOfName = { username, handle: await handleOf(username) };
+    return this.handleOfName.handle;
   }
 
   /** Spend a one-time enrolment code at a relay. The key is made here and its private half stays here. */
@@ -241,7 +256,7 @@ export class GatewayServer {
    * whoever typed it ran both OPAQUE roles where it was typed and sent only what cannot be read
    * backwards (requirement 5).
    */
-  private remotePassword(a: { serverSetup: string; record: string }): RemoteStatus {
+  private remotePassword(a: { serverSetup: string; record: string }): Promise<RemoteStatus> {
     const username = this.service.config.remoteUsername || this.service.secrets.remote.username;
     if (!username) throw new Error('enrol at a relay first: a password is kept against the name she answers to');
     if (!a.serverSetup || !a.record) throw new Error('that is not a password record');
@@ -252,7 +267,7 @@ export class GatewayServer {
   }
 
   /** Stop dialling out. `forget` also drops the keys; the relay keeps the public one until it is revoked there. */
-  private remoteOff(forget: boolean): RemoteStatus {
+  private remoteOff(forget: boolean): Promise<RemoteStatus> {
     this.service.patchConfig({ remoteRelay: '', remoteUsername: '' });
     if (forget) this.service.secrets.clearRemote();
     this.syncUplink();
