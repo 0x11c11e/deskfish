@@ -132,7 +132,7 @@ All of it is environment variables; there is no configuration file.
 | `RELAY_LOG` | `quiet` | `quiet` prints errors only; `events` adds one line per connection, enrolment and disconnection. Neither prints a frame. |
 | `RELAY_MAX_CLIENTS_PER_USER` | `8` | Browser windows on one username at once. |
 | `RELAY_RATE` | `30` | New connections from one address per minute. |
-| `RELAY_PING_SECONDS` | `30` | How often every socket — uplinks and browsers — is pinged. A socket that has not answered by the next ping is closed, so a slept laptop, a forgotten NAT entry or a proxy that cut a quiet connection is noticed in a minute rather than whenever TCP gives up. `0` turns pinging off. |
+| `RELAY_PING_SECONDS` | `30` | How often every socket — uplinks and browsers — is pinged. A socket that has not answered by the next ping is closed, so a slept laptop, a forgotten NAT entry or a proxy that cut a quiet connection is noticed in a minute rather than whenever TCP gives up. Keep it under 75: a gateway drops a socket the relay has been silent on for 75 s and dials again, so a relay that pings less often than that — or not at all, `0` — is redialled every 75 s whenever nothing else is crossing. `0` is for a test, not for a relay anyone dials. |
 | `RELAY_USAGE_FLUSH_SECONDS` | `300` | How often the seconds and bytes of a *running* session are added to the store. Without this an uplink that has been up all week shows nothing at `/admin/usage`. `0` writes only when a session ends. |
 
 ## Enrolling yourself
