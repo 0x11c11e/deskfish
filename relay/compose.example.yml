@@ -9,8 +9,10 @@
 # frames are sealed either way, but the browsers need wss:// and so does the gateway.
 services:
   relay:
-    build: .
-    # Or, once you have pushed it somewhere: image: your-registry/deskfish-relay:0.2
+    # The image every Deskfish release publishes. Pin a version (…:0.2.140) to know what runs;
+    # `podman compose pull && podman compose up -d` updates it when you choose (README, "Updating it").
+    # To build from this folder instead, replace the line with:  build: .
+    image: ghcr.io/0x11c11e/deskfish-relay:latest
     container_name: deskfish-relay
     restart: unless-stopped
     env_file: relay.env

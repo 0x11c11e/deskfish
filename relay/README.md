@@ -48,10 +48,13 @@ enrolment; nothing else is lost.
 printf 'RELAY_ADMIN_KEY=%s\n' "$(openssl rand -base64 32)" > relay.env
 chmod 600 relay.env
 
-podman build -t deskfish-relay relay          # or docker build
+# Every Deskfish release publishes the image, for x86-64 and ARM…
+podman pull ghcr.io/0x11c11e/deskfish-relay:latest        # or docker pull
+# …or build it yourself from this folder:
+#   podman build -t ghcr.io/0x11c11e/deskfish-relay:latest relay
 podman run -d --name deskfish-relay --restart unless-stopped \
   --env-file relay.env -p 127.0.0.1:8080:8080 \
-  -v deskfish-relay-data:/data deskfish-relay
+  -v deskfish-relay-data:/data ghcr.io/0x11c11e/deskfish-relay:latest
 ```
 
 `relay/compose.example.yml` is the same thing for `podman compose` or `docker compose`.
@@ -168,7 +171,25 @@ something. What the code does **not** give you, and what a paid relay needs beyo
 
 ## Updating it
 
+Every push to Deskfish's `main` builds this folder into `ghcr.io/0x11c11e/deskfish-relay`, tagged
+with that release's version (`0.2.140`, say) and `latest`. **Nothing pulls it for you**, on purpose:
+a relay that redeployed itself whenever a tag moved would let a lost token change what runs on your
+server with nobody watching. When you want the newer one:
+
+```bash
+podman pull ghcr.io/0x11c11e/deskfish-relay:latest
+podman rm -f deskfish-relay && podman run -d …        # the same run line as above
+# or, with the compose file: podman compose pull && podman compose up -d
+```
+
+Pin the version tag instead of `latest` if you want to know at a glance what is running. The tag
+is Deskfish's release number; `GET /status` reports the relay's own wire version, which changes
+rarely. Each image carries a build provenance attestation — from any machine with the GitHub CLI,
+`gh attestation verify oci://ghcr.io/0x11c11e/deskfish-relay:latest --owner 0x11c11e` proves it
+was built by Deskfish's release workflow from a commit on `main`, not by someone with a registry
+password.
+
 The relay speaks a stable, tiny wire: a challenge, a signature, then `[client number][bytes]`.
-A gateway of a different version than the relay is fine. Rebuild the image and restart it; every
-connected browser reconnects, and a task she is running at home is not interrupted by any of it —
-the relay holds no state a session depends on.
+A gateway of a different version than the relay is fine. Every connected browser reconnects after
+the restart, and a task she is running at home is not interrupted by any of it — the relay holds
+no state a session depends on.
