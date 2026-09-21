@@ -49,14 +49,15 @@ one small JSON file of state.
 
 The sign-in page is one file, `remote.html`, attached to every [release](https://github.com/0x11c11e/deskfish/releases/latest).
 Put it **anywhere except the relay's own machine** — that separation is what the third point above
-is about. Three ways that cost nothing:
+is about. Two ways that cost nothing:
 
 - **GitHub Pages**, from a repository of your own: commit the file as `index.html`, turn Pages on,
   and your address is `https://<you>.github.io/<repo>/`.
 - **Any static host you already use** — the same place a personal site lives.
-- **On the phone itself.** Save the file to the phone and open it from its Files app. A page opened
-  that way still reaches a relay over `wss://`, and nothing can tamper with a file that never
-  travels. The plainest answer, and the least convenient.
+
+What does **not** work is keeping the file on the phone and opening it from the Files app: a
+phone's browser opens a saved page without a secure context, and the cryptography this page runs
+on is not available outside one. It has to be served, over `https://`, from somewhere.
 
 Wherever it lands, the page asks for the relay address once and remembers it in that browser. Put it
 at `remote.<your domain>` and it finds `wss://relay.<your domain>` by itself.
