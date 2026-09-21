@@ -5,10 +5,10 @@ export function Hero() {
     <section className="hero" aria-labelledby="hero-title">
       <div className="hero-grain" aria-hidden="true" />
       <div className="container hero-content">
-        <a className="release-note" href="#get-started">
-          <span className="status-dot" /> A little agent. A whole computer.{' '}
+        <a className="release-note" href="#ways-in">
+          <span className="status-dot" /> A little world. Now with more windows.{' '}
           <span className="release-version">
-            v0.1.0 <ArrowUpRight size={12} />
+            Meet the app <ArrowUpRight size={12} />
           </span>
         </a>
         <h1 id="hero-title">
@@ -17,7 +17,8 @@ export function Hero() {
           its <em>own computer.</em>
         </h1>
         <p className="hero-description">
-          The open-source agent with a desktop of its own.
+          An open-source agent with its own desktop, memory, and a little
+          personality.
           <br className="desktop-break" /> Tell it what you need. Watch it work
           through the glass.
         </p>
@@ -31,7 +32,7 @@ export function Hero() {
           </a>
         </div>
         <div className="hero-footnote">
-          <span>Runs locally</span>
+          <span>App, browser, or VS Code</span>
           <i />
           <span>Bring your own model</span>
           <i />

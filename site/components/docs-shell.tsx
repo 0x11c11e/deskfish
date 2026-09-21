@@ -57,7 +57,7 @@ export function DocsShell({
             </nav>
           )}
           <div className="docs-bottom">
-            <span>Deskfish v0.1.0 · Apache 2.0</span>
+            <span>Deskfish field guide · Apache 2.0</span>
             <a href="/">
               Back to the little fish <ArrowUpRight size={13} />
             </a>

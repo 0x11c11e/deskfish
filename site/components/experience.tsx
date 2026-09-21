@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import {
   ArrowRight,
   ArrowUpRight,
@@ -165,7 +165,7 @@ export function ProductIntro() {
               n: '02',
               icon: <Monitor />,
               title: 'Watch it get to work.',
-              copy: 'It looks at the screen, thinks, clicks, and types. A real browser and terminal, live in your editor.',
+              copy: 'It reads the page, looks at the screen, clicks, and types. A real browser and terminal, live in the app, your browser, or VS Code.',
               detail: 'LOOK → THINK → ACT → LOOK',
             },
             {
@@ -328,7 +328,7 @@ export function TaskExplorer() {
       <div className="container">
         <div className="section-topline" data-reveal>
           <span className="eyebrow">
-            <i /> 02 / A PAIR OF HANDS
+            <i /> 03 / A PAIR OF HANDS
           </span>
           <span className="side-note">
             For all the “open the browser and…” tasks.
@@ -427,15 +427,15 @@ export function HandoffSection() {
     <section className="section container tank-section" id="the-tank">
       <div className="tank-story" data-reveal>
         <span className="eyebrow">
-          <i /> 03 / MEET THE TANK
+          <i /> 04 / MEET THE TANK
         </span>
         <h2>
           Its own little world.
           <br />A <em>clear boundary.</em>
         </h2>
         <p>
-          The tank is a sandboxed Linux desktop running on your machine. Its own
-          browser, its own files, its own space to get things done.
+          The tank is a sandboxed Linux desktop on the machine you choose. Its
+          own browser, its own files, its own space to get things done.
         </p>
         <div className="boundary-points">
           <div>
@@ -533,7 +533,7 @@ export function DetailsSection() {
           {
             icon: ScanSearch,
             title: 'It can read the page.',
-            copy: 'Find buttons and fields by name. Read page text directly, with screenshots and zoom for the rest.',
+            copy: 'Read page text directly and click a visible control by name in one step. Screenshots and zoom cover the rest.',
             href: 'how-the-bot-sees-and-acts#reading-the-page-instead-of-the-picture',
           },
           {
@@ -551,7 +551,7 @@ export function DetailsSection() {
           {
             icon: GitBranch,
             title: 'Long jobs keep a ledger.',
-            copy: 'Every 40 steps by default, it notes what’s done and what’s left, then continues with a shorter context.',
+            copy: 'It keeps a summary as the conversation grows. After an interruption, the next task gets a note of where things stopped.',
             href: 'how-the-bot-sees-and-acts#long-tasks-the-ledger',
           },
         ].map((item) => (
@@ -593,6 +593,15 @@ const models = [
     note: 'The model needs both vision and tool calling.',
   },
   {
+    id: 'grok',
+    name: 'Grok sign-in',
+    label: 'A PLAN YOU ALREADY HAVE.',
+    title: 'Let your SuperGrok go to work.',
+    copy: 'Deskfish can draw from your SuperGrok subscription through Sign in with Grok. Choose the sign-in preset, approve the code on xAI’s page, and return to your task.',
+    code: '',
+    note: 'xAI controls account eligibility. If the pool runs out, Deskfish pauses; it never silently switches to a billed API key.',
+  },
+  {
     id: 'local',
     name: 'Local models',
     label: 'KEEP THE MODEL CLOSE, TOO.',
@@ -608,7 +617,7 @@ export function ModelSection() {
       <div className="container">
         <div className="section-topline" data-reveal>
           <span className="eyebrow">
-            <i /> 06 / YOUR CHOICE, ALWAYS
+            <i /> 07 / YOUR CHOICE, ALWAYS
           </span>
           <span className="side-note">
             The desktop stays. The mind is up to you.
@@ -620,18 +629,20 @@ export function ModelSection() {
           <em>Many kinds of smart.</em>
         </h2>
         <p className="model-picker-intro" data-reveal>
-          Click <strong>Change</strong> next to Model in the sidebar. Pick a
-          provider, pick a model, and add its key when asked. Each provider
-          keeps its own key, so switching doesn’t mean starting setup over.
+          Click <strong>Change</strong> next to Model. Choose a provider and a
+          model, then add its key or sign in where supported. Your memory and
+          playbooks stay with Deskfish when you change the model.
         </p>
         <Tabs defaultValue="claude" className="model-tabs" data-reveal>
           <TabsList
             className="model-tab-list"
             aria-label="Choose a model connection"
           >
-            <TabsTrigger value="claude">Claude</TabsTrigger>
-            <TabsTrigger value="compatible">OpenAI-compatible</TabsTrigger>
-            <TabsTrigger value="local">Local models</TabsTrigger>
+            {models.map((model) => (
+              <TabsTrigger key={model.id} value={model.id}>
+                {model.name}
+              </TabsTrigger>
+            ))}
           </TabsList>
           {models.map((model) => (
             <TabsContent
@@ -648,7 +659,7 @@ export function ModelSection() {
                 </a>
               </div>
               <div className="model-setup">
-                <span className="micro-label">IN THE DESKFISH SIDEBAR</span>
+                <span className="micro-label">IN ANY DESKFISH WINDOW</span>
                 <ol>
                   <li>
                     Open <strong>Change</strong> next to Model.
@@ -656,14 +667,18 @@ export function ModelSection() {
                   <li>
                     {model.id === 'claude'
                       ? 'Choose Anthropic (direct), then a computer-use model.'
-                      : model.id === 'local'
-                        ? 'Choose Ollama, or enter your own local endpoint.'
-                        : 'Choose your provider, then a model with vision and tools.'}
+                      : model.id === 'grok'
+                        ? 'Choose xAI (Grok) — sign in with your SuperGrok.'
+                        : model.id === 'local'
+                          ? 'Choose Ollama, or enter your own local endpoint.'
+                          : 'Choose your provider, then a model with vision and tools.'}
                   </li>
                   <li>
-                    {model.id === 'local'
-                      ? 'Keep your local model server running and send a task.'
-                      : 'Enter that provider’s API key when prompted.'}
+                    {model.id === 'grok'
+                      ? 'Press Sign in with Grok and approve the code on xAI’s page.'
+                      : model.id === 'local'
+                        ? 'Keep your local model server running and send a task.'
+                        : 'Enter that provider’s API key when prompted.'}
                   </li>
                 </ol>
                 <p>
@@ -671,32 +686,37 @@ export function ModelSection() {
                     ? 'Direct Kimi is provided by Moonshot AI in Beijing. The chosen endpoint receives your key and task content; OpenRouter routes content to its serving provider.'
                     : model.note}
                 </p>
-                <details className="model-settings">
-                  <summary>Prefer settings JSON?</summary>
-                  <div className="model-code">
-                    <div className="code-title">
-                      <span>
-                        <Code2 size={13} /> VS CODE · USER SETTINGS
-                      </span>
-                      <CopyButton label="Copy" text={model.code} />
+                {model.code && (
+                  <details className="model-settings">
+                    <summary>Prefer settings JSON?</summary>
+                    <div className="model-code">
+                      <div className="code-title">
+                        <span>
+                          <Code2 size={13} /> VS CODE · USER SETTINGS
+                        </span>
+                        <CopyButton label="Copy" text={model.code} />
+                      </div>
+                      <pre>
+                        <code>{model.code}</code>
+                      </pre>
+                      <div className="code-note">
+                        <span className="status-dot" />
+                        {model.note}
+                      </div>
                     </div>
-                    <pre>
-                      <code>{model.code}</code>
-                    </pre>
-                    <div className="code-note">
-                      <span className="status-dot" />
-                      {model.note}
-                    </div>
-                  </div>
-                </details>
+                  </details>
+                )}
               </div>
             </TabsContent>
           ))}
         </Tabs>
         <div className="model-footer">
-          <span>No Deskfish subscription. Bring your own API key.</span>
           <span>
-            Keys stored in your OS keychain. Provider usage billed separately.
+            No Deskfish subscription. API key, Grok sign-in, or a local model.
+          </span>
+          <span>
+            Credentials stay with your Deskfish. Hosted inference goes to your
+            chosen provider.
           </span>
         </div>
       </div>
@@ -712,7 +732,7 @@ type Film = {
   blurb: string;
   poster: string;
   src: string;
-  captions?: string;
+  captions: string;
   alt: string;
 };
 
@@ -726,6 +746,7 @@ const films: Film[] = [
       'Told to read what people on X are saying this week about agents that use a computer, then draft a post from its own account and leave it unsent. It reads, it writes, and it stops at the Post button.',
     poster: '/assets/films/post.jpg',
     src: '/assets/films/post.mp4',
+    captions: '/assets/films/post.vtt',
     alt: 'Deskfish in VS Code: the chat on the left, and in its own desktop Firefox is open on an X search for computer-use agents',
   },
   {
@@ -737,6 +758,7 @@ const films: Film[] = [
       'The cheapest LAX to Hawaii fare for fixed dates. It uses the Explore view on Google Flights to compare every island at once, opens the winner, checks the return leg, and reports the catch: the red-eye lands a day later than “a week”.',
     poster: '/assets/films/trip.jpg',
     src: '/assets/films/trip.mp4',
+    captions: '/assets/films/trip.vtt',
     alt: 'Deskfish in VS Code: Google Flights in its own desktop with prices for every Hawaiian island on a map',
   },
   {
@@ -760,7 +782,7 @@ export function FilmSection() {
     <section className="section container film-section" id="demo">
       <div className="film-copy" data-reveal>
         <span className="eyebrow">
-          <i /> 07 / THREE REAL RECORDINGS
+          <i /> 08 / THREE REAL RECORDINGS
         </span>
         <h2>
           Watch it work.
@@ -768,9 +790,10 @@ export function FilmSection() {
           <em>Through the glass.</em>
         </h2>
         <p>
-          Three unedited sessions: the chat on the left, its own desktop on
-          the right. It reads a timeline and drafts a post. It prices a trip.
-          And on its first day, it bought this website’s address.
+          Three unedited sessions, recorded in VS Code: the chat on the left,
+          its own desktop on the right. It reads a timeline and drafts a post.
+          It prices a trip. And on its first day, it bought this website’s
+          address.
         </p>
         <p className="film-punchline">
           This website’s address was its first errand.
@@ -779,9 +802,7 @@ export function FilmSection() {
           <blockquote>
             “‘AI’ is a category label; ‘.sh’ is a job description.”
           </blockquote>
-          <figcaption>
-            — Deskfish, on keeping deskfish.sh.
-          </figcaption>
+          <figcaption>— Deskfish, on keeping deskfish.sh.</figcaption>
         </figure>
         <div className="film-meta">
           <span>REAL TIME</span>
@@ -835,7 +856,9 @@ export function FilmSection() {
         <DialogContent className="film-dialog">
           <DialogTitle>{active?.title}</DialogTitle>
           <DialogDescription>
-            {active ? `${active.when} · ${active.duration} · silent. ${active.blurb}` : ''}
+            {active
+              ? `${active.when} · ${active.duration} · silent. ${active.blurb}`
+              : ''}
           </DialogDescription>
           {active &&
             (mediaError ? (
@@ -856,14 +879,12 @@ export function FilmSection() {
                 onError={() => setMediaError(true)}
               >
                 <source src={active.src} type="video/mp4" />
-                {active.captions && (
-                  <track
-                    kind="captions"
-                    src={active.captions}
-                    srcLang="en"
-                    label="English (silent recording)"
-                  />
-                )}
+                <track
+                  kind="captions"
+                  src={active.captions}
+                  srcLang="en"
+                  label="English (silent recording)"
+                />
                 Your browser does not support video playback.
               </video>
             ))}
@@ -892,33 +913,58 @@ const OTHER_DOWNLOADS = [
   { label: 'npm tarball', file: 'deskfish.tgz' },
 ];
 
-/** Linux, macOS or Windows from the browser; the AppImage when it will not say. */
-function guessSystem(): keyof typeof DOWNLOADS {
-  if (typeof navigator === 'undefined') return 'linux';
-  const nav = navigator as Navigator & { userAgentData?: { platform?: string } };
+const RELEASE_URL = 'https://github.com/0x11c11e/deskfish/releases/latest';
+const releaseFile = (file: string) => `${RELEASE_URL}/download/${file}`;
+
+/** Offer a desktop download only when the browser identifies a desktop system. */
+function guessSystem(): keyof typeof DOWNLOADS | null {
+  if (typeof navigator === 'undefined') return null;
+  const nav = navigator as Navigator & {
+    userAgentData?: { platform?: string };
+  };
   const p = (nav.userAgentData?.platform || nav.platform || '').toLowerCase();
+  if (
+    /android|iphone|ipad|ipod/i.test(nav.userAgent) ||
+    (p.includes('mac') && nav.maxTouchPoints > 1)
+  )
+    return null;
   if (p.includes('mac')) return 'mac';
   if (p.includes('win')) return 'windows';
-  return 'linux';
+  if (p.includes('linux') && !/arm|aarch/i.test(p)) return 'linux';
+  return null;
 }
+
+const subscribeToSystem = () => () => {};
+const unknownSystem = () => null;
 
 /** The app for the visitor's system, with every other file one quiet line below. */
 function DownloadApp() {
-  const [target, setTarget] = useState<keyof typeof DOWNLOADS>('linux');
-  useEffect(() => setTarget(guessSystem()), []);
-  const { file, system } = DOWNLOADS[target];
+  const target = useSyncExternalStore(
+    subscribeToSystem,
+    guessSystem,
+    unknownSystem,
+  );
+  const download = target ? DOWNLOADS[target] : null;
   return (
     <>
-      <a className="button button-mint" href={`/downloads/${file}`}>
-        <Download size={17} /> Download Deskfish for {system}{' '}
+      <a
+        className="button button-mint"
+        href={download ? releaseFile(download.file) : RELEASE_URL}
+      >
+        <Download size={17} />{' '}
+        {download
+          ? `Download for ${download.system}`
+          : 'Choose your desktop app'}{' '}
         <ArrowUpRight size={18} />
       </a>
-      <LatestVersion />
+      <a className="release-link" href={RELEASE_URL}>
+        Latest release · app, extension, or server <ArrowUpRight size={12} />
+      </a>
       <div className="other-downloads">
         {OTHER_DOWNLOADS.map((d, i) => (
           <span key={d.file}>
             {i > 0 && <i aria-hidden="true"> · </i>}
-            <a href={`/downloads/${d.file}`}>{d.label}</a>
+            <a href={releaseFile(d.file)}>{d.label}</a>
           </span>
         ))}
       </div>
@@ -926,30 +972,15 @@ function DownloadApp() {
   );
 }
 
-/** The newest release's tag, from GitHub; the download link above always serves that build. */
-function LatestVersion() {
-  const [tag, setTag] = useState<string | null>(null);
-  useEffect(() => {
-    let alive = true;
-    fetch('https://api.github.com/repos/0x11c11e/deskfish/releases/latest', {
-      headers: { Accept: 'application/vnd.github+json' },
-    })
-      .then((r) => (r.ok ? r.json() : null))
-      .then((j) => {
-        if (alive && j && typeof j.tag_name === 'string') setTag(j.tag_name);
-      })
-      .catch(() => {});
-    return () => {
-      alive = false;
-    };
-  }, []);
-  return <span>{tag ?? 'Latest build'} · app, extension or server · Apache 2.0</span>;
-}
-
 const faq = [
   {
+    q: 'Do I need VS Code?',
+    a: 'No. Download the desktop app, or open the page served by a running Deskfish in your browser. VS Code is another window onto the same agent. On one machine, the app and extension share its desktop, memory, chats, settings, and schedules.',
+    href: 'running-without-vscode',
+  },
+  {
     q: 'Is this an AI coding assistant?',
-    a: 'Deskfish is for the work that needs a browser, a mouse, and a little patience: finding a hotel, collecting receipts, filling forms, researching across sites. It lives in VS Code so you can keep an eye on it alongside your work.',
+    a: 'Deskfish is for the work that needs a browser, a mouse, and a little patience: finding a hotel, collecting receipts, filling forms, researching across sites. Use the app, a browser, or VS Code to keep an eye on it alongside your work. Coding agents can also delegate errands to it over MCP.',
   },
   {
     q: 'Does it control my actual computer?',
@@ -958,7 +989,7 @@ const faq = [
   },
   {
     q: 'What stays local, and what goes to the model?',
-    a: 'The tank, memory, and saved chats live on your machine. Task text, tank screenshots, page text or controls requested by the agent, action results, and relevant notes go to your chosen model endpoint. Your own screen is not captured. A compatible local endpoint can keep inference on your machine too.',
+    a: 'The tank, memory, and saved chats live on the machine running Deskfish: your computer, a box at home, or a server you choose. Task text, tank screenshots, page text or controls requested by the agent, action results, and relevant notes go to your chosen model endpoint. Your own screen is not captured. A compatible local endpoint can keep inference on your machine too.',
     href: 'security-and-privacy',
   },
   {
@@ -968,12 +999,12 @@ const faq = [
   },
   {
     q: 'What do I need to run it?',
-    a: 'VS Code 1.95 or newer, Podman or Docker running Linux containers, and a model with vision and tool calling. Linux is the main development platform; macOS and Windows use the container runtime’s Linux VM and have less testing so far. The first tank build takes a few minutes.',
+    a: 'The app or VS Code extension, Podman or Docker for the tank, and a model with vision and tool calling. Deskfish offers to help install Podman. Linux is the main development platform; macOS and Windows installers are built but have not yet been tested end to end on those systems. The first tank build takes a few minutes.',
     href: 'getting-started',
   },
   {
     q: 'Is it free? Can I try it without an API key?',
-    a: 'Deskfish is free software under the Apache 2.0 license. Hosted model providers charge for usage. A scripted mock provider lets you try the desktop and handoff flow with no API key. Local inference is also an option with a compatible model.',
+    a: 'Deskfish is free software under the Apache 2.0 license. Hosted model providers charge for usage, or eligible Grok accounts can draw from their existing SuperGrok plan. A scripted mock provider lets you try the desktop and handoff flow with no API key. Local inference is also an option with a compatible model.',
     href: 'models-and-providers',
   },
   {
@@ -983,12 +1014,12 @@ const faq = [
   },
   {
     q: 'Can it come back to a task on a schedule?',
-    a: 'Yes: once, daily, weekly, or at an interval of at least five minutes. Create it with Schedule a Task… in Deskfish. VS Code must be open, the extension loaded, and the machine awake. A task due while it is busy waits; a time missed while away is skipped after the grace period, five minutes by default.',
+    a: 'Yes: once, daily, weekly, or at an interval of at least five minutes. Create it in Scheduled tasks. Deskfish must be running and its machine awake; VS Code can be closed. Automatic runs default to guided mode and a $2 model budget where costs are known, with per-schedule overrides. Busy tasks queue; missed times are skipped after the grace period, five minutes by default.',
     href: 'schedules',
   },
   {
     q: 'How does it keep long tasks manageable?',
-    a: 'A ledger periodically replaces the growing conversation with a summary of the goal, progress, remaining work, and current state. Prompt caching reduces repeated input costs where supported, and standby polls locally without repeated model calls. There is no step cap by default. Optional cost budgets work with known direct Claude prices or costs reported by OpenRouter; final requests can take a run over the budget.',
+    a: 'A ledger periodically replaces the growing conversation with a summary of the goal, progress, remaining work, and current state. Prompt caching reduces repeated input costs where supported, and standby polls locally without repeated model calls. There is no step cap by default. Optional cost budgets work with known direct Claude, Kimi, or Grok prices, or charges reported by the endpoint; final requests can take a run over the budget.',
     href: 'running-tasks',
   },
 ];
@@ -1044,8 +1075,8 @@ export function GetStarted() {
           </div>
           <div className="get-started-action">
             <DownloadApp />
-            <a href="/docs/getting-started/" className="setup-guide">
-              Read the setup guide <ArrowUpRight size={13} />
+            <a href="/docs/the-app/" className="setup-guide">
+              App installation guide <ArrowUpRight size={13} />
             </a>
           </div>
         </div>
@@ -1054,8 +1085,8 @@ export function GetStarted() {
             <span>01</span>
             <h3>Give it a home.</h3>
             <p>
-              Open the app and you are done. In VS Code, download the extension
-              and choose <strong>Install from VSIX…</strong>
+              Download and open the app. Prefer your editor? Install the
+              extension with <strong>Install from VSIX…</strong> in VS Code.
             </p>
           </div>
           <div>
@@ -1063,18 +1094,49 @@ export function GetStarted() {
             <h3>Bring a mind.</h3>
             <p>
               Click <strong>Change</strong> next to Model. Choose a provider and
-              model, then enter its key when asked.
+              model, then enter its key or use Grok sign-in.
             </p>
           </div>
           <div>
             <span>03</span>
             <h3>Let it swim.</h3>
             <p>
-              Turn on the tank. If you need Podman, the sidebar walks you
-              through installation. Give your fish its first task.
+              Turn on the tank. If you need Podman, Deskfish walks you through
+              installation. Give your fish its first task.
             </p>
           </div>
         </div>
+        <div className="install-routes" data-reveal>
+          <a href="/docs/getting-started/#2-install-the-extension">
+            <Code2 size={17} />
+            <span>
+              In VS Code<small>Install the extension</small>
+            </span>
+            <ArrowUpRight size={15} />
+          </a>
+          <a href="/docs/advanced/#a-gateway-on-another-machine">
+            <Terminal size={17} />
+            <span>
+              On your own server
+              <small>Install the command, open the web page</small>
+            </span>
+            <ArrowUpRight size={15} />
+          </a>
+          <a href="/docs/running-without-vscode/#signing-in-once">
+            <Globe2 size={17} />
+            <span>
+              Already running?<small>Connect from your browser</small>
+            </span>
+            <ArrowUpRight size={15} />
+          </a>
+        </div>
+        <p className="install-caveat">
+          The app is unsigned. macOS and Windows builds still need testing on
+          those systems.{' '}
+          <a href="/docs/the-app/#honest-limits">
+            Read the installation notes <ArrowUpRight size={12} />
+          </a>
+        </p>
         <div className="install-footnote">
           <span>
             Early release. Built in the open, with plenty of room to grow.
@@ -1103,15 +1165,20 @@ export function SiteFooter() {
         <div className="footer-links">
           <div>
             <span>EXPLORE</span>
+            <a href="/#ways-in">App, browser & VS Code</a>
             <a href="/#the-tank">The tank</a>
             <a href="/#memory">Memory & reflection</a>
             <a href="/#schedules">Schedules</a>
             <a href="/#models">The models</a>
-            <a href="/#demo">The first errand</a>
+            <a href="/#demo">Watch the recordings</a>
           </div>
           <div>
             <span>MAKE IT YOURS</span>
-            <a href="https://github.com/0x11c11e/deskfish" target="_blank" rel="noopener">
+            <a
+              href="https://github.com/0x11c11e/deskfish"
+              target="_blank"
+              rel="noopener"
+            >
               Source code on GitHub <ArrowUpRight size={12} />
             </a>
             <a href="/docs/">Documentation</a>
@@ -1124,18 +1191,26 @@ export function SiteFooter() {
             <a href="/docs/how-the-bot-sees-and-acts/">
               Under the hood <ArrowUpRight size={12} />
             </a>
-            <a href="/docs/advanced/">
-              Advanced setups <ArrowUpRight size={12} />
+            <a href="/docs/advanced/#deskfish-as-an-mcp-server">
+              Connect over MCP <ArrowUpRight size={12} />
             </a>
             <a href="/#get-started">Get Deskfish</a>
           </div>
           <div>
             <span>SAY HELLO</span>
             <a href="mailto:hello@deskfish.sh">hello@deskfish.sh</a>
-            <a href="https://github.com/0x11c11e/deskfish/issues" target="_blank" rel="noopener">
+            <a
+              href="https://github.com/0x11c11e/deskfish/issues"
+              target="_blank"
+              rel="noopener"
+            >
               Open an issue <ArrowUpRight size={12} />
             </a>
-            <a href="https://github.com/0x11c11e/deskfish/blob/main/CONTRIBUTING.md" target="_blank" rel="noopener">
+            <a
+              href="https://github.com/0x11c11e/deskfish/blob/main/CONTRIBUTING.md"
+              target="_blank"
+              rel="noopener"
+            >
               Contribute <ArrowUpRight size={12} />
             </a>
             <a href="mailto:security@deskfish.sh">Report a vulnerability</a>

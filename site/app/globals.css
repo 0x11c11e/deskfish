@@ -3426,3 +3426,69 @@ h2 em {
     font-size: 9px;
   }
 }
+
+/* Current release paths and setup choices. */
+.get-started-action .release-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 12px;
+  font-size: 11px;
+  color: #c5d6c8;
+}
+.install-routes {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  border-bottom: 1px solid #476151;
+  padding: 24px 0;
+  gap: 25px;
+}
+.install-routes a {
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  font-size: 14px;
+  color: #ecf3e8;
+}
+.install-routes a > svg {
+  flex-shrink: 0;
+  color: #a8d9b7;
+}
+.install-routes a > svg:last-child {
+  margin-left: auto;
+}
+.install-routes small {
+  display: block;
+  font-size: 11px;
+  color: #c5d6c8;
+  margin-top: 3px;
+}
+.install-caveat {
+  font-size: 11px;
+  line-height: 1.8;
+  color: #c5d6c8;
+  margin-top: 25px;
+}
+.install-caveat a {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: #d6eddb;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+@media (max-width: 760px) {
+  .install-routes {
+    grid-template-columns: 1fr;
+    gap: 24px;
+  }
+  .model-tab-list[data-slot='tabs-list'] {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    height: auto;
+  }
+  .model-tab-list [data-slot='tabs-trigger'] {
+    min-height: 44px;
+    white-space: normal;
+  }
+}

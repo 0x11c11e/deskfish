@@ -15,8 +15,8 @@ export function SiteHeader() {
           id="main-nav"
           aria-label="Main navigation"
         >
-          <a href="/#how-it-works" onClick={() => setOpen(false)}>
-            The idea
+          <a href="/#ways-in" onClick={() => setOpen(false)}>
+            Meet Deskfish
           </a>
           <a href="/#possibilities" onClick={() => setOpen(false)}>
             What it can do

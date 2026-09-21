@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { render, parseFrontmatter } from './markdown.mjs';
+import { applyContentOverrides } from './content-overrides.mjs';
 const site = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const docs = path.join(site, '..', 'docs');
 const order = [
@@ -19,51 +20,7 @@ const pages = fs
     const { meta, body: original } = parseFrontmatter(
       fs.readFileSync(path.join(docs, file), 'utf8'),
     );
-    let body = original;
-    // Bring the website's copy into line with src/config.ts, loop.ts and prompts.ts.
-    // Canonical project documentation is deliberately untouched.
-    body = body.replace(
-      'the step limit, `deskfish.maxSteps`, 60 by default;',
-      'an optional step limit, `deskfish.maxSteps`, with no limit by default;',
-    );
-    body = body.replaceAll(
-      'Only the three most recent screenshots stay',
-      'After each batch prune, only the three most recent screenshots stay',
-    );
-    body = body.replace(
-      'Only the three most recent images stay in the conversation; older ones are replaced by the',
-      'Images are pruned in batches, keeping the most recent three after each prune; older ones are replaced by the',
-    );
-    body = body.replace(
-      'only the three most recent images are kept in the conversation;',
-      'older images are pruned in batches, keeping the most recent three after a prune;',
-    );
-    body = body.replace(
-      'It is instructed never to try. It knocks on the glass and you solve it.',
-      'It can knock on the glass when it cannot get past a CAPTCHA. Guided mode explicitly tells it to hand these checks to you.',
-    );
-    body = body.replace(
-      'Passwords are never stored.',
-      'The agent is instructed to keep passwords out of its memory notes; Firefox may store saved logins inside the tank.',
-    );
-    body = body.replace(
-      'and it never contains a password.',
-      'and the agent is instructed to leave passwords out.',
-    );
-    body = body.replace(
-      'nothing it does can reach outside\nthe box unless you carry it out yourself.',
-      'host folders are not mounted into its desktop. Files move with Attach and Save; the Desktop tab also shares your clipboard when you focus or paste into it.',
-    );
-    body = body.replace(
-      "the results of the agent's actions, and the documentation pages it reads.",
-      "the results of the agent's actions, relevant memory notes, and the documentation pages it reads.",
-    );
-    if (file !== 'settings.md') {
-      body = body
-        .replaceAll('`claude-opus-5`', '`<your-computer-use-model>`')
-        .replaceAll('`grok-4`', '`<your-vision-and-tools-model>`')
-        .replaceAll('`llama3.2-vision`', '`<your-vision-and-tools-model>`');
-    }
+    const body = applyContentOverrides(file, original);
     const page = {
       slug: file.replace('.md', ''),
       title: meta.title,

@@ -10,12 +10,12 @@ export const metadata: Metadata = {
   alternates: { canonical: '/' },
   title: 'Deskfish — Give your AI its own computer',
   description:
-    'An open-source desktop agent in VS Code, with its own Linux computer, memory, playbooks, and scheduled tasks. Watch it work. Bring your own model.',
+    'An open-source agent with its own computer, memory, and scheduled tasks. Use the desktop app, your browser, or VS Code. Your machine. Your choice of model.',
   icons: { icon: '/assets/logo.svg', apple: '/assets/icon.png' },
   openGraph: {
     title: 'Deskfish — Give your AI its own computer',
     description:
-      'Watch it work through the glass. Its own computer, a little history, and a rhythm for recurring work. Open source. Your choice of model.',
+      'One little world. Three ways in: the app, your browser, or VS Code. Its own computer and memory, on the machine you choose. Watch it work through the glass.',
     type: 'website',
     url: 'https://deskfish.sh',
     siteName: 'Deskfish',
@@ -32,7 +32,7 @@ export const metadata: Metadata = {
     card: 'summary_large_image',
     title: 'Deskfish — Give your AI its own computer',
     description:
-      'Its own computer, memory, playbooks, and scheduled tasks. Open source. Your choice of model.',
+      'Its own computer, memory, and scheduled tasks. A desktop app, a browser, or VS Code. Open source. Your choice of model.',
     images: ['/og.png'],
   },
 };

@@ -1,18 +1,12 @@
 # Deskfish website
 
-A complete, self-contained website for Deskfish. Warm paper, ink, aquatic green, an animated desktop illustration, useful interactive examples, the real domain-purchase film, and the complete field guide.
+The public website and field guide for Deskfish. It introduces an agent with its own Linux desktop and memory, reached through the desktop app, a browser, or VS Code. The existing aquatic palette, local typography, illustrated desktop replay, theme switch, and three real recordings remain.
 
-The hero desktop plays a 34-second illustrated errand: a typed task, Firefox, domain search, checkout, a human handoff, confirmation, and a memory note. Pause and Replay controls are below it. Playback waits until the frame is in view and pauses in background tabs. Reduced-motion visitors get static scenes with a Next scene control.
-
-The replay keeps the product’s own appearance inside the glass: neutral dark VS Code chrome, the original tank wallpaper, blue chat/actions, white browser pages, and orange Namecheap actions. The outer frame, chapter counter, playback controls, and progress bar follow the website theme.
-
-The header offers Light and Dark themes. Dark is the default; Light uses a soft cream palette. Your choice is saved in browser local storage and applied before the page paints, including on documentation pages.
-
-Everything for this website lives in this directory. Building or running it does not modify the extension, its documentation, or other project files.
+Everything for this website lives here. Running, building, and synchronizing documentation write only inside `site/`.
 
 ## Run
 
-Requires Node.js 22.13+ and npm. The static preview command also uses Python 3.
+Requires Node.js 22.13+ and npm. The static preview also uses Python 3.
 
 ```bash
 cd site
@@ -20,43 +14,47 @@ npm ci
 npm run dev
 ```
 
-Open http://127.0.0.1:5173. On the current workstation, where Node is not on the shell PATH, `./dev.sh` uses the local toolchain already prepared in `site/.tools/`.
+Open http://127.0.0.1:5173. On the current workstation, `./dev.sh` uses the local toolchain in `site/.tools/` when Node is not on the shell PATH.
 
-## Build and preview
+## Build and check
 
 ```bash
 npm run typecheck
 npm run lint
 npm run build
+python3 scripts/check-site.py
 npm run preview
 ```
 
-Open http://127.0.0.1:4173. `dist/client/` is a complete static site. Serve it at the domain root on any static host supporting directory index files. No backend, API key, database, analytics, cookies, or external font requests are needed. Nothing has been publicly deployed.
+Open http://127.0.0.1:4173. `dist/client/` contains the static export. `scripts/finalize-export.mjs` adds directory indexes so the home page, `/docs/`, and all guide URLs work on a plain static server. No backend, API key, or database is needed. Fonts and media are served locally. Analytics are loaded only if `NEXT_PUBLIC_GA_ID` is set at build time.
 
-Vinext builds the App Router pages to static HTML. `scripts/finalize-export.mjs` also creates directory-index URLs so `/docs/` and all guide URLs work on a plain static server. Native anchors intentionally avoid a dependency on server-side navigation or image optimization. The generated `.html` routes remain available too.
+The content check covers all 21 content routes, headings, metadata, local links and anchors, the six stable release downloads, legacy Vercel redirects, and the license, notice, wallpaper and three recordings against the parent project.
 
 ## Contents
 
-- `app/page.tsx`, `components/hero.tsx`, `components/experience.tsx`: landing page and interactions.
-- `components/continuity.tsx` and `continuity.css`: the interactive memory notebook, reflection, schedules, and standby chapters.
-- `app/globals.css`: the complete responsive visual system and reduced-motion behavior.
-- `app/docs/`, `components/docs-*`: 17 guides, searchable navigation, table of contents, code copying, and adjacent-page navigation.
-- `app/content/docs.json`: checked-in, pre-rendered content. The website builds independently of the parent project.
-- `public/`: local fonts and their licenses, the original mascot, tank screenshot, demo with personal details blacked out, and the extension download.
-- `DESIGN.md`: design rationale, source mapping, and research references.
+- `components/hero.tsx`, `experience.tsx`: landing page, task examples, models, handoff, recordings, FAQ, and downloads.
+- `components/windows.tsx`, `windows.css`: interactive app/browser/VS Code explanation and MCP introduction. Each tab shows the same illustrative conversation to explain that these are clients of one Deskfish.
+- `components/continuity.tsx`, `continuity.css`: memory notebook, reflection, background schedules, and standby.
+- `components/living-tank.tsx`, `living-tank.css`, `lib/tank-replay.ts`: the original illustrated errand in VS Code. Pause/Replay, visibility handling, and reduced-motion scene controls are preserved.
+- `app/docs/`, `components/docs-*`: 19 guides with searchable navigation, section links, code copying, and adjacent-page navigation.
+- `app/content/docs.json`: checked-in rendered documentation; building the website does not require the parent sources.
+- `public/`: original artwork, fonts and licenses, recordings, descriptive tracks, and site metadata.
+- `REVIEW.md`: product changes, source mapping, and verification.
 
-## Updating content
-
-`npm run sync:docs` reads the parent project's `docs/*.md` and updates only this website's content and sitemap. Source-verified corrections live in `scripts/content-overrides.mjs`, so another sync preserves them. They cover memory and chat restoration, reflection, scheduling, costs and budgets, the ledger, model setup, and the tank’s actual boundary. The parent docs remain untouched. See [the September review](REVIEW.md) for the rationale.
-
-When releasing an extension update, replace `public/downloads/deskfish-0.1.0.vsix` with the intended release and update the version and download links. Keep `public/LICENSE.txt` and `public/NOTICE.txt` consistent with that release. The included package and license match the project's current Apache-2.0 release.
-
-## Verification
+## Updating the field guide
 
 ```bash
-python3 scripts/check-site.py
+npm run sync:docs
 ```
 
-After building, this checks all 19 content pages, local links and anchors, page metadata, and the bundled extension, license, notice, and video against the parent project's current copies. Use the typecheck, lint, and build commands above for code validation. Visual browser and interaction QA have not been performed.
+This reads only the public `../docs/*.md` files, then updates `app/content/docs.json` and `public/sitemap.xml`. It never publishes the private handbook. Small source-verified corrections live in `scripts/content-overrides.mjs`. The sync fails if a corrected source paragraph changes, so it can be reviewed rather than silently becoming stale. Current corrections cover the app's lack of a remote-gateway field and the screenshot behavior after passive reads.
 
-The source repository currently configured in the extension is `https://github.com/0x11c11e/deskfish`. Public availability was not verified in this review; the site continues to use its documentation and bundled download links.
+## Downloads
+
+Download links go directly to the project's stable `releases/latest/download/<filename>` URLs, so they work on any static host. Vercel's `/downloads/…` redirects remain for existing inbound links, including versioned VSIX URLs. No installer is bundled in the website and no release version is hardcoded in visible copy. The primary button detects desktop systems; phones, tablets, and unknown systems get the release chooser. All six files remain explicitly available.
+
+When changing distribution, check the asset names against the release workflow and GitHub release assets. Update `components/experience.tsx`, `vercel.json`, and `scripts/check-site.py` together.
+
+## Browser verification
+
+The September 19 refresh was inspected and exercised in a separate headless Chrome session on the production export, without opening the product or using the user's desktop. Coverage includes desktop and phone layouts, both themes, tab keyboard navigation, handoff, prompt copying, FAQ, video dialog and playback, documentation search and code copying, mobile menus, and download selection. See `REVIEW.md` for the exact checks and limits. This work does not deploy the website.

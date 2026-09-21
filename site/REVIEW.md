@@ -1,38 +1,44 @@
-# Website review · September 9, 2026
+# Website review · September 19, 2026
 
-The existing design still fits Deskfish. Its visible computer, the glass, and the human handoff remain central. What needed to change was the story after a task finishes: Deskfish now keeps procedures, history, and a self-description, reflects on her work, and returns to scheduled tasks.
+Deskfish now runs independently of VS Code. Its gateway owns the agent, tank, memory, chats, settings, and schedules. The app, browser, extension, command line, and MCP server are clients of that same program. The website needed to explain that change throughout, beyond the download button added earlier.
 
 ## What changed
 
-| Product addition                                | Website treatment                                                                                                              | Source checked                                                                         |
-| ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------- |
-| Facts, journal, playbooks, self-description     | A four-tab notebook chapter, using the real bundled self and playbook excerpts and clearly labeled illustrative personal notes | `src/agent/memory.ts`, `journal.ts`, `playbook.ts`, `self.ts`, `seed.ts`, `starter.ts` |
-| Reflection, charter, readings, revision history | A reflection passage within the notebook, with deeper explanations in the field guide                                          | `src/agent/loop.ts`, `charter.ts`, `library.ts`, `src/controller.ts`, `docs/memory.md` |
-| Saved chats and memory export                   | Links below the notebook explain continuing from transcripts and moving memory between installations                           | `src/agent/chats.ts`, `src/controller.ts`                                              |
-| One-time and recurring schedules                | A new chapter with realistic report and status examples, plus the conditions needed for them to run                            | `src/agent/schedule.ts`, `src/controller.ts`, `docs/schedules.md`                      |
-| Standby and the task ledger                     | A local-waiting explanation and a feature card for the default 40-step ledger                                                  | `src/agent/loop.ts`, `src/config.ts`                                                   |
-| Browser page reading and richer terminal tools  | A page-reading feature card, PDF example, and Python/CSV example                                                               | `src/agent/page.ts`, `docker/desktop/`, `docs/the-tank.md`                             |
-| Model picker and provider-specific keys         | Setup instructions start with the actual sidebar picker; settings JSON is still available                                      | `src/agent/presets.ts`, `src/controller.ts`, `src/config.ts`                           |
-| Personal name setting                           | A short setup note and the current settings reference                                                                          | `src/agent/prompts.ts`, `src/config.ts`                                                |
+| Product behavior | Website treatment | Sources checked read-only |
+| --- | --- | --- |
+| App, browser, and VS Code share one agent | New accessible three-tab chapter and matching hero, navigation, FAQ, and metadata | `docs/introduction.md`, `the-app.md`, `running-without-vscode.md`; `src/gateway/`, `app/` |
+| Gateway on a chosen machine | A home/server explanation and setup links; app remote-setting limitation preserved | `docs/advanced.md`, `settings.md`, `security-and-privacy.md` |
+| MCP client of the gateway | Introductory delegation passage and links to registration and tools | `src/gateway/mcp.ts`, `docs/advanced.md` |
+| Background schedules | Removed the requirement to keep VS Code open; added guided mode and $2 model-budget defaults, overrides, awake-machine condition, and login startup | `src/gateway/service.ts`, root `package.json`, `docs/schedules.md` |
+| Grok subscription sign-in | Fourth model tab, setup and eligibility explanation, pool-exhaustion behavior | `src/agent/presets.ts`, `src/gateway/mcp.ts`, `docs/models-and-providers.md` |
+| Page tools and interrupted tasks | Updated tool and ledger copy; detailed guides cover passive reads, `click_element`, recovery notes, and standby | `docs/how-the-bot-sees-and-acts.md`, `running-tasks.md`; current handbook decisions checked against source |
+| Shared memory and history | Updated storage and history copy; guide covers current reflection and drift behavior | `docs/memory.md`, `faq.md` |
+| Six release artifacts | Direct stable release URLs on every static host; sensible desktop detection and mobile fallback; existing Vercel aliases retained | `.github/workflows/release.yml`, `app/package.json`, GitHub Releases API |
+| Full current field guide | All 19 public guides synchronized; obsolete broad replacements removed | `docs/*.md` |
 
-The review used the current implementation, tests, public docs, and project handbook to distinguish shipped behavior from plans. The handbook remains outside the published content. The complete public guide is refreshed from all 17 source documents, with site-only corrections in `scripts/content-overrides.mjs`.
+The agent onboarding files, handbook product/architecture/user notes, roadmap and relevant decision history were used to separate shipped behavior from plans. Only public documentation enters the content sync. Nothing from private lessons, personal memory, credentials, or environment notes is published.
 
-## Corrections that matter
+## Source corrections
 
-- Past chats save text, not screenshots or the original adapter state. Continuing one supplies up to the latest 16,000 characters as context to a fresh conversation.
-- The task ledger summarizes earlier text; the live model does not keep every word forever.
-- Schedules need VS Code open, Deskfish loaded, and the machine awake. The default grace period for an overdue task is five minutes. Tasks due while busy wait for the current task. Scheduling through ordinary chat, scheduled attachments, and per-schedule budgets are not advertised.
-- Dollar budgets need known direct Claude prices or reported OpenRouter costs. A final request can exceed the budget, so the site does not call it a strict billing ceiling.
-- Reflection uses model calls. The current implementation can reuse the previous conversation and still takes screenshots; the site does not promise that reflection runs in an isolated context without web content. Signatures detect outside edits to the self-description; they do not encrypt memory or guarantee that notes are safe.
-- No host folder is mounted, but the Desktop tab shares the clipboard and the tank can reach LAN services. The field guide explains the network fallback as well.
-- Export carries memory and chats, not browser logins, tank files, schedules, or API keys.
+Three small corrections are kept in `scripts/content-overrides.mjs`, without editing the parent documentation:
 
-These corrections change only the website's copy. They are not changes to the extension or the parent documentation.
+1. The getting-started guide implied the app could select a remote gateway. Its own guide and implementation say to use the browser or VS Code for that.
+2. The Desktop tab guide still said the agent took a screenshot at every step. Passive reads now omit the extra screenshot; explicit screenshot requests still get one.
+3. The model-cost introduction made the same per-step screenshot claim; it now reflects the current observation behavior.
 
-## Preserved
+The sync checks that each source passage still matches before applying a correction. A changed source needs review instead of retaining an obsolete override. Model identifiers and settings in the reference remain those of the current public documentation; the landing page does not pin a model version or quote token prices.
 
-The living header and its product colors, page palettes and theme control, background bubbles, pause/replay and progress controls, handoff illustration, typography, original artwork, and real recording remain. The recording is described as having personal details blacked out. The existing social image remains, with updated descriptions. No dependencies were added.
+## Interaction fix
 
-## Validation
+Browser checks exposed an existing documentation copy bug: updating the live announcement through React state replaced the generated article HTML, resetting button feedback and discarding its click listeners. The announcement now uses a DOM ref, preserving the article and repeat copying. All three silent recordings also have descriptive tracks.
 
-Use the existing site typecheck, lint, production build, and `scripts/check-site.py`. The content check covers all 19 content routes, local links and anchors, metadata, and the bundled release assets. No browser visual or interaction testing was performed. All files edited by this task are inside `site/`; the parent project was reviewed read-only and received separate concurrent commits during the review.
+## Verification
+
+- TypeScript check, Oxlint, and production static build pass.
+- `scripts/check-site.py` checks 21 content routes: home, field guide index, and 19 guides. It validates local links, anchors, headings and metadata, all six release URLs and legacy redirects, and the license, notice, original wallpaper, and three recordings against the project.
+- The GitHub Releases API returned `v0.2.40` with all six expected downloads during this review. URLs use `latest`; this observation is not pinned into the website.
+- Headless Chrome checks cover window, memory and model tabs, arrow-key tab navigation, handoff, prompt clipboard copying, FAQ, video dialog, theme persistence, documentation search and code copy, and mobile navigation.
+- Responsive checks cover home, docs index, app guide and advanced guide at 320, 390, 768, 1024, and 1440 pixels. Download checks cover Windows, macOS, Linux, iPhone, iPad-style identification, and Linux ARM fallback.
+- Both palettes and the revised desktop/phone sections were visually inspected. No product task, gateway, container, or model account was used for website testing. This verifies the website in Linux Chrome; it does not validate the product installers on macOS or Windows.
+
+All edits from this website task are inside `site/`. The root README received a separate concurrent edit and was left untouched. No deployment or commit was made.

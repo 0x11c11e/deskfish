@@ -12,7 +12,7 @@ import pages from '@/app/content/docs.json';
 export const metadata: Metadata = {
   title: 'The field guide — Deskfish',
   description:
-    'The Deskfish field guide for everyday use: setup, models, files, memory, reflection, playbooks, schedules, and life in the tank.',
+    'The Deskfish field guide: the app, browser and VS Code, remote setups, models, memory, schedules, MCP, and life in the tank.',
   alternates: { canonical: '/docs/' },
   twitter: {
     card: 'summary',
@@ -71,7 +71,9 @@ export default function DocsHome() {
         <span>
           <span className="eyebrow">YOUR FIRST TEN MINUTES</span>
           <strong>Let’s get your fish settled in.</strong>
-          <span>Install the extension, pick a model, turn on the tank.</span>
+          <span>
+            Choose the app, VS Code, or a server. Pick a model. Give it a task.
+          </span>
         </span>
         <ArrowUpRight size={24} />
       </a>

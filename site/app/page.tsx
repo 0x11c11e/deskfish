@@ -1,5 +1,6 @@
 import { SiteHeader } from '@/components/site-header';
 import { Hero } from '@/components/hero';
+import { WindowsSection } from '@/components/windows';
 import { ContinuitySection, RhythmSection } from '@/components/continuity';
 import {
   ProductIntro,
@@ -23,6 +24,7 @@ export default function Home() {
       <main id="main">
         <Hero />
         <ProductIntro />
+        <WindowsSection />
         <TaskExplorer />
         <HandoffSection />
         <DetailsSection />

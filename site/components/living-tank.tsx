@@ -201,7 +201,7 @@ export function LivingTank() {
               <div>
                 <span>API key</span>
                 <strong>
-                  <LockKeyhole size={10} /> In your keychain
+                  <LockKeyhole size={10} /> Key saved
                 </strong>
               </div>
             </div>

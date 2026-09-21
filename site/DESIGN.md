@@ -1,54 +1,35 @@
 # A little world, through the glass
 
-Deskfish is a desktop agent with its own sandboxed Linux computer inside VS Code. It works through screenshots, mouse movements, keyboard input, a browser, and a terminal. The distinguishing product idea is the visible boundary between the user's machine and the agent's tank, paired with the ability to hand control back and forth.
+Deskfish gives an agent a sandboxed Linux desktop of its own. The website makes that computer visible, explains the handoff between agent and person, and shows the thread that persists between tasks. Its desktop app, browser page, and VS Code extension are three windows onto the same agent.
 
-The design makes that idea tangible. A dark green default, optional warm paper palette, and spacious editorial typography make the project approachable. Deep green and pale aquatic colors connect the site to the original fish mascot. DM Sans provides the everyday voice; italic Instrument Serif adds a human, slightly curious inflection. The mascot is the project's original artwork. All fonts are served locally with their OFL notices.
+## Keep the identity; update the story
 
-The opening illustration gives the idea a shape immediately: chat on one side, the agent's computer on the other. Its 34-second replay types the task, opens Firefox, searches for the domain, prepares checkout, illustrates the human handoff, and shows the confirmation and memory note before looping. It has pause/replay controls, and reduced-motion visitors can step through still scenes. It is explicitly labeled as an illustrated preview. The real recording, with personal details blacked out, provides the evidence further down the page, with its native video controls available after deliberate playback.
+The deep green default and warm light palette, DM Sans and italic Instrument Serif, original fish mascot, background bubbles, illustrated desktop replay, and three real recordings remain. Fonts and artwork are served locally. Product previews keep the product's neutral dark surfaces and blue chat bubbles inside the website's green frame.
 
-The narrative moves from the idea to practical tasks, the tank, useful details, memory and reflection, schedules and standby, model choice, the real errand, questions, and installation. Seven selectable task prompts can be copied, including PDF reading and Python with a CSV. Four memory tabs reveal the different stores through readable excerpts. Three model tabs lead with the sidebar picker; settings examples remain available in a disclosure. The handoff illustration changes state so a visitor can try the concept. These are browser-side illustrations, not connected agents.
+The September 19 refresh adds a chapter near the beginning: **Three windows. One little world.** The app is first, followed by the browser and VS Code. Selecting a tab changes the shell and explanation while preserving the same example task, file, and memory note. This makes the shared agent understandable without requiring the reader to learn the gateway protocol. It is labeled as an illustration and never connects to a real Deskfish.
 
-The documentation is a first-class part of the experience: a quiet reading layout, searchable guide titles and headings, stable section links, copyable code, and previous/next navigation. The download is the actual packaged extension, not a placeholder or a planned Marketplace listing.
+A compact passage below it introduces MCP: another agent can delegate an errand, inspect the result, and give feedback in chat. Technical registration belongs in the guide. A second passage explains where Deskfish lives: a laptop, a computer at home, or the user's server.
 
-## Product grounding
+The narrative now moves through the idea, ways to connect, practical tasks, the tank and handoff, useful tools, memory and reflection, background schedules, model choice, real recordings, questions, and installation. The numbered chapters match that order.
 
-Reviewed the project's authored source, project configuration, public guides, architecture and product notes, scripts, container files, and assets. Key connections:
+## Product details that shape the design
 
-| Website message        | Implementation grounding                                                                                |
-| ---------------------- | ------------------------------------------------------------------------------------------------------- |
-| A computer of its own  | `docker/desktop/`, `src/desktop/manager.ts`, `engine.ts`, `runtime.ts`                                  |
-| Look, think, act, look | `src/agent/loop.ts`, `actions.ts`, `src/computer/`, `src/image/`                                        |
-| Your choice of model   | `src/agent/adapters/`, `src/config.ts`                                                                  |
-| Knocking on the glass  | `src/agent/prompts.ts`, `loop.ts`, `src/controller.ts`, desktop/chat views                              |
-| Explicit file transfer | `src/desktop/files.ts`, daemon API, `src/webview/chat.ts`                                               |
-| Memory and reflection  | `src/agent/memory.ts`, `self.ts`, `journal.ts`, `playbook.ts`, `library.ts`, controller memory commands |
-| Saved text chats       | `src/agent/chats.ts`, `src/controller.ts`                                                               |
-| Schedules and standby  | `src/agent/schedule.ts`, `loop.ts`, controller schedule commands                                        |
-| Reads its own manual   | `src/agent/docs.ts` and the 17 canonical documentation files                                            |
-| Real domain errand     | `demo/deskfish-buys-its-domain.mp4`, the recording with personal details blacked out                    |
-| Apache 2.0 release     | The project's current `LICENSE`, `NOTICE`, `package.json`, and packaged VSIX                            |
+- The app is the first download, with the extension and server setup close by. Mobile visitors see a desktop-app chooser; the site does not offer an Android or iOS installer.
+- Downloads use stable GitHub release URLs. A published release number is never assumed from the source package version.
+- Schedules continue without VS Code. The copy says that Deskfish must keep running and its machine must remain awake, explains the guided mode and model budget defaults, and links to details.
+- The model selector includes Claude, compatible APIs, Grok sign-in, and local models. Grok eligibility is xAI's decision; the site does not promise it for every subscriber.
+- Memory persists independently of a window or model. Chat continuation uses saved text as context, while browser logins and files live separately in the tank.
+- The existing VS Code replay and recordings are identified as such. They remain useful evidence of the desktop workflow; the new illustration explains the additional windows.
+- The app's unsigned status and untested macOS/Windows device paths are explained near installation and in the field guide.
 
-The copy avoids describing future work as shipped: multiple tanks, credential vaults, exact restoration of live model state, always-on scheduling, a standalone CLI, and Marketplace distribution. It distinguishes the local desktop from model inference, and explains the clipboard behavior in the security FAQ. Example outcomes are described as illustrative and model-dependent.
+## Boundaries
 
-The website was refreshed against the current source and handbook on September 9, 2026. The product now has persistent text chats, four memory stores, reflection, playbooks, a task ledger, standby, and scheduling. See [REVIEW.md](REVIEW.md) for the implementation mapping and boundaries. All website-task edits remain inside `site/`.
+There are no invented customer logos, testimonials, performance claims, or new bitmap assets. All examples are labeled. Multiple independent tanks, automatic memory synchronization across machines, invisible credential injection, and automatic restart of interrupted work are not presented as shipped.
 
-## Research references
+The tank's files are isolated from host folders, but its clipboard and reachable network services are described honestly. The landing page links to the detailed security guide. The website never receives model keys or gateway tokens.
 
-Reviewed these public project sites for their communication patterns, without copying their layouts or visual identities:
+## Accessibility and behavior
 
-- [Ghostty](https://ghostty.org/): concise product framing and a clear path into documentation.
-- [Zed](https://zed.dev/): a product-centered introduction and an accessible path to deeper technical detail.
-- [Bytebot](https://www.bytebot.ai/): a nearby computer-use concept, useful when choosing how to explain a dedicated agent desktop.
-- [Ollama](https://ollama.com/): a direct first action and a simple explanation of local operation.
+The new window tabs use the same accessible Base UI tabs as the rest of the site. Layouts stack at small widths and support keyboard navigation. Product illustrations have text equivalents; the original replay retains Pause/Replay and manual scene controls for reduced motion. The three silent recordings have descriptive tracks and dialog descriptions. Theme choices persist on documentation routes too.
 
-Deskfish's identity comes from its own metaphor, mascot, real desktop, and real first errand. No stock photography or invented testimonials, metrics, integrations, or customer logos are used.
-
-## Implementation notes
-
-The site uses the Sites React/Vinext scaffold, with Tailwind and shadcn/Base UI primitives for buttons, tabs, accordions, and dialogs. Unused scaffold components and dependencies were removed. All application code, media, generated content, build files, and local tooling are contained in `site/`.
-
-The site is statically exported and does not request external services at runtime. Keyboard navigation, visible focus, semantic landmarks, skip links, native video controls, a descriptive caption track for the silent recording, explicit image descriptions, mobile navigation, and reduced-motion handling are included. Automated code/build/content checks pass; no visual browser QA or browser interaction testing was performed.
-
-The expanded desktop replay draws on the earlier alternate design supplied by the user, keeping this website’s own outer frame and playback interface. The interior uses the recorded product’s own typography and colors: neutral dark VS Code chrome, the original tank wallpaper, a blue user message and Run control, and white Namecheap pages with orange actions. It uses a deterministic React timeline, scoped styling, and cursor targets measured from the actual rendered controls so the pointer stays aligned as the layout changes. No real card digits, order identifiers, or current domain-price claims are included in the illustration.
-
-The product wallpaper is copied byte-for-byte from `../docker/desktop/wallpaper.svg`. Product colors are scoped to `.living-body`, with a separate white browser palette under `.living-browser`; they do not change with the website theme. The external frame, captions, scene counter, Pause/Replay, and progress bar remain in the page palette.
+The production export was checked in headless Chrome at 320, 390, 768, 1024, and 1440 pixels and visually inspected in both palettes. Source mapping and verification details are in [REVIEW.md](REVIEW.md).

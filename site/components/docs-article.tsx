@@ -1,8 +1,9 @@
 'use client';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef } from 'react';
 export function DocsArticle({ html }: { html: string }) {
   const article = useRef<HTMLDivElement>(null);
-  const [announcement, setAnnouncement] = useState('');
+  // A state update here replaces the rendered HTML and its attached copy handlers.
+  const announcement = useRef<HTMLOutputElement>(null);
   useEffect(() => {
     const buttons =
       article.current?.querySelectorAll<HTMLButtonElement>('button.copy');
@@ -13,7 +14,8 @@ export function DocsArticle({ html }: { html: string }) {
       try {
         await navigator.clipboard.writeText(code.textContent ?? '');
         button.textContent = 'Copied!';
-        setAnnouncement('Code copied to clipboard.');
+        if (announcement.current)
+          announcement.current.textContent = 'Code copied to clipboard.';
       } catch {
         const range = document.createRange();
         range.selectNodeContents(code);
@@ -21,7 +23,9 @@ export function DocsArticle({ html }: { html: string }) {
         selection?.removeAllRanges();
         selection?.addRange(range);
         button.textContent = 'Code selected';
-        setAnnouncement('Code selected. Use your keyboard’s copy shortcut.');
+        if (announcement.current)
+          announcement.current.textContent =
+            'Code selected. Use your keyboard’s copy shortcut.';
       }
     }
     buttons?.forEach((button) => button.addEventListener('click', copy));
@@ -35,7 +39,7 @@ export function DocsArticle({ html }: { html: string }) {
         className="docs-article"
         dangerouslySetInnerHTML={{ __html: html }}
       />
-      <output className="sr-only">{announcement}</output>
+      <output ref={announcement} className="sr-only" />
     </>
   );
 }

@@ -85,7 +85,7 @@ export function ContinuitySection() {
       <div className="container">
         <div className="section-topline" data-reveal>
           <span className="eyebrow">
-            <i /> 04 / A THREAD THAT CARRIES ON
+            <i /> 05 / A THREAD THAT CARRIES ON
           </span>
           <span className="side-note">
             The work ends. The story keeps going.
@@ -107,7 +107,7 @@ export function ContinuitySection() {
             <span>
               <Sprout size={16} /> ROOM TO GROW
             </span>
-            <span>Kept on your machine</span>
+            <span>Kept where your Deskfish lives</span>
           </div>
           <TabsList
             className="memory-tabs"
@@ -173,7 +173,7 @@ export function ContinuitySection() {
             <History size={18} />
             <span>
               <strong>Pick up an earlier conversation.</strong> Reopen saved
-              text chats and continue with their transcript as context.
+              text chats in place, or continue with their transcript as context.
             </span>
             <ArrowUpRight size={15} />
           </a>
@@ -200,7 +200,7 @@ export function RhythmSection() {
     >
       <div className="rhythm-copy" data-reveal>
         <span className="eyebrow">
-          <i /> 05 / ON YOUR TIME
+          <i /> 06 / ON YOUR TIME
         </span>
         <h2 id="rhythm-title">
           Good work has
@@ -213,9 +213,13 @@ export function RhythmSection() {
           minutes.
         </p>
         <p>
-          Choose <strong>Schedule a Task…</strong> in Deskfish, set when, and
-          describe the work. Results arrive in a new chat. If Deskfish is busy
-          when a task is due, it waits for the current one to finish.
+          Open <strong>Scheduled tasks</strong>, set when, and describe the
+          work. Close the window; Deskfish keeps going in the background.
+          Results arrive in a new chat, ready when you return.
+        </p>
+        <p>
+          Scheduled runs use guided mode and a $2 model budget by default, where
+          costs are known. Set a different mode or budget for each schedule.
         </p>
         <a className="text-link" href="/docs/schedules/">
           Find your rhythm <ArrowUpRight size={15} />
@@ -274,9 +278,9 @@ export function RhythmSection() {
         <div className="agenda-limit">
           <Clock3 size={16} />
           <p>
-            VS Code must be open, Deskfish loaded, and your machine awake.
-            Missed times are skipped after a five-minute grace period by
-            default.
+            Keep Deskfish running and its machine awake. Busy tasks queue;
+            missed times are skipped after a five-minute grace period by
+            default. Enable start at login to bring it back after a restart.
           </p>
         </div>
       </div>

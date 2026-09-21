@@ -67,6 +67,52 @@ your own laptop to a box at home to a rented server, with what each costs you, i
 written to disk anywhere on that ladder: they go to the model and to the windows watching, and
 then they are gone.
 
+## Reaching her from somewhere else, without opening a port
+
+The paragraph above is the whole story when you and she are on the same machine or the same
+network. From a phone on the road there is a third way, and it is built so that **your computer
+still opens no port at all**: she dials *out* to a relay and holds that connection open, your
+browser dials the same relay, and the relay passes frames between the two. Both hops are
+outbound, which is why no firewall rule and no port forward is needed. See
+[Reaching her from anywhere](remote-access) for how to set it up.
+
+The relay is a server in the middle, usually one you rent. Two things are true of it by design:
+
+- **It cannot read a word.** Everything between the page and her gateway — the chat, the live
+  view, the files — is sealed with AES-256-GCM before it enters the relay, with keys the relay
+  never sees. It forwards ciphertext and a four-byte client number, and the code that forwards
+  never looks inside. What it *can* see is metadata: your username, when you connected, from
+  what address, how many bytes went by and when. Never content.
+- **It cannot pretend to be her.** You sign in with a username and a password, through
+  [OPAQUE](https://www.rfc-editor.org/rfc/rfc9807.html), a password-authenticated key exchange.
+  The password never crosses the wire in any form, not even hashed; a relay that records the
+  entire handshake cannot take it away and guess at it offline; and a server that does not hold
+  the registration record — which lives only in her `secrets.json`, on your machine — cannot
+  finish the exchange. If something that is not her answers, the page says so instead of showing
+  you a chat.
+
+There is a third condition, and it is the reason the sign-in page is **not** served by the
+relay: sealing the frames is worth nothing if the relay can hand your browser doctored code that
+leaks the key. The page is one static file on a host you trust, separate from the relay, and the
+relay only carries what that page seals. Your gateway token never reaches the relay or the page;
+nothing is typed on the phone but the username and the password.
+
+**The cryptography, and where it comes from** (see also *Credentials and accounts* below, on why
+origin matters here):
+
+| Part | What does it | Origin |
+| --- | --- | --- |
+| The password exchange | [`@serenity-kit/opaque`](https://github.com/serenity-kit/opaque), an implementation of OPAQUE (RFC 9807) over ristretto255, with argon2id stretching the password first | Serenity Kit, Austria; a WebAssembly build of [`opaque-ke`](https://github.com/facebook/opaque-ke), Meta, United States |
+| The seal on every frame | AES-256-GCM, keys from HKDF-SHA256, one per direction, nonces from a counter that is never reused | Your runtime's own WebCrypto — Node and the browser, no library |
+| The gateway's proof to the relay | Ed25519 over a challenge, at connection time | Node's built-in `crypto`, no library |
+| The relay itself | A few hundred lines of Node with one dependency, `ws`, for WebSockets | [`ws`](https://github.com/websockets/ws), United States |
+
+Nothing in that chain comes from China, per the rule this project keeps for anything that stands
+near a credential. The argon2id settings are the library's "memory-constrained" ones — 64 MiB,
+three passes — rather than the RFC's 2 GiB recommendation, because a phone browser cannot
+allocate two gigabytes, and the phone is the point. Registration and sign-in must agree on that
+setting, so it is one constant in one file for both.
+
 ## Network exposure
 
 The tank's control API and live-view connection listen on `127.0.0.1` only, port 9990.
