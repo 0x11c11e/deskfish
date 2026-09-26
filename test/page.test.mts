@@ -183,6 +183,7 @@ ok(modelNote({ model: 'llama3.2-vision', provider: 'openai-compatible', baseUrl:
 ok(modelNote({ model: 'x', provider: 'openai-compatible', baseUrl: 'not a url' }).includes('at an OpenAI-compatible endpoint.') && modelNote({ model: 'demo', provider: 'mock' }) === '', 'model note falls back on a bad URL and is empty for the demo model');
 ok(modelNote({ model: 'x', provider: 'anthropic' }).includes('You are Deskfish whichever model runs you'), 'model note keeps the identity separate from the model');
 ok(/python3 with pip/.test(tankNote()) && /pdftotext and pdftoppm/.test(tankNote()) && tankNote().includes('git') && tankNote().includes('find and read_page') && tankNote().includes('click_element'), 'tank note lists software and tools');
+ok(/passwordless sudo/.test(tankNote()) && /~\/\.tank\/setup\.sh/.test(tankNote()) && !/no sudo/.test(tankNote()), 'tank note: she may install anything, and the setup.sh hook is named');
 
 // ---------- mock daemon → provider → loop ----------
 const port = 9997;

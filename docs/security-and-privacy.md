@@ -15,7 +15,9 @@ spells out what that means in practice, including the parts that are still your 
 
 The tank is a container on your machine. Inside it:
 
-- the agent runs as an ordinary user named `bot`, with no `sudo` and no administrator rights;
+- the agent runs as a user named `bot` that can use `sudo` inside the container and nowhere
+  else: the container is rootless, so its root is your own unprivileged account on your machine,
+  with no access to your files, your devices or your other programs;
 - the container is not privileged and has no special device access;
 - Firefox runs with telemetry, update prompts and first-run pages disabled;
 - the file operations Deskfish itself performs (attach, save, list) are confined to the

@@ -14,7 +14,9 @@
 #                                         dropdown (find / read_page / click_element / scroll_to /
 #                                         select_option tools)
 #
-# No systemd, no desktop environment, no root inside, no privileged mode needed.
+# No systemd, no desktop environment, no privileged mode needed. The bot user has passwordless sudo *inside*:
+# the tank is hers, and rootless Podman maps the container's root to the user's own unprivileged account, so
+# it grants nothing outside the tank.
 FROM debian:bookworm-slim
 
 ENV DEBIAN_FRONTEND=noninteractive
@@ -23,7 +25,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       tint2 feh librsvg2-bin \
       firefox-esr libgl1-mesa-dri dbus-x11 fonts-dejavu-core fonts-liberation2 \
       ca-certificates procps \
-      curl python3 python3-pip python3-requests jq git gh zip unzip nano less xinput \
+      curl python3 python3-pip python3-venv python3-requests jq git gh zip unzip nano less xinput sudo \
       poppler-utils libavcodec59 \
     && rm -rf /var/lib/apt/lists/*
 
@@ -39,6 +41,13 @@ RUN set -eu; arch=$(dpkg --print-architecture); case "$arch" in amd64) a=x64 ;; 
     rm -f "/tmp/$f" /tmp/SHASUMS256.txt; node --version; npm --version
 
 RUN useradd -m -u 1000 -s /bin/bash bot
+# She may install anything: passwordless sudo for apt (system installs live outside /home/bot and are gone at
+# the next tank start — the entrypoint runs ~/.tank/setup.sh at every start to put them back), pip --user
+# without Debian's PEP 668 refusal, npm -g into her home. Login shells (run_command's bash -lc) rebuild PATH
+# from /etc/profile, so the home bins are added there as well as in ENV.
+RUN echo 'bot ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/bot && chmod 0440 /etc/sudoers.d/bot \
+    && printf '%s\n' '# Deskfish: her own installs first on the PATH (pip --user and npm -g go into her home)' \
+       'export PATH="$HOME/.npm-global/bin:$HOME/.local/bin:$PATH"' > /etc/profile.d/deskfish-home-bins.sh
 
 # Debian's firefox-esr ignores /etc/firefox-esr/policies; the install-dir location is the one that works
 # (check about:policies — it must not say "inactive"). The file belongs to the bot user because the
@@ -80,7 +89,10 @@ ENV DISPLAY=:99 \
     MOZ_DISABLE_CONTENT_SANDBOX=1 \
     MOZ_DISABLE_GMP_SANDBOX=1 \
     MOZ_DISABLE_RDD_SANDBOX=1 \
-    MOZ_DISABLE_SOCKET_PROCESS_SANDBOX=1
+    MOZ_DISABLE_SOCKET_PROCESS_SANDBOX=1 \
+    PIP_BREAK_SYSTEM_PACKAGES=1 \
+    NPM_CONFIG_PREFIX=/home/bot/.npm-global \
+    PATH=/home/bot/.npm-global/bin:/home/bot/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
 EXPOSE 9990
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]

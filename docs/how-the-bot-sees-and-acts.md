@@ -57,7 +57,10 @@ its computer contains, so it does not have to discover by trial that there is no
 there is `curl`. Beyond those tools it has no other channel into the tank. The terminal is a
 normal shell with `bash`, `python3` (with `pip` and `requests`), `curl`, `git` and the GitHub
 CLI `gh`, Node.js 22 with `npm`, `jq`, the `pdftotext` and `pdftoppm` tools for PDFs,
-`zip`/`unzip`, `nano` and `less`, but there is no root, no `sudo` and no system package manager.
+`zip`/`unzip`, `nano` and `less`, and `sudo` for anything else the agent wants to install. What it
+installs with `apt` lives outside its home and lasts until the tank is next turned on, unless it
+keeps the commands in `~/.tank/setup.sh`, which runs at every start; `pip install --user` and
+`npm install -g` go into its home and stay.
 With `run_command` the agent uses that shell without the screen: the command runs as its own
 user with input closed, and it gets the output, the exit code and the time back as text. You see
 the command and a one-line verdict in the folded actions chip, with the output under it, and the

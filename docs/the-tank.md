@@ -12,18 +12,20 @@ but it helps to know what is in there.
 ## What is inside
 
 The tank is the smallest useful desktop for a bot. There is no Ubuntu-style desktop
-environment, no system service manager, and no root user.
+environment and no system service manager. The agent can use `sudo` inside the tank, and
+the tank alone: the container is rootless, so its root is your own unprivileged account on
+your computer and nothing more.
 
 | Part | What it is |
 | --- | --- |
 | Debian 12 (slim) | The operating system |
 | Openbox | A one-megabyte window manager. Right-click the empty desktop for its menu |
 | Firefox ESR | The browser. Downloads are locked to the Downloads folder, telemetry and update prompts are off. It plays ordinary web video, opens PDFs in its own viewer, and carries the Deskfish page bridge, a small extension that lets the agent read the page it is on and find things by name (see [How the bot sees and acts](how-the-bot-sees-and-acts)) |
-| A terminal (xterm) | For commands and for files the agent creates itself. Inside: `bash`, `python3` with `pip` and `requests`, `curl`, `git` and the GitHub CLI `gh`, Node.js 22 with `npm`, `jq`, `pdftotext` and `pdftoppm` for reading PDFs, `zip` and `unzip`, `nano` and `less`. The agent can also run a command in that shell without the screen, through its `run_command` tool. No `ssh`, no root, no system package manager for the agent |
+| A terminal (xterm) | For commands and for files the agent creates itself. Inside: `bash`, `python3` with `pip` and `requests`, `curl`, `git` and the GitHub CLI `gh`, Node.js 22 with `npm`, `jq`, `pdftotext` and `pdftoppm` for reading PDFs, `zip` and `unzip`, `nano` and `less`. The agent can also run a command in that shell without the screen, through its `run_command` tool. It can install more with `sudo apt-get`, `pip install --user` or `npm install -g`; what `apt` installs is gone at the next tank start unless the agent keeps the commands in `~/.tank/setup.sh`, which runs at every start |
 | A panel at the bottom | A small dock with a Firefox icon, a Terminal icon, and a button for every open window |
 | The Deskfish wallpaper | So an empty desktop is unmistakably the tank |
 | A 1280 × 800 screen | Virtual, so it exists without a monitor. The size is a setting |
-| The user `bot` | A normal, non-root account with no `sudo`. Its home is `/home/bot` |
+| The user `bot` | An ordinary account with passwordless `sudo` inside the container. Its home is `/home/bot`, the one folder that survives a restart |
 
 That is all. Firefox and the terminal are opened from the panel at the bottom of the screen
 (or from the right-click menu on the empty desktop), and the agent knows to do that. If you

@@ -20,6 +20,13 @@ export DISPLAY=":${DISPLAY_NUM}"
 # Downloads (Firefox is locked to it by policy; the extension watches it).
 mkdir -p "$HOME/Downloads" "$HOME/Uploads"
 
+# What she installs with sudo apt lives outside her home and is gone when the tank restarts. A script she
+# keeps at ~/.tank/setup.sh runs at every start, in the background so the desktop is not held up, with its
+# output in ~/.tank/setup.log.
+if [ -x "$HOME/.tank/setup.sh" ]; then
+  ( timeout 900 "$HOME/.tank/setup.sh" >"$HOME/.tank/setup.log" 2>&1 || echo "setup.sh exited with status $?" >>"$HOME/.tank/setup.log" ) &
+fi
+
 # Tell the Firefox page bridge extension where the daemon is (managed storage via policies.json,
 # which the image leaves owned by this user). Firefox reads the policy file when it starts.
 POLICIES=/usr/lib/firefox-esr/distribution/policies.json
