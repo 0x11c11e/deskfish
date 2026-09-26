@@ -50,6 +50,12 @@ ground:
 | vLLM (local or hosted) | your server's `/v1` | whatever it serves | as configured |
 | LiteLLM proxy | `http://localhost:4000/v1` | names from its config | its master key, if set |
 
+xAI keeps its prompt cache on one server at a time, so Deskfish sends xAI a random conversation
+id with each request, one per chat, and every step of the task is served from the server that
+holds its cache. The id is made up on your machine and says nothing about you or the task. On
+OpenAI's own endpoint the same id goes out as OpenAI's `prompt_cache_key`, for the same reason.
+Every other endpoint gets the plain request.
+
 No sampling temperature is sent unless you set `deskfish.temperature`: reasoning models such
 as `kimi-k3` and GPT-5 accept only their own default and reject any other value.
 
@@ -71,7 +77,7 @@ OpenRouter is the easiest way to try many models with one key, and it works with
 (`https://openrouter.ai/api/v1`, a model name such as `anthropic/claude-opus-5`,
 `google/gemini-2.5-pro` or `moonshotai/kimi-k3`). It is also the way to use models from
 companies you would rather not hold an account with: your key and your payment stay with
-OpenRouter, and OpenRouter lets you choose which hosts may serve a model. Three things to know before choosing it over the direct path:
+OpenRouter, and OpenRouter lets you choose which hosts may serve a model. Four things to know before choosing it over the direct path:
 
 - **Clicks are less precise.** Through OpenRouter, Claude is driven with generic tool calls and
   screenshots, not its native computer-use tool. It works, but the direct Anthropic path is
@@ -82,6 +88,9 @@ OpenRouter, and OpenRouter lets you choose which hosts may serve a model. Three 
   not on their own (OpenAI and xAI do it automatically). OpenRouter's fee still applies.
 - **Only vision-and-tools models can drive a desktop.** Check both boxes on OpenRouter's model
   page before picking one.
+- **Requests carry Deskfish's name.** Each one sends Deskfish's name and site address
+  (`deskfish.sh`) as OpenRouter's app attribution, so Deskfish shows up on OpenRouter's app
+  rankings instead of under "Unknown". Nothing about you or the task is in it.
 
 Anthropic direct is the recommended path; OpenRouter is for every other model. It has not yet
 been tested as thoroughly as the direct path. For other gateways that pass Anthropic's cache

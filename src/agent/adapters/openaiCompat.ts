@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import {
   ASK_USER_TOOL_DESCRIPTION,
   ASK_USER_TOOL_NAME,
@@ -133,6 +134,8 @@ export class OpenAICompatAdapter implements ModelAdapter {
   private readonly maxImages: number;
   private notes: AgentNotes = {};
   private screen = { width: 1280, height: 720 };
+  /** One per chat: this instance lives across follow-up tasks and a ledger restart's start(), a new chat builds a new one. */
+  private readonly conversationId = randomUUID();
 
   constructor(private readonly cfg: AdapterConfig) {
     this.maxImages = cfg.maxImages ?? 3;
@@ -348,6 +351,20 @@ export class OpenAICompatAdapter implements ModelAdapter {
     return /openrouter\.ai/i.test(this.cfg.baseUrl ?? '');
   }
 
+  /** The endpoint's host, lowercased; '' for a base URL that does not parse. */
+  private hostOf(): string {
+    try {
+      return new URL(this.cfg.baseUrl ?? '').hostname.toLowerCase();
+    } catch {
+      return '';
+    }
+  }
+
+  private isHost(domain: string): boolean {
+    const host = this.hostOf();
+    return host === domain || host.endsWith(`.${domain}`);
+  }
+
   /**
    * A copy of the conversation with two breakpoints: the system prompt, and the last text part
    * of the newest user message. The stored messages stay clean; the breakpoint moves every turn,
@@ -384,11 +401,20 @@ export class OpenAICompatAdapter implements ModelAdapter {
     // everything else carries the pasted key.
     const token = this.cfg.bearer ? await this.cfg.bearer(retriedAfter401) : this.cfg.apiKey;
     if (token) headers.authorization = `Bearer ${token}`;
+    // xAI caches per server; this header keeps the whole chat on the server that holds its cache.
+    if (this.isHost('api.x.ai')) headers['x-grok-conv-id'] = this.conversationId;
+    // OpenRouter's app attribution: the site's address and the product's name, nothing about the user or the task.
+    if (this.isOpenRouter()) {
+      headers['HTTP-Referer'] = 'https://deskfish.sh';
+      headers['X-OpenRouter-Title'] = 'Deskfish';
+    }
     const body = {
       model: this.cfg.model,
       messages: this.cacheMarks() ? this.withCacheMarks() : this.messages,
       // OpenRouter returns cached-token counts (and cost) with this; other endpoints would reject the field.
       ...(this.isOpenRouter() ? { usage: { include: true } } : {}),
+      // OpenAI's routing key for its prompt cache, the same per-chat id as xAI's header.
+      ...(this.isHost('api.openai.com') ? { prompt_cache_key: this.conversationId } : {}),
       tools: [
         {
           type: 'function',
