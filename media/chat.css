@@ -1574,6 +1574,12 @@ details.group > summary {
   border-radius: 3px;
 }
 
+/* One block per journal entry, so the tab can scroll to its start. No margin: the block's top is
+   the text's top, and a margin on the last entry would land the view a line off. */
+.jentry {
+  margin: 0;
+}
+
 .signature {
   margin: 10px 0 0;
   padding: 6px 9px;

@@ -155,3 +155,43 @@ export function pastChatLine(info: ChatInfo, now: Date): string {
   const time = info.startedAt.slice(11, 16);
   return `Past chat · ${day}${time ? ` · ${time}` : ''}`;
 }
+
+/** A dated journal bullet: `- [YYYY-MM-DD …]`. The file's heading is not one. */
+const JOURNAL_ENTRY = /^- \[\d{4}-\d{2}-\d{2}/;
+
+/**
+ * Split a journal file into its heading and one block per `- [date]` entry. Continuation lines
+ * stay with the entry they follow, so a hand-wrapped line is not a second entry. The journal tab
+ * renders each entry as its own block: one text blob cannot be scrolled to the start of the newest.
+ */
+export function splitJournalEntries(text: string): { head: string; entries: string[] } {
+  const lines = text.replace(/\r\n/g, '\n').split('\n');
+  const head: string[] = [];
+  const entries: string[] = [];
+  let cur: string[] | undefined;
+  for (const line of lines) {
+    if (JOURNAL_ENTRY.test(line)) {
+      if (cur) entries.push(cur.join('\n').trim());
+      cur = [line];
+    } else if (cur) {
+      cur.push(line);
+    } else {
+      head.push(line);
+    }
+  }
+  if (cur) entries.push(cur.join('\n').trim());
+  return { head: head.join('\n').trim(), entries };
+}
+
+/**
+ * Where the journal tab should scroll. `scrollHeight` shows the tail of a wrapped last entry — the
+ * place a negation written at the end of a line disappears. Land on the start of the newest entry
+ * instead. `entryTop` is that entry's offset within the scroll parent; missing means there is no
+ * entry, and the answer is 0, never the bottom.
+ */
+export function journalViewScroll(scrollHeight: number, entryTop: number | undefined): number {
+  if (entryTop === undefined || !Number.isFinite(entryTop)) return 0;
+  const top = Math.max(0, entryTop);
+  if (!Number.isFinite(scrollHeight) || scrollHeight < 0) return top;
+  return Math.min(top, scrollHeight);
+}

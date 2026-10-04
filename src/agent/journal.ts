@@ -135,9 +135,12 @@ export class JournalStore {
   }
 
   /**
-   * One line for a finished task. `summary` is the bot's final message (trimmed to 300 chars).
-   * `reason` is what started the run when it was not simply the person typing — a schedule, or a
-   * lesson from a teacher (decision 109): she should be able to read later why a task was there.
+   * One line for a finished task. `summary` is the bot's final message (trimmed to MAX_SUMMARY).
+   * When there is one it leads, before the task: a short view of the line otherwise shows the task's
+   * own quote and hides the conclusion (1 Oct 2026: a prefix showed "host escape found" and not
+   * "no working"). A line with no summary stays `— Task:`. `reason` is what started the run when it
+   * was not simply the person typing — a schedule, or a lesson from a teacher (decision 109): she
+   * should be able to read later why a task was there.
    */
   appendTask(info: { task: string; outcome: string; steps: number; costUsd?: number; subscription?: boolean; reason?: string; summary?: string; salience?: number; tokens?: TokenCounts }): JournalEntry {
     const task = oneLine(info.task, MAX_TASK_LINE);
@@ -147,7 +150,9 @@ export class JournalStore {
     const cost = info.subscription ? ' · subscription' : info.costUsd && info.costUsd > 0 ? ` · $${info.costUsd.toFixed(2)}` : '';
     const why = info.reason ? ` · ${oneLine(info.reason, 40)}` : '';
     const weight = info.salience && info.salience > 1 ? ` · ${'★'.repeat(Math.min(5, info.salience))}` : '';
-    const text = `${info.outcome} · ${info.steps} step${info.steps === 1 ? '' : 's'}${cost}${tokensFragment(info.tokens)}${why}${weight} — Task: ${task}${summary ? ` — ${summary}` : ''}`;
+    const head = `${info.outcome} · ${info.steps} step${info.steps === 1 ? '' : 's'}${cost}${tokensFragment(info.tokens)}${why}${weight}`;
+    // The conclusion leads. A prefix of `— Task: … — conclusion` showed the task's quote and cut the negation.
+    const text = summary ? `${head} — ${summary} — Task: ${task}` : `${head} — Task: ${task}`;
     return this.appendLine('task', text);
   }
 

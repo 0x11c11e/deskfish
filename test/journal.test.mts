@@ -20,15 +20,28 @@ try {
 
   // ---------- entry format ----------
   const e1 = j.appendTask({ task: 'Buy   milk', outcome: 'done', steps: 3, costUsd: 0.125, summary: 'Bought it.' });
-  ok(STAMP.test(e1.at) && e1.at === stamp() && e1.kind === 'task' && e1.text === 'done · 3 steps · $0.13 — Task: Buy milk — Bought it.', `task line: ${e1.text}`);
+  ok(STAMP.test(e1.at) && e1.at === stamp() && e1.kind === 'task' && e1.text === 'done · 3 steps · $0.13 — Bought it. — Task: Buy milk', `task line: ${e1.text}`);
   ok(j.raw().startsWith('# Deskfish journal') && j.raw().endsWith(`- [${e1.at}] ${e1.text}\n`), 'the file gets the header and one dated bullet');
   const e2 = j.appendTask({ task: 'Ping', outcome: 'stopped by the user', steps: 1, costUsd: 0 });
   ok(e2.text === 'stopped by the user · 1 step — Task: Ping', `singular step, no cost, no summary: ${e2.text}`);
   const e3 = j.appendTask({ task: 'Long', outcome: 'done', steps: 2, summary: 'y '.repeat(400) });
-  const sum = e3.text.split(' — ')[2];
-  ok(sum.length === MAX_SUMMARY && sum.endsWith('…') && !sum.includes('  '), `summary collapsed and trimmed to ${MAX_SUMMARY}: ${sum.length}`);
+  const parts = e3.text.split(' — ');
+  const sum = parts[1];
+  ok(parts[2] === 'Task: Long' && sum.length === MAX_SUMMARY && sum.endsWith('…') && !sum.includes('  '), `summary leads and is trimmed to ${MAX_SUMMARY}: ${sum.length}; tail ${parts[2]}`);
   const e4 = j.appendTask({ task: 'z'.repeat(200), outcome: 'done', steps: 2 });
   ok(e4.text === `done · 2 steps — Task: ${'z'.repeat(MAX_TASK_LINE - 1)}…`, `the task is cut at ${MAX_TASK_LINE}`);
+
+  // 1 Oct 2026: a prefix of `— Task: "host escape found" — no working…` showed the quote and hid the negation.
+  {
+    const inv = new JournalStore(path.join(dir, 'invert.md'));
+    const line = inv.appendTask({ task: 'Why did you write in your memory that: "host escape found"', outcome: 'done', steps: 2, summary: 'No working tank-to-host escape found.' });
+    const conclusionAt = line.text.indexOf('No working tank-to-host escape found');
+    const taskAt = line.text.indexOf('— Task:');
+    // A short prefix can still contain "host escape": those words are inside the conclusion
+    // ("tank-to-host escape") and the task starts inside a 90-character window. What the
+    // sidebar must not invert is order: the conclusion comes before Task.
+    ok(line.text.startsWith('done · 2 steps — No working tank-to-host escape found. — Task:') && conclusionAt >= 0 && conclusionAt < taskAt, `conclusion precedes Task: ${line.text.slice(0, 90)}`);
+  }
   const note = j.appendNote('Remember to check the invoice\nbefore paying');
   ok(note.kind === 'note' && note.text === 'Remember to check the invoice before paying' && j.raw().includes(`- [${note.at}] note — Remember to check the invoice before paying\n`), 'a note is marked "note — " and kept to one line');
   ok(j.list().length === 5 && j.list()[4].kind === 'note' && j.list()[0].text === e1.text, 'list parses tasks and notes in order');

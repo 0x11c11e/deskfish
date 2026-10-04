@@ -129,7 +129,7 @@ const SAME = say('Q1: SAME\nQ2: SAME\nQ3: SAME');
   await runner.run('Open the settings page');
   onTurn = undefined;
   const line = journal.list().at(-1)!;
-  ok(line.kind === 'task' && line.text === 'done · 2 steps · ★★ — Task: Open the settings page — Done: I used the blue button. — You told me: "Use the blue button, not the grey one"', `journal line: ${line.text}`);
+  ok(line.kind === 'task' && line.text === 'done · 2 steps · ★★ — Done: I used the blue button. — You told me: "Use the blue button, not the grey one" — Task: Open the settings page', `journal line: ${line.text}`);
   ok(userMessages.includes('Use the blue button, not the grey one') && of('task_finished').length === 1 && of('task_finished')[0].outcome === 'done' && !of('task_finished')[0].due, 'the message reached the model; task_finished fired, reflection not yet due');
 }
 

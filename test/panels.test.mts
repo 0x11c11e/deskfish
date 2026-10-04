@@ -23,7 +23,7 @@ import { SETTINGS_KEYS, settingsSchema } from '../src/gateway/settingsSchema';
 import { validate, type ChatInfo, type Snapshot } from '../src/gateway/protocol';
 import { outcomeOf, parseTranscript } from '../src/agent/chats';
 import { VIEW_COMMANDS, answerAsk, isViewCommand, snapshotChat } from '../src/webview/bridge';
-import { budgetHint, chatTitle, dayLabel, fieldInput, filterChats, groupChats, outcomeLabel, pastChatLine, readField, refusalOf } from '../src/webview/forms';
+import { budgetHint, chatTitle, dayLabel, fieldInput, filterChats, groupChats, journalViewScroll, outcomeLabel, pastChatLine, readField, refusalOf, splitJournalEntries } from '../src/webview/forms';
 import { mdLite } from '../src/webview/markdown';
 import { WebHost, type HostUi, type SocketLike } from '../web/shim';
 
@@ -274,6 +274,18 @@ try {
   await server.close();
   service.dispose();
   fs.rmSync(tmp, { recursive: true, force: true });
+}
+
+
+console.log('\njournal view:');
+{
+  const file = '# Deskfish journal\n\n- [2026-09-20 09:00] done · 4 steps — Task: filler\n- [2026-10-01 10:21] done · 2 steps — No working tank-to-host escape found. — Task: Why did you write "host escape found"\n  wrapped continuation\n';
+  const { head, entries } = splitJournalEntries(file);
+  ok(head.startsWith('# Deskfish journal') && entries.length === 2, `split: ${entries.length} entries`);
+  ok(entries[1].includes('No working') && entries[1].includes('wrapped continuation') && entries[1].indexOf('No working') < entries[1].indexOf('Task:'), `newest block leads with the conclusion: ${entries[1]}`);
+  ok(journalViewScroll(5000, 3200) === 3200, 'scroll to the start of the newest, not the bottom');
+  ok(journalViewScroll(5000, undefined) === 0 && journalViewScroll(5000, Number.NaN) === 0, 'no entry does not fall back to scrollHeight');
+  ok(journalViewScroll(100, -4) === 0 && journalViewScroll(100, 400) === 100, `clamped: ${journalViewScroll(100, 400)}`);
 }
 
 console.log(`panels: ${n} checks passed`);
