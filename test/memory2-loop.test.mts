@@ -75,7 +75,7 @@ try {
   ok(recallR.ok && recallR.message!.startsWith('From your journal (1 of 1 entries):') && recallR.message!.includes('invoice page loads slowly'), `recall answers from the journal: ${recallR.message}`);
   const recallEv = events.find((e) => e.type === 'action' && e.action.type === 'recall') as Extract<AgentEvent, { type: 'action' }>;
   ok(recallEv.result.ok && recallEv.result.message === undefined, 'the recall text is for the model, not the chat');
-  ok(tasks().length === 1 && /^done · 2 steps · ★★ — Task: Check the invoice total — The total is \$42\.$/.test(tasks()[0].text), `one journal line per finished task: ${tasks()[0].text}`);
+  ok(tasks().length === 1 && /^done · 2 steps · ★★ — The total is \$42\. — Task: Check the invoice total$/.test(tasks()[0].text), `one journal line per finished task: ${tasks()[0].text}`);
   ok(finished()?.outcome === 'done' && finished()?.tasksSinceReflection === 1 && finished()?.due === false, 'task_finished: 1 task, not due yet');
   ok(lastStatus().status === 'done' && lastStatus().message === 'Task finished', 'ends as done');
   ok(executed.length === 0, `note and recall never reach the desktop: ${executed.map((a) => a.type)}`);
@@ -95,7 +95,7 @@ try {
   const acts = events.filter((e) => e.type === 'action') as Extract<AgentEvent, { type: 'action' }>[];
   ok(acts[0].action.type === 'revise_self' && acts[0].result.message === reviseR.message && acts[2].action.type === 'read_playbook' && acts[2].result.message === undefined, 'the chat sees the revise_self answer but not the playbook text');
   ok(finished()?.tasksSinceReflection === 2 && finished()?.due === true && journal.state().salienceSinceReflection === 3, 'task_finished: due after reflectEvery (2); salience 2 + 1 so far');
-  ok(tasks().length === 2 && tasks()[1].text === 'done · 2 steps — Task: Fix the address form — Form fixed.', `second task line: ${tasks()[1].text}`);
+  ok(tasks().length === 2 && tasks()[1].text === 'done · 2 steps — Form fixed. — Task: Fix the address form', `second task line: ${tasks()[1].text}`);
 
   // ---------- 3. reflection ----------
   userMessages.length = 0;
@@ -171,7 +171,7 @@ try {
   await go('Long scroll', [...moves, { text: 'Scrolled.', actions: [], done: true }]);
   const reminders = seen.map((o, i) => ({ i, note: o.note ?? '' })).filter((o) => o.note.includes('A reminder of who you are, in your own words:'));
   ok(reminders.length === 1 && reminders[0].i === 24 && reminders[0].note.includes('"I\'m Deskfish.'), `the identity reminder appears once, at step 25: ${reminders.map((r) => r.i)}`);
-  ok(tasks().at(-1)?.text === 'done · 26 steps · ★★ — Task: Long scroll — Scrolled.' && lastStatus().status === 'done', `a long task carries ★★: ${tasks().at(-1)?.text}`);
+  ok(tasks().at(-1)?.text === 'done · 26 steps · ★★ — Scrolled. — Task: Long scroll' && lastStatus().status === 'done', `a long task carries ★★: ${tasks().at(-1)?.text}`);
 } finally {
   mock.kill();
   fs.rmSync(dir, { recursive: true, force: true });

@@ -5,7 +5,7 @@ import { patchBetween } from '../gateway/configSync';
 import type { ChatInfo, CommandArgs, CommandResult } from '../gateway/protocol';
 import { GROUP_TITLES, settingLabel, type SettingsEntry, type SettingsSchema } from '../gateway/settingsSchema';
 import type { ViewCommand } from './bridge';
-import { AUTONOMY_DETAILS, SECRET_SETTINGS, budgetHint, chatTitle, fieldInput, filterChats, groupChats, outcomeLabel, readField, refusalOf, type FieldInput, type ScheduleForm, type SettingsRefusal } from './forms';
+import { AUTONOMY_DETAILS, SECRET_SETTINGS, budgetHint, chatTitle, fieldInput, filterChats, groupChats, journalViewScroll, outcomeLabel, readField, refusalOf, splitJournalEntries, type FieldInput, type ScheduleForm, type SettingsRefusal } from './forms';
 import { mdLite } from './markdown';
 import type { FromChat, PanelName } from './protocol';
 
@@ -539,6 +539,24 @@ export function createPanels(deps: PanelDeps): Panels {
     return doc;
   };
 
+  /** The journal, one block per entry, so the view can land on the start of the newest. */
+  const journalPage = (text: string): HTMLElement => {
+    const { head, entries } = splitJournalEntries(text);
+    if (!entries.length) return page(text, 'Her journal is empty so far.');
+    const doc = el('div', 'doc');
+    if (head) {
+      const h = el('div');
+      h.innerHTML = mdLite(head);
+      doc.append(h);
+    }
+    for (const block of entries) {
+      const entry = el('div', 'jentry');
+      entry.innerHTML = mdLite(block);
+      doc.append(entry);
+    }
+    return doc;
+  };
+
   const showTab = async (next: Tab) => {
     tab = next;
     const gen = ++generation;
@@ -576,12 +594,22 @@ export function createPanels(deps: PanelDeps): Panels {
         const sig = el('p', `signature${m && /Changed outside her own writing/.test(m[1]) ? ' tampered' : ''}`);
         if (m) sig.innerHTML = mdLite(m[1]);
         filesBody.replaceChildren(...(m ? [sig] : []), page(m ? text.slice(m[0].length) : text, '(nothing written yet)'));
-      } else {
-        const text = await deps.ask(next === 'journal' ? 'journal.read' : 'playbook.read');
+      } else if (next === 'journal') {
+        const text = await deps.ask('journal.read');
         if (gen !== generation) return;
-        filesBody.replaceChildren(page(text, next === 'journal' ? 'Her journal is empty so far.' : 'No playbooks yet. She writes one when she learns how a site or a job works.'));
-        // The journal's newest entries are at its end.
-        if (next === 'journal') filesBody.scrollTop = filesBody.scrollHeight;
+        const doc = journalPage(text);
+        filesBody.replaceChildren(doc);
+        // The start of the newest entry, not scrollHeight: the bottom of the pane is the tail of a
+        // wrapped last line, which is how a negation written at the end of a sentence disappeared.
+        const last = doc.querySelector('.jentry:last-child') as HTMLElement | null;
+        const top = last
+          ? last.getBoundingClientRect().top - filesBody.getBoundingClientRect().top + filesBody.scrollTop
+          : undefined;
+        filesBody.scrollTop = journalViewScroll(filesBody.scrollHeight, top);
+      } else {
+        const text = await deps.ask('playbook.read');
+        if (gen !== generation) return;
+        filesBody.replaceChildren(page(text, 'No playbooks yet. She writes one when she learns how a site or a job works.'));
       }
       setNote(filesNote, '');
     } catch (err) {
