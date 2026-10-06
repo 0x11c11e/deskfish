@@ -71,8 +71,13 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           V: ${{ steps.version.outputs.version }}
         run: |
+          # The Changes list is what deskfish.sh/docs/changelog shows: the subjects of commits that changed
+          # something shipped. Merges, and commits that touched only the website, its rendered docs copy or
+          # the workflows, are left out; a push of only those says so in one line the page skips.
+          shipped=(-- . ':(exclude)site' ':(exclude)docs/site' ':(exclude).github')
           prev=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || true)
-          if [ -n "$prev" ]; then changes=$(git log --format='- %s' "$prev..HEAD"); else changes=$(git log --format='- %s' -n 20); fi
+          if [ -n "$prev" ]; then changes=$(git log --no-merges --format='- %s' "$prev..HEAD" "${shipped[@]}"); else changes=$(git log --no-merges --format='- %s' -n 20 "${shipped[@]}"); fi
+          if [ -z "$changes" ]; then changes='No change to the product in this build.'; fi
           notes=$(printf 'Deskfish %s, built from %s.\n\n**The app** (attached a few minutes after this release appears): `Deskfish-linux-x86_64.AppImage` or `Deskfish-linux-amd64.deb`, `Deskfish-mac-universal.dmg`, `Deskfish-windows-x64-setup.exe`. Not signed yet: macOS asks you to open it from System Settings → Privacy & Security, Windows SmartScreen asks you to choose Run anyway. The app offers its own updates.\n\n**The VS Code extension**: download `deskfish.vsix`, then in VS Code choose **Install from VSIX…** from the Extensions view, or run `code --install-extension deskfish.vsix`. Extensions installed from a file do not update themselves; download again for a newer build.\n\n**On a server**, with Node 20 or newer: `sudo npm i -g https://github.com/0x11c11e/deskfish/releases/latest/download/deskfish.tgz`, then `deskfish serve`. See the docs page *A gateway on another machine*.\n\n**Reaching her from anywhere**: `remote.html` is the sign-in page for a Deskfish behind a relay — one static file to put on a host of your own. See the docs page *Reaching her from anywhere* and `relay/README.md`.\n\n**Changes**\n%s' "$V" "${GITHUB_SHA::7}" "$changes")
           # A manual run on a commit that already has its push release reuses it (same version, same
           # count), replacing the asset instead of failing on the existing tag.
