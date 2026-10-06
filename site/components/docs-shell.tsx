@@ -2,16 +2,7 @@ import type { ReactNode } from 'react';
 import { ArrowLeft, ArrowRight, ArrowUpRight } from 'lucide-react';
 import { SiteHeader } from '@/components/site-header';
 import { DocsNavigation } from '@/components/docs-navigation';
-import pages from '@/app/content/docs.json';
-const entries = pages.map(
-  ({ slug, title, description, section, headings }) => ({
-    slug,
-    title,
-    description,
-    section,
-    headings,
-  }),
-);
+import { docsPages as pages } from '@/lib/docs-pages';
 export function DocsShell({
   current,
   children,
@@ -28,7 +19,7 @@ export function DocsShell({
       </a>
       <SiteHeader />
       <div className="docs-layout">
-        <DocsNavigation entries={entries} current={current} />
+        <DocsNavigation entries={pages} current={current} />
         <main className="docs-main" id="main">
           {children}
           {page && (

@@ -1,0 +1,51 @@
+/* One block per release, in the field guide's article type: the version and date beside the list. */
+.changelog-release {
+  display: grid;
+  grid-template-columns: 140px minmax(0, 1fr);
+  gap: 24px;
+  border-top: 1px solid var(--line);
+  padding: 26px 0 6px;
+}
+.changelog-label {
+  display: grid;
+  align-content: start;
+  gap: 8px;
+}
+.docs-article .changelog-label h2 {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.4;
+}
+.docs-article .changelog-label h2 a {
+  text-decoration: none;
+}
+.docs-article .changelog-label h2 code {
+  font-size: 13px;
+  font-weight: 650;
+}
+.docs-article .changelog-label h2 a:hover code {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.changelog-label time {
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--muted);
+}
+.docs-article .changelog-release ul {
+  margin: 0 0 18px;
+}
+.docs-article .changelog-release li:first-child {
+  margin-top: 0;
+}
+@media (max-width: 700px) {
+  .changelog-release {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 14px;
+  }
+  .changelog-label {
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
+  }
+}

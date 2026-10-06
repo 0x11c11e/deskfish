@@ -42,6 +42,6 @@ fs.writeFileSync(
 );
 fs.writeFileSync(
   path.join(site, 'public/sitemap.xml'),
-  `<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${['', 'docs/', ...pages.map((p) => 'docs/' + p.slug + '/')].map((p) => `<url><loc>https://deskfish.sh/${p}</loc></url>`).join('')}</urlset>`,
+  `<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${['', 'docs/', ...pages.map((p) => 'docs/' + p.slug + '/'), 'docs/changelog/'].map((p) => `<url><loc>https://deskfish.sh/${p}</loc></url>`).join('')}</urlset>`,
 );
 console.log(`Synced ${pages.length} documentation pages into site.`);

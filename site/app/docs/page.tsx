@@ -8,7 +8,7 @@ import {
   LifeBuoy,
 } from 'lucide-react';
 import { DocsShell } from '@/components/docs-shell';
-import pages from '@/app/content/docs.json';
+import { docsPages as pages } from '@/lib/docs-pages';
 export const metadata: Metadata = {
   title: 'The field guide — Deskfish',
   description:

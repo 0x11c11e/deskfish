@@ -32,6 +32,8 @@ class Page(HTMLParser):
 pages = {'/' : BUILD / 'index.html', '/docs/': BUILD / 'docs/index.html'}
 for doc in json.loads((SITE / 'app/content/docs.json').read_text()):
     pages[f'/docs/{doc["slug"]}/'] = BUILD / 'docs' / doc['slug'] / 'index.html'
+# The changelog is built from the GitHub releases, not from docs/, so its route is named here.
+pages['/docs/changelog/'] = BUILD / 'docs/changelog/index.html'
 parsed = {route: Page(file.read_text()) for route, file in pages.items()}
 errors, total = [], 0
 for route, page in parsed.items():

@@ -1,0 +1,218 @@
+[
+  {
+    "tag_name": "v0.2.74",
+    "name": "Deskfish 0.2.74",
+    "published_at": "2026-10-04T03:55:56Z",
+    "html_url": "https://github.com/0x11c11e/deskfish/releases/tag/v0.2.74",
+    "changes": [
+      "A journal line leads with its conclusion, and the journal tab lands on the start of the newest entry."
+    ]
+  },
+  {
+    "tag_name": "v0.2.72",
+    "name": "Deskfish 0.2.72",
+    "published_at": "2026-09-26T04:23:13Z",
+    "html_url": "https://github.com/0x11c11e/deskfish/releases/tag/v0.2.72",
+    "changes": [
+      "The tank is hers to furnish: passwordless sudo inside, pip and npm installs into her home, and a start-up script that puts apt installs back after a restart",
+      "The rendered docs page carries the providers page's new paragraph on conversation ids and the OpenRouter attribution bullet",
+      "Requests to xAI carry a per-chat conversation id, OpenRouter requests carry Deskfish's name, and OpenAI requests carry a prompt cache key",
+      "A client that connects while a sign-in card waits is handed the card: the snapshot carries the knock, and the chat draws it in place of the plain knock line",
+      "The docs say where a card's values go and, in the same words, where they never go",
+      "The suite hunts two impossible values through every place a credential could be written down",
+      "The chat draws the sign-in card and its values go to the page through one command nothing logs",
+      "A login is typed into the page from a card in the chat, and the model is told only which fields went in"
+    ]
+  },
+  {
+    "tag_name": "v0.2.64",
+    "name": "Deskfish 0.2.64",
+    "published_at": "2026-09-21T17:42:29Z",
+    "html_url": "https://github.com/0x11c11e/deskfish/releases/tag/v0.2.64",
+    "changes": [
+      "The README says why a relay must ping at least every 75 s: a gateway drops a socket that has been silent that long",
+      "The relay's docs count three things it cannot do, and name the point the page's separate host is for",
+      "A refusal from her computer is quoted, not spoken by the page; a sign-in the uplink itself cut is not a wrong password",
+      "The relay is told a handle, never her name: both ends derive it and nothing there can read it back",
+      "An uplink's signature names the relay it was made for, so it is worth nothing at any other relay (wire 0.3)",
+      "The relay pings every socket and writes usage as sessions run; the gateway dials again when the relay goes quiet"
+    ]
+  },
+  {
+    "tag_name": "v0.2.58",
+    "name": "Deskfish 0.2.58",
+    "published_at": "2026-09-21T06:49:16Z",
+    "html_url": "https://github.com/0x11c11e/deskfish/releases/tag/v0.2.58",
+    "changes": [
+      "The relay page's Vercel project builds on every push: a skip rule that only looks at the last commit would leave the page stale after a multi-commit push"
+    ]
+  },
+  {
+    "tag_name": "v0.2.57",
+    "name": "Deskfish 0.2.57",
+    "published_at": "2026-09-21T06:40:58Z",
+    "html_url": "https://github.com/0x11c11e/deskfish/releases/tag/v0.2.57",
+    "changes": [
+      "A Vercel project can serve the relay page from this repository: the build, the output folder and one rewrite, in vercel.json",
+      "The relay page cannot be opened from a file on the phone: the docs say so instead of suggesting it",
+      "The page that reaches her through a relay: one static file, a sealed channel, and no token to type",
+      "Her gateway dials out to a relay: one sealed channel per browser, enrolled with a code and opened with a password",
+      "Every release publishes the relay's image to GitHub's registry, attested, for x86-64 and ARM; the server pulls it when its operator chooses"
+    ]
+  },
+  {
+    "tag_name": "v0.2.52",
+    "name": "Deskfish 0.2.52",
+    "published_at": "2026-09-21T04:16:11Z",
+    "html_url": "https://github.com/0x11c11e/deskfish/releases/tag/v0.2.52",
+    "changes": [
+      "The relay counts the address its proxy appended, not the one a client wrote, and refuses an enrolment key that is not 32 bytes",
+      "The relay: a post box that carries frames it cannot open, keyed by a username and a one-time code",
+      "The page bridge's version comes from its files, so Firefox replaces the installed copy when the bridge changes instead of keeping the first one forever",
+      "The hand-over card wraps a long address instead of running out of its box",
+      "The sealed channel: OPAQUE login, one key per direction, streams inside one frame",
+      "The bridge clicks what it names: a wrapped link's click point is on its first line, not the gap; scroll_to and select_option let the page move and set itself; every step travels with its own words; a finished task keeps its tokens on its journal line and its transcript's end line",
+      "The front door tells the truth: three ways to have her, one program behind them"
+    ]
+  },
+  {
+    "tag_name": "v0.2.45",
+    "name": "Deskfish 0.2.45",
+    "published_at": "2026-09-20T06:15:48Z",
+    "html_url": "https://github.com/0x11c11e/deskfish/releases/tag/v0.2.45",
+    "changes": [
+      "An explicit screenshot keeps its frame, and the unchanged-screen sentence claims only what is true",
+      "A step that could not have changed the screen no longer carries a screenshot, and click_element finds and clicks in one step",
+      "The drift rule's comments name decision 119 (117 was already taken by the day's roadmap entry)",
+      "The drift alarm means a commitment moved, not a sentence rewritten: the comparison turn is told what CHANGED is (a promise reversed, a duty moved, a limit gone) and that compression, a different example and a list where there was a sentence are the same answer; under it a first CHANGED only marks the question, and the line appears when the next reflection finds the commitment still gone, against the answer that carried it",
+      "Checkpoint 6 fixes: the pull-request workflow tested before it built (the order that broke the first 0.2 release, and that made the only PR check red); setToken stripped the old socket's listeners and then terminated it, so one still shaking hands threw at the extension host; two docs lines that no longer matched the code"
+    ]
+  },
+  {
+    "tag_name": "v0.2.40",
+    "name": "Deskfish 0.2.40",
+    "published_at": "2026-09-20T02:50:07Z",
+    "html_url": "https://github.com/0x11c11e/deskfish/releases/tag/v0.2.40",
+    "changes": [
+      "Sign in with Grok, review fixes: a model call the pool refused leaves no trace in the adapter's history, so the retry after the knock sends one copy of each tool result instead of two; the runner's bearer follows a switch to the API-key preset made while the task waits, so the knock's promise is true; the xAI account page lists the grant as Grok Build",
+      "Docs site: rebuild with the Sign in with Grok section",
+      "Sign in with Grok: she runs on the user's SuperGrok plan instead of billing an API key"
+    ]
+  },
+  {
+    "tag_name": "v0.2.36",
+    "name": "Deskfish 0.2.36",
+    "published_at": "2026-09-20T00:50:02Z",
+    "html_url": "https://github.com/0x11c11e/deskfish/releases/tag/v0.2.36",
+    "changes": [
+      "Release workflow: the tests run after the build, because pack.test.mts lists the tarball and needs dist/ to exist; the first 0.2 release failed on a fresh checkout for exactly this",
+      "Bump version to 0.2.0 in package.json",
+      "MCP status: the cost is the provider's figure or a list-price estimate marked costEstimated, never $0 for unknown (lesson 1 found grok-4.6 reading $0 over MCP while the journal said $0.22)",
+      "Docs: the app's MCP registration lines name the deb's install path and an unpacked AppImage",
+      "Deskfish as an MCP server: a coding agent can give her a task, watch it, look at her screen and read her pages over deskfish mcp, without writing a file of hers",
+      "Standby: the frame she last saw is the default before-frame, and a wait that changes nothing says so",
+      "Gateway step 8: Deskfish is a program, not a VS Code extension — the remote placement verified end to end (a gateway token now connects without a window reload, and the log names the placement), a deskfish.tgz on every release so a server install is one npm i -g line, two new documentation pages (running without VS Code, the app) with the gateway-on-a-server recipe, the site offers the app for the visitor's system, and the private growth folder no longer ships inside the vsix",
+      "Gateway step 7: Deskfish as an app for Linux, macOS and Windows (Electron runs the gateway in its own process after the same find-or-start decision as the extension, the window is the page, a tray with Start when I log in, Install Podman opens a terminal, Podman's VM is created and started on Mac and Windows, updates from GitHub Releases, installers built by the release workflow), and a gateway no longer hangs on stop while a live view is open",
+      "Text selection in the live view works in VS Code and Chrome again (noVNC's capture element no longer triggers an input release mid-drag); the web page uses VS Code's dark theme colors",
+      "Gateway step 6B: History, Settings, Scheduled tasks and Her files are panels inside the chat view for VS Code and the web page (an ask bridge to the gateway), past chats open in one click with their outcome, Continue and Back, links in replies are clickable, and a settings.json edit made while VS Code was closed is kept",
+      "Gateway step 6A: the gateway's config.json is the one source of truth (VS Code seeds it once, pushes what changes in VS Code and mirrors every change into user settings), Settings and Schedules dialogs on the web page, a budget question on both hosts, serve writes its own log file, Grok priced on api.x.ai",
+      "Step 5 review: a gateway stopped mid-task keeps its state.json for the next start, only an unattended run's budget is in the runner fingerprint (raising deskfish.maxCostUsd no longer resets the conversation), state.json is masked, and the last five mid-task messages are kept",
+      "Gateway step 5: an interrupted task is told about on the next run (state.json, a journal line, a note before the first look), scheduled runs are fenced (guided, deskfish.unattendedMaxCostUsd or the schedule's own budget), and Keep Running When VS Code Is Closed starts Deskfish at login",
+      "Checkpoint 3 fixes: the web page's live view waits for the snapshot before connecting and says desktop off instead of a stale connection lost; the docs tab keeps no handle on the page; the token check runs from the third refusal on",
+      "Gateway step 4: the web page — chat and live view served by the gateway from the same views as VS Code, behind the token with a sign-in page, browser versions of attach, save, copy, docs, model, key and log",
+      "Build progress: the tank's image build says what it is doing and how long it takes",
+      "Gateway step 3: deskfish serve owns her behind one port and one token (WebSocket protocol, /vnc proxy, /files); the extension starts it detached and is its client, so closing VS Code no longer stops a task; runs submitted while the tank starts now queue",
+      "Gateway step 2: her files and keys live in a data dir of their own (secrets.json and gateway.token 0600), moved once out of globalStorage with the self key so her signatures stay hers",
+      "Gateway step 1: a vscode-free DeskfishService owns the stores, the runner and its one queue, schedules, downloads and the desktop supervisor; the controller is the VS Code adapter"
+    ]
+  },
+  {
+    "tag_name": "v0.1.17",
+    "name": "Deskfish 0.1.17",
+    "published_at": "2026-09-15T01:03:57Z",
+    "html_url": "https://github.com/0x11c11e/deskfish/releases/tag/v0.1.17",
+    "changes": [
+      "run_command with credentials masked in every log; the cached conversation survives follow-up tasks and pauses; long results shrink, the ledger also fires by size, effort is a setting",
+      "She is told which model runs her; asked, she guessed between the docs' default, a stale memory and the model's own name"
+    ]
+  },
+  {
+    "tag_name": "v0.1.15",
+    "name": "Deskfish 0.1.15",
+    "published_at": "2026-09-12T06:18:14Z",
+    "html_url": "https://github.com/0x11c11e/deskfish/releases/tag/v0.1.15",
+    "changes": [
+      "Anthropic direct is the default adapter; it pairs with the default model, where the old openai-compatible default had no base URL to pair with",
+      "No temperature goes out unless deskfish.temperature is set; Kimi K3 refused the hardcoded 0 before the first screenshot"
+    ]
+  },
+  {
+    "tag_name": "v0.1.13",
+    "name": "Deskfish 0.1.13",
+    "published_at": "2026-09-12T05:13:46Z",
+    "html_url": "https://github.com/0x11c11e/deskfish/releases/tag/v0.1.13",
+    "changes": [
+      "Standby measures against the screen from before the click; a toggle that flipped at once had her waiting the full two minutes for a change that had already happened",
+      "After a ledger cut she gets the clock again; without it she dated today's work by yesterday's notes"
+    ]
+  },
+  {
+    "tag_name": "v0.1.11",
+    "name": "Deskfish 0.1.11",
+    "published_at": "2026-09-11T18:42:58Z",
+    "html_url": "https://github.com/0x11c11e/deskfish/releases/tag/v0.1.11",
+    "changes": [
+      "Site: Google Analytics, enabled by the NEXT_PUBLIC_GA_ID build variable"
+    ]
+  },
+  {
+    "tag_name": "v0.1.10",
+    "name": "Deskfish 0.1.10",
+    "published_at": "2026-09-11T16:34:15Z",
+    "html_url": "https://github.com/0x11c11e/deskfish/releases/tag/v0.1.10",
+    "changes": [
+      "Release workflow: a store that already has this version is left alone"
+    ]
+  },
+  {
+    "tag_name": "v0.1.9",
+    "name": "Deskfish 0.1.9",
+    "published_at": "2026-09-11T16:00:57Z",
+    "html_url": "https://github.com/0x11c11e/deskfish/releases/tag/v0.1.9",
+    "changes": [
+      "Release workflow: a manual run on an already-released commit reuses the release"
+    ]
+  },
+  {
+    "tag_name": "v0.1.8",
+    "name": "Deskfish 0.1.8",
+    "published_at": "2026-09-11T15:50:36Z",
+    "html_url": "https://github.com/0x11c11e/deskfish/releases/tag/v0.1.8",
+    "changes": [
+      "Release workflow: each store publish stands alone; a missing token skips that store",
+      "Release workflow: optional publish to the VS Code Marketplace and Open VSX",
+      "Contact and contributions: SECURITY.md, CONTRIBUTING.md, a Say hello column in the footer, contact and contributing sections in the README",
+      "Release: one asset, deskfish.vsix"
+    ]
+  },
+  {
+    "tag_name": "v0.1.4",
+    "name": "Deskfish 0.1.4",
+    "published_at": "2026-09-11T03:24:21Z",
+    "html_url": "https://github.com/0x11c11e/deskfish/releases/tag/v0.1.4",
+    "changes": [
+      "Every build is deskfish.vsix: local builds, releases and the docs all name the same file"
+    ]
+  },
+  {
+    "tag_name": "v0.1.3",
+    "name": "Deskfish 0.1.3",
+    "published_at": "2026-09-11T03:17:58Z",
+    "html_url": "https://github.com/0x11c11e/deskfish/releases/tag/v0.1.3",
+    "changes": [
+      "Header: the phone-menu source link stays in the phone menu",
+      "Release workflow: no path filter; GitHub cannot diff a force-pushed root, so the filter skipped the first run",
+      "Deskfish 0.1: an AI agent with a computer of its own."
+    ]
+  }
+]

@@ -28,7 +28,7 @@ npm run preview
 
 Open http://127.0.0.1:4173. `dist/client/` contains the static export. `scripts/finalize-export.mjs` adds directory indexes so the home page, `/docs/`, and all guide URLs work on a plain static server. No backend, API key, or database is needed. Fonts and media are served locally. Analytics are loaded only if `NEXT_PUBLIC_GA_ID` is set at build time.
 
-The content check covers all 21 content routes, headings, metadata, local links and anchors, the six stable release downloads, legacy Vercel redirects, and the license, notice, wallpaper and three recordings against the parent project.
+The content check covers all 23 content routes (the home page, the field guide's index, its 20 guides and the changelog), headings, metadata, local links and anchors, the six stable release downloads, legacy Vercel redirects, and the license, notice, wallpaper and three recordings against the parent project.
 
 ## Contents
 
@@ -36,7 +36,8 @@ The content check covers all 21 content routes, headings, metadata, local links 
 - `components/windows.tsx`, `windows.css`: interactive app/browser/VS Code explanation and MCP introduction. Each tab shows the same illustrative conversation to explain that these are clients of one Deskfish.
 - `components/continuity.tsx`, `continuity.css`: memory notebook, reflection, background schedules, and standby.
 - `components/living-tank.tsx`, `living-tank.css`, `lib/tank-replay.ts`: the original illustrated errand in VS Code. Pause/Replay, visibility handling, and reduced-motion scene controls are preserved.
-- `app/docs/`, `components/docs-*`: 19 guides with searchable navigation, section links, code copying, and adjacent-page navigation.
+- `app/docs/`, `components/docs-*`, `lib/docs-pages.ts`: 20 guides and the changelog, with searchable navigation, section links, code copying, and adjacent-page navigation.
+- `app/docs/changelog/`, `scripts/fetch-changelog.mjs`, `app/content/changelog.json`: the changelog, generated from the GitHub releases (see below).
 - `app/content/docs.json`: checked-in rendered documentation; building the website does not require the parent sources.
 - `public/`: original artwork, fonts and licenses, recordings, descriptive tracks, and site metadata.
 - `REVIEW.md`: product changes, source mapping, and verification.
@@ -48,6 +49,12 @@ npm run sync:docs
 ```
 
 This reads only the public `../docs/*.md` files, then updates `app/content/docs.json` and `public/sitemap.xml`. It never publishes the private handbook. Small source-verified corrections live in `scripts/content-overrides.mjs`. The sync fails if a corrected source paragraph changes, so it can be reviewed rather than silently becoming stale. Current corrections cover the app's lack of a remote-gateway field and the screenshot behavior after passive reads.
+
+## The changelog
+
+`/docs/changelog/` is generated from the project's GitHub releases. Every push to `main` makes a release whose notes end with a **Changes** list: the subjects of the commits that changed something shipped (merges and commits that touched only `site/`, `docs/site/` or `.github/` are left out). So the commit subject is the changelog line.
+
+`npm run build` runs `scripts/fetch-changelog.mjs` first, which reads the public releases API (with `GITHUB_TOKEN` if set, anonymously otherwise) and rewrites `app/content/changelog.json`. If the fetch fails for any reason it prints one warning and the checked-in copy is used, so the site still builds offline. The file is tracked so a fresh checkout builds and the content check has a page to check; a local build rewrites it whenever a release has appeared since the last snapshot, and that diff is not meant to be committed. The release job ends by calling the site's Vercel deploy hook (the `VERCEL_DEPLOY_HOOK` repository secret), because the site's own build starts on the push, before that push's release exists.
 
 ## Downloads
 

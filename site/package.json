@@ -7,7 +7,7 @@
   },
   "scripts": {
     "dev": "vinext dev",
-    "build": "vinext build && node scripts/finalize-export.mjs",
+    "build": "node scripts/fetch-changelog.mjs && vinext build && node scripts/finalize-export.mjs",
     "start": "python3 -m http.server 4173 --bind 127.0.0.1 --directory dist/client",
     "lint": "oxlint",
     "format": "oxfmt",
