@@ -116,6 +116,16 @@ jobs:
           if curl -sf "https://open-vsx.org/api/$ns/$name/$v" >/dev/null; then echo "Open VSX already has $ns.$name $v; nothing to publish"; exit 0; fi
           npx --yes ovsx create-namespace "$ns" -p "$OVSX_PAT" 2>/dev/null || echo "namespace $ns exists"
           npx --yes ovsx publish deskfish.vsix -p "$OVSX_PAT"
+      # deskfish.sh/docs/changelog is read from the releases when the site builds, and the site's Vercel build
+      # starts on the push itself, before this release exists. A deploy hook (the site project → Settings → Git →
+      # Deploy Hooks, branch main) rebuilds it now that the release is out.
+      - name: Rebuild the website so its changelog has this release
+        env:
+          VERCEL_DEPLOY_HOOK: ${{ secrets.VERCEL_DEPLOY_HOOK }}
+        run: |
+          if [ -z "$VERCEL_DEPLOY_HOOK" ]; then echo "VERCEL_DEPLOY_HOOK secret not set; the site picks this release up at its next build"; exit 0; fi
+          # Never fails the job: the app and relay jobs need this one, and a missed rebuild only delays the page.
+          curl -fsS -X POST "$VERCEL_DEPLOY_HOOK" >/dev/null && echo "Asked Vercel to rebuild the site" || echo "Vercel did not take the deploy hook; the site picks this release up at its next build"
 
   # The app on each system's own runner, attached to the release the job above made. A failed system does not
   # hold the others back; the vsix is already out.
