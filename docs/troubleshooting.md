@@ -51,8 +51,11 @@ works. If it repeats, `scripts/desktop.sh logs` in the source tree shows the ful
   URL is wrong or the server is not running. For a local Ollama or LiteLLM, start it. For xAI
   it must be `https://api.x.ai/v1`. The base URL must not include `/chat/completions`.
   A connection that breaks mid-task is tried three times over about eight seconds before she gives
-  up, so a single dropped connection no longer ends a task; one that did end this way can be picked
-  up again with **Continue this chat** ([Starting fresh](running-tasks#starting-fresh)).
+  up, so a single dropped connection no longer ends a task. One that did end this way is still the
+  open chat: tell her to carry on with it ([If Deskfish is interrupted](running-tasks#if-deskfish-is-interrupted)).
+  The conversation starts fresh after an error, but the task is in her
+  [journal](memory#the-journal) and she reads the screen as it is now. **Continue this chat** in the
+  history is only for a chat you have already left ([Starting fresh](running-tasks#starting-fresh)).
 - **"rejected the API key"**: enter it again with **Deskfish: Set LLM API Key**. Keys are
   stored per extension, so after reinstalling Deskfish under another name the key has to be
   entered once more.
