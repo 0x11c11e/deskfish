@@ -394,7 +394,49 @@ export class OpenAICompatAdapter implements ModelAdapter {
     return out;
   }
 
+  /** The waits before the second and third attempt; a static so the tests can shorten it, not a setting. */
+  static RETRY_DELAYS_MS = [2000, 6000];
+
+  /**
+   * One request, tried up to three times when the connection broke or the provider answered with
+   * its own transient error, so a single reset socket does not end a task. Silent: only the final
+   * error, if it comes, says how many attempts were made.
+   */
   private async chat(retriedAfter401 = false): Promise<any> {
+    const delays = OpenAICompatAdapter.RETRY_DELAYS_MS;
+    const t0 = Date.now();
+    for (let attempt = 1; ; attempt++) {
+      try {
+        return await this.attempt(retriedAfter401);
+      } catch (err) {
+        if (!(err instanceof TransientError)) throw err;
+        if (attempt > delays.length) {
+          const span = Math.round((Date.now() - t0) / 1000);
+          throw new Error(err.final(`after ${attempt} attempts over about ${span} s`, `after ${attempt} attempts`));
+        }
+        await this.backOff(delays[attempt - 1]);
+      }
+    }
+  }
+
+  /** The wait between attempts; the stop ends it at once and is thrown as the abort it is. */
+  private backOff(ms: number): Promise<void> {
+    const signal = this.signal;
+    if (signal?.aborted) return Promise.reject(signal.reason);
+    return new Promise((resolve, reject) => {
+      const onAbort = () => {
+        clearTimeout(timer);
+        reject(signal!.reason);
+      };
+      const timer = setTimeout(() => {
+        signal?.removeEventListener('abort', onAbort);
+        resolve();
+      }, ms);
+      signal?.addEventListener('abort', onAbort, { once: true });
+    });
+  }
+
+  private async attempt(retriedAfter401: boolean): Promise<any> {
     const url = `${this.cfg.baseUrl!.replace(/\/+$/, '')}/chat/completions`;
     const headers: Record<string, string> = { 'content-type': 'application/json' };
     // A signed-in endpoint hands out a fresh bearer per call (the gateway refreshes behind it);
@@ -479,17 +521,23 @@ export class OpenAICompatAdapter implements ModelAdapter {
       // Reasoning models spend completion tokens thinking; a low cap cuts the answer off and looks like silence.
       max_tokens: 8000,
     };
+    // The message for a connection that failed; `after` is the attempt count once retries ran out.
+    const unreachable = (err: unknown, after?: string) => {
+      const cause = (err as { cause?: { code?: string; message?: string } }).cause;
+      const detail = cause?.code ?? cause?.message ?? (err instanceof Error ? err.message : String(err));
+      return (
+        `Cannot reach the model provider at ${url} (${detail}${after ? `, ${after}` : ''}). ` +
+        `Check deskfish.baseUrl — for a local LiteLLM/Ollama it must be running; for xAI use https://api.x.ai/v1; ` +
+        `or set deskfish.provider to "anthropic" or "mock".`
+      );
+    };
     let r: Response;
     try {
       r = await fetch(url, { method: 'POST', headers, body: JSON.stringify(body), signal: this.signal });
     } catch (err) {
-      const cause = (err as { cause?: { code?: string; message?: string } }).cause;
-      const detail = cause?.code ?? cause?.message ?? (err instanceof Error ? err.message : String(err));
-      throw new Error(
-        `Cannot reach the model provider at ${url} (${detail}). ` +
-          `Check deskfish.baseUrl — for a local LiteLLM/Ollama it must be running; for xAI use https://api.x.ai/v1; ` +
-          `or set deskfish.provider to "anthropic" or "mock".`,
-      );
+      if (this.signal?.aborted) throw err;
+      if (brokenConnection(err)) throw new TransientError((long) => unreachable(err, long));
+      throw new Error(unreachable(err));
     }
     if (!r.ok) {
       const detail = (await r.text()).slice(0, 500);
@@ -508,8 +556,42 @@ export class OpenAICompatAdapter implements ModelAdapter {
             : `${url} rejected the API key (HTTP ${r.status}). Set one with "Deskfish: Set LLM API Key".`,
         );
       }
-      throw new Error(`${this.cfg.model} @ ${url}: HTTP ${r.status} ${detail}`);
+      const http = (after?: string) => `${this.cfg.model} @ ${url}: HTTP ${r.status} ${detail}${after ? ` (${after})` : ''}`;
+      if (RETRY_STATUSES.has(r.status)) throw new TransientError((_long, short) => http(short));
+      throw new Error(http());
     }
-    return r.json();
+    try {
+      return await r.json();
+    } catch (err) {
+      // A reset mid-response breaks the body read the same way it breaks the request.
+      if (!this.signal?.aborted && brokenConnection(err)) throw new TransientError((long) => unreachable(err, long));
+      throw err;
+    }
+  }
+}
+
+/**
+ * What is worth a second try: a connection that existed and broke, and the provider's own
+ * transient answers. Deliberately not: ECONNREFUSED, ENOTFOUND, an invalid URL or a TLS error —
+ * nothing is listening or the address is wrong (a local LiteLLM or Ollama that is not running, a
+ * typo in deskfish.baseUrl), and three slow attempts would only delay the message that says what
+ * to fix; any 4xx, 429 included — a signed-in 429/403 is the pool's knock and must stay one, a
+ * plain 429 is a cap the user should see as it is, 400/401/403 are the request or the key; and
+ * the abort, which is the stop and never an error.
+ */
+const RETRY_CODES = new Set(['ECONNRESET', 'ETIMEDOUT', 'EPIPE', 'EAI_AGAIN', 'UND_ERR_SOCKET', 'UND_ERR_CONNECT_TIMEOUT', 'UND_ERR_HEADERS_TIMEOUT', 'UND_ERR_BODY_TIMEOUT']);
+const RETRY_STATUSES = new Set([500, 502, 503, 504, 529]);
+
+function brokenConnection(err: unknown): boolean {
+  if ((err as { name?: string })?.name === 'AbortError') return false;
+  const code = (err as { cause?: { code?: string } })?.cause?.code ?? (err as { code?: string })?.code;
+  if (code) return RETRY_CODES.has(code);
+  return err instanceof Error && err.message === 'fetch failed';
+}
+
+/** A failure the retry loop may try again; `final` writes its message once the attempts run out. */
+class TransientError extends Error {
+  constructor(readonly final: (long: string, short: string) => string) {
+    super('transient');
   }
 }
