@@ -373,6 +373,7 @@ try {
     const { checkUrl, hashBody } = await import('../src/agent/watch');
     const { formatLocal } = await import('../src/agent/schedule');
     const { validate } = await import('../src/gateway/protocol');
+    const { watchStateLine } = await import('../src/webview/forms');
     const hitsOn = (p: string) => pageHits.filter((h) => h.path === p).length;
 
     // A fixed local noon, moved by the test: the day cap and the cooldown never meet a real midnight.
@@ -385,8 +386,9 @@ try {
     const wSeen: Seen[] = [];
     const runCalls: { task: string; opts: any }[] = [];
     let ticks = 0;
+    const wLog: string[] = [];
     const svc = new DeskfishService({
-      dataDir: dataDirW, resourceDir: ROOT, log: () => {},
+      dataDir: dataDirW, resourceDir: ROOT, log: (l) => wLog.push(l),
       config: { ...cfg, autonomy: 'free', unattendedMaxCostUsd: 2, heartbeat: true, heartbeatTripsPerDay: 10 } as DeskfishConfig,
       tickMs: 3_600_000,
       now: clock,
@@ -397,7 +399,7 @@ try {
     clearTimeout((svc as any).firstTick);
     svc.setKey('deskfish.apiKey.127.0.0.1', 'dummy');
     svc.init(newSelfKey());
-    for (const name of ['event', 'watch', 'notice', 'reset', 'task']) svc.on(name, (payload: unknown) => wSeen.push({ name, payload }));
+    for (const name of ['event', 'watch', 'notice', 'reset', 'task', 'config']) svc.on(name, (payload: unknown) => wSeen.push({ name, payload }));
     const origRun = svc.run.bind(svc);
     (svc as any).run = (task: string, att: unknown, opts: any) => { runCalls.push({ task, opts }); return origRun(task, att as never, opts); };
     const origTick = svc.tickSchedules.bind(svc);
@@ -545,6 +547,7 @@ try {
         const w = svc.watches.get(item.id)!;
         ok(w.lastOutcome === 'skipped-cap' && watchRuns().length === runs && svc.watchTripsToday() === today, `H7: at the cap (${today}) a change is skipped-cap and starts no run`);
         ok(watchEvents('skipped').length === 1 && /daily cap of/.test(watchEvents('skipped')[0].payload.text), 'H7: one notice in the chat for two skipped trips');
+        ok(wLog.filter((l) => /reached its daily cap/.test(l)).length === 1, 'H7: one line in the log');
         const journalAfter = fs.readFileSync(path.join(dataDirW, 'journal.md'), 'utf8');
         ok((journalAfter.match(/daily cap/g) ?? []).length === (journalBefore.match(/daily cap/g) ?? []).length + 1, 'H7: one line in her journal');
         ok(w.trips >= 2 && w.tripsToday >= 2, `H7: trips are counted per item, total and today (${w.trips}, ${w.tripsToday})`);
@@ -570,6 +573,9 @@ try {
         await assert.rejects(() => svc.checkWatchNow(item.id), /watch list is off/);
         n++;
         ok(svc.watches.list().some((w) => w.id === item.id), 'H8: the list is kept');
+        const cfgEvent = wSeen.filter((s) => s.name === 'config').pop()?.payload;
+        ok(cfgEvent?.heartbeat === false, 'H8: the switch is a setting like every other: its config event is what config.json is written from');
+        ok(/watch list is off/.test(watchStateLine(cfgEvent.heartbeat, svc.watchTripsToday(), cfgEvent.heartbeatTripsPerDay)), 'H8: the panel says the list is off');
         svc.patchConfig({ heartbeat: true });
         offset += 5 * MIN;
         await tick();

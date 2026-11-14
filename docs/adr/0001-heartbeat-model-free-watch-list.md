@@ -66,6 +66,8 @@ and ride the same tick, trip path, fence, cooldown, cap and switch unchanged.
   user removes it; the trips column shows it.
 - The fetch runs from the computer the gateway runs on, with no cookies; a page that needs a login waits
   for the Firefox kind.
+- Off and on again (the switch, or Pause and Resume) keeps the baseline: the first check afterwards compares
+  with the page as it was, so a change made meanwhile trips then, within the cooldown and the daily cap.
 - Risks: a hostile address could serve a large or slow body (capped at 1 MB and 15 s, recorded as an
   error); a flapping page spends budget up to the cap; redirects are followed, so the final host may
   differ from the one typed.
@@ -73,7 +75,7 @@ and ride the same tick, trip path, fence, cooldown, cap and switch unchanged.
 ## Acceptance criteria
 
 EARS criteria, each with the course's requirement IDs (SRS v2.1) and the one test that covers it
-(in `test/watch.test.mts` or `test/service.test.mts`; the names are final when this record is accepted).
+(H1 and H10 in `test/watch.test.mts`, the others in `test/service.test.mts`).
 
 | # | Requirement IDs | Criterion | Test |
 |---|---|---|---|
