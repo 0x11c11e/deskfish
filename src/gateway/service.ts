@@ -1008,7 +1008,7 @@ export class DeskfishService extends EventEmitter {
     if (this.watchTicking) return;
     this.watchTicking = true;
     try {
-      if (!this.cfg.heartbeat) {
+      if (!this.heartbeatOn) {
         // Off means off: a trip still waiting for her does not start either.
         for (const id of this.pendingWatches.keys()) this.watches.skip(id, 'skipped-off', this.now());
         if (this.pendingWatches.size) this.log(`🫧 the watch list is off: ${this.pendingWatches.size} waiting trip${this.pendingWatches.size === 1 ? '' : 's'} dropped`);
@@ -1033,7 +1033,7 @@ export class DeskfishService extends EventEmitter {
         }
       }
       for (const w of this.watches.due(this.now())) {
-        if (!this.cfg.heartbeat) return; // switched off while this round was fetching
+        if (!this.heartbeatOn) return; // switched off while this round was fetching
         await this.checkWatch(w.id);
       }
     } finally {
@@ -1076,7 +1076,7 @@ export class DeskfishService extends EventEmitter {
       this.log(`🫧 ${what} changed inside its ${w.cooldownMinutes}-minute cooldown: recorded, no run`);
       return;
     }
-    const cap = this.cfg.heartbeatTripsPerDay;
+    const cap = this.cfg.heartbeatTripsPerDay ?? 10;
     if (cap > 0 && this.watches.tripsOn(now) >= cap) {
       this.watches.skip(id, 'skipped-cap', now);
       const day = localDay(now);
@@ -1137,12 +1137,17 @@ export class DeskfishService extends EventEmitter {
 
   /** "Check now": that item's check at once, out of band; a change trips as on the tick. */
   async checkWatchNow(id: string): Promise<Watch> {
-    if (!this.cfg.heartbeat) throw new Error('the watch list is off (the Heartbeat setting), so nothing is checked');
+    if (!this.heartbeatOn) throw new Error('the watch list is off (the Heartbeat setting), so nothing is checked');
     const w = this.watches.get(id);
     if (!w) throw new Error('there is no such watch item');
     this.log(`🫧 check now: ${describeCheck(w.check)}`);
     await this.checkWatch(id);
     return this.watches.get(id) ?? w;
+  }
+
+  /** The switch: only an explicit false turns the list off (a config written before the setting existed means the default, on). */
+  private get heartbeatOn(): boolean {
+    return this.cfg.heartbeat !== false;
   }
 
   /** Trips across the list in today's local day: the panel's "N trips today of M". */

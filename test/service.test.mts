@@ -580,6 +580,10 @@ try {
         offset += 5 * MIN;
         await tick();
         ok(fetches === f + 1, 'H8: on again: checks resume');
+        const noKey = { ...(svc as any).cfg };
+        delete noKey.heartbeat;
+        svc.setConfig(noKey);
+        ok((svc as any).heartbeatOn === true, 'H8: only an explicit false is off (a config saved before the setting existed keeps the list on)');
         await until(() => watchRuns().length === runs + 1, 'the change made while off trips once it is on again');
         await idle();
       });

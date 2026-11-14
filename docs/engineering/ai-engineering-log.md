@@ -60,8 +60,8 @@ Scheduled tasks panel, the agent's charter (clauses 3 and 6), and the existing t
 **How it was verified.**
 - `npm run typecheck` is clean.
 - The whole suite, `npm test`, ran on the branch. The new or changed suites: watch 9 tests and 51
-  checks; service 102 checks, including the named H2–H9, H11, H12 and FR-02 tests; settings 80;
-  panels 97; docs 233.
+  checks; service 103 checks, including the named H2–H9, H11, H12 and FR-02 tests; settings 80;
+  panels 97; docs 234.
 - Every criterion maps to exactly one named test. The FR-02 test runs six idle ticks with an
   unchanged page and counts zero model calls. The H4 test asserts that a held run starts on the
   first tick after the agent is free.

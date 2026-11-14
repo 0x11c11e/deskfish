@@ -38,8 +38,8 @@ below the schedules. Fill in:
 > releases page, read the newest entry and tell me in two lines what changed and whether it
 > affects the setup I described in my notes.
 
-The first check only records what the page looks like now. An item never trips on the day it is
-added; it trips on the **first change after that**.
+The first check only records what the page looks like now. Adding an item never trips it; it
+trips on the **first change after that first check**.
 
 The list shows each item: what is watched and how often, the task, trips today and in total, when
 it was last checked and what came of it (or the error), and **Check now**, **Pause** / **Resume**
