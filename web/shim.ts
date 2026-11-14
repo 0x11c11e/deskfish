@@ -154,6 +154,12 @@ export class Mirror {
         out.chat.push(s.kind === 'fired' ? { type: 'user', text: s.text } : { type: 'notice', text: s.text });
         break;
       }
+      case 'watch': {
+        // A trip is drawn as a schedule's bubble; the day cap and an expiry as notices; an error only in the list.
+        const w = data as Events['watch'];
+        if (w.kind !== 'error') out.chat.push(w.kind === 'tripped' ? { type: 'user', text: w.text } : { type: 'notice', text: w.text });
+        break;
+      }
       case 'notice':
         out.chat.push({ type: 'notice', text: (data as Events['notice']).text });
         break;

@@ -374,6 +374,17 @@
           "default": 2,
           "description": "Cost budget in US dollars for a run nobody asked for and nobody is watching — a scheduled task. It also runs as \"guided\" unless the schedule says otherwise. 0 = no budget. A schedule can carry its own budget, which wins. Like deskfish.maxCostUsd, it can only act where the cost is known (list prices for Claude, Kimi or Grok used directly, or a cost the endpoint reports)."
         },
+        "deskfish.heartbeat": {
+          "type": "boolean",
+          "default": true,
+          "description": "The watch list: checks run on a timer with no model call; a change starts the task you agreed to. Off = no checks, no runs, the list kept."
+        },
+        "deskfish.heartbeatTripsPerDay": {
+          "type": "number",
+          "default": 10,
+          "minimum": 0,
+          "description": "At most this many watch-started tasks per day across all items; 0 = no cap. A page that changes on every visit trips once per cooldown and shows it in the list."
+        },
         "deskfish.screenshotWidth": {
           "type": "number",
           "default": 1280,

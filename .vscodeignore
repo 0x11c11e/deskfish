@@ -15,6 +15,10 @@ tsconfig.json
 **/*.map
 .gitignore
 docker/.env
+# Engineering records (decision records, the AI engineering log) are for the team, not the vsix, the site
+# or the read_docs tool; build-docs.mjs and read_docs read docs/*.md only, and package.json files has docs/*.md.
+docs/adr/**
+docs/engineering/**
 demo/**
 growth/**
 site/**

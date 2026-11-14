@@ -5,7 +5,7 @@ import { patchBetween } from '../gateway/configSync';
 import type { ChatInfo, CommandArgs, CommandResult } from '../gateway/protocol';
 import { GROUP_TITLES, settingLabel, type SettingsEntry, type SettingsSchema } from '../gateway/settingsSchema';
 import type { ViewCommand } from './bridge';
-import { AUTONOMY_DETAILS, SECRET_SETTINGS, budgetHint, chatTitle, fieldInput, filterChats, groupChats, journalViewScroll, outcomeLabel, readField, refusalOf, splitJournalEntries, type FieldInput, type ScheduleForm, type SettingsRefusal } from './forms';
+import { AUTONOMY_DETAILS, SECRET_SETTINGS, budgetHint, chatTitle, fieldInput, filterChats, groupChats, journalViewScroll, outcomeLabel, readField, refusalOf, splitJournalEntries, type FieldInput, type ScheduleForm, type SettingsRefusal, watchFromFields, watchStateLine, type WatchForm } from './forms';
 import { mdLite } from './markdown';
 import type { FromChat, PanelName } from './protocol';
 
@@ -513,6 +513,140 @@ export function createPanels(deps: PanelDeps): Panels {
     }
   };
 
+  /* ---------- Watch list (the second half of Scheduled tasks; ADR-0001) ---------- */
+
+  const watchList = $<HTMLUListElement>('watchList');
+  const watchEmpty = $<HTMLParagraphElement>('watchEmpty');
+  const watchState = $<HTMLParagraphElement>('watchState');
+  const watchNote = $<HTMLParagraphElement>('watchNote');
+  const watchUrl = $<HTMLInputElement>('watchUrl');
+  const watchEvery = $<HTMLInputElement>('watchEvery');
+  const watchTask = $<HTMLTextAreaElement>('watchTask');
+  const watchAutonomy = $<HTMLSelectElement>('watchAutonomy');
+  const watchBudget = $<HTMLInputElement>('watchBudget');
+  const watchCooldown = $<HTMLInputElement>('watchCooldown');
+  const watchExpires = $<HTMLInputElement>('watchExpires');
+  const watchAdd = $<HTMLButtonElement>('watchAdd');
+  const showWatchAutonomy = () => ($('watchAutonomyDetail').textContent = AUTONOMY_DETAILS[watchAutonomy.value === 'free' ? 'free' : 'guided']);
+  watchAutonomy.addEventListener('change', showWatchAutonomy);
+  /** The switch and the cap, from the last `config.get`: the state line needs them with every list. */
+  let heartbeat = { on: true, cap: 10 };
+
+  type WatchList = { watches: { id: string; task: string; paused?: boolean }[]; lines: string[]; tripsToday: number };
+  const watchRows = (list: WatchList) => {
+    watchState.textContent = watchStateLine(heartbeat.on, list.tripsToday, heartbeat.cap);
+    watchEmpty.hidden = list.watches.length > 0;
+    watchList.replaceChildren(
+      ...list.watches.map((w, i) => {
+        const li = el('li');
+        const line = el('span', 'line', list.lines[i] ?? w.task);
+        const check = el('button', 'btn', 'Check now');
+        check.type = 'button';
+        check.disabled = !heartbeat.on;
+        check.title = heartbeat.on ? 'Run this check at once; a change starts its task' : 'The watch list is off';
+        check.addEventListener('click', async () => {
+          check.disabled = true;
+          setNote(watchNote, '');
+          try {
+            await deps.ask('watch.checkNow', { id: w.id });
+            await refreshWatches();
+          } catch (err) {
+            setNote(watchNote, `Could not check it: ${msg(err)}`, 'error');
+            check.disabled = false;
+          }
+        });
+        const pause = el('button', 'btn', w.paused ? 'Resume' : 'Pause');
+        pause.type = 'button';
+        pause.addEventListener('click', async () => {
+          try {
+            await deps.ask('watch.pause', { id: w.id, paused: !w.paused });
+            await refreshWatches();
+          } catch (err) {
+            setNote(watchNote, `Could not ${w.paused ? 'resume' : 'pause'} it: ${msg(err)}`, 'error');
+          }
+        });
+        const remove = el('button', 'btn', 'Remove');
+        remove.type = 'button';
+        confirmOnce(
+          remove,
+          () => 'Remove?',
+          async () => {
+            try {
+              await deps.ask('watch.remove', { id: w.id });
+              await refreshWatches();
+            } catch (err) {
+              setNote(watchNote, `Could not remove it: ${msg(err)}`, 'error');
+            }
+          },
+        );
+        li.append(line, check, pause, remove);
+        return li;
+      }),
+    );
+  };
+
+  const refreshWatches = async () => {
+    const gen = generation;
+    try {
+      const list = await deps.ask('watch.list');
+      if (gen === generation && current === 'schedules') watchRows(list);
+    } catch (err) {
+      if (gen === generation) setNote(watchNote, `Could not list the watch list: ${msg(err)}`, 'error');
+    }
+  };
+
+  const addWatch = async () => {
+    const f: WatchForm = { url: watchUrl.value, every: watchEvery.value, task: watchTask.value, autonomy: watchAutonomy.value === 'free' ? 'free' : 'guided', budget: watchBudget.value, cooldown: watchCooldown.value, expires: watchExpires.value };
+    const r = watchFromFields(f);
+    if ('error' in r) return setNote(watchNote, r.error, 'error');
+    watchAdd.disabled = true;
+    setNote(watchNote, '');
+    try {
+      const w = await deps.ask('watch.add', r.args);
+      const list = await deps.ask('watch.list');
+      watchRows(list);
+      // The next item starts from the defaults again; the interval stays.
+      watchUrl.value = '';
+      watchTask.value = '';
+      watchBudget.value = '';
+      watchCooldown.value = '60';
+      watchExpires.value = '';
+      watchAutonomy.value = 'guided';
+      showWatchAutonomy();
+      setNote(watchNote, `Watching: ${list.lines[list.watches.findIndex((x) => x.id === w.id)] ?? w.task}. Its first check is the baseline; it trips on the first change after that.`, 'ok');
+    } catch (err) {
+      setNote(watchNote, `Could not watch it: ${msg(err)}`, 'error');
+    } finally {
+      watchAdd.disabled = false;
+    }
+  };
+  watchAdd.addEventListener('click', () => void addWatch());
+
+  const openWatches = async (gen: number) => {
+    watchUrl.value = '';
+    watchEvery.value = '30';
+    watchTask.value = '';
+    watchAutonomy.value = 'guided';
+    watchBudget.value = '';
+    watchCooldown.value = '60';
+    watchExpires.value = '';
+    showWatchAutonomy();
+    setNote(watchNote, '');
+    watchList.replaceChildren();
+    watchEmpty.hidden = true;
+    watchState.textContent = '';
+    $('watchBudgetHint').textContent = '';
+    try {
+      const [list, cfg] = await Promise.all([deps.ask('watch.list'), deps.ask('config.get')]);
+      if (gen !== generation) return;
+      heartbeat = { on: cfg.heartbeat !== false, cap: cfg.heartbeatTripsPerDay ?? 10 };
+      watchRows(list);
+      $('watchBudgetHint').textContent = budgetHint(cfg.unattendedMaxCostUsd);
+    } catch (err) {
+      if (gen === generation) setNote(watchNote, `Could not list the watch list: ${msg(err)}`, 'error');
+    }
+  };
+
   /* ---------- Her files ---------- */
 
   type Tab = 'memory' | 'charter' | 'self' | 'journal' | 'playbooks';
@@ -667,13 +801,19 @@ export function createPanels(deps: PanelDeps): Panels {
       const gen = ++generation;
       if (panel === 'history') void openHistory(gen);
       else if (panel === 'settings') void openSettings(gen);
-      else if (panel === 'schedules') void openSchedules(gen);
+      else if (panel === 'schedules') {
+        void openSchedules(gen);
+        void openWatches(gen);
+      }
       else void showTab(tab);
       sections[panel].querySelector<HTMLElement>('.panel-body')?.scrollTo?.(0, 0);
     },
     close,
     schedulesMayHaveChanged() {
-      if (current === 'schedules') void refreshSchedules();
+      if (current === 'schedules') {
+        void refreshSchedules();
+        void refreshWatches();
+      }
     },
   };
 }

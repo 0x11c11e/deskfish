@@ -1,6 +1,7 @@
 import type { ChatOutcome, ReplayItem } from '../agent/chats';
 import type { AgentEvent, AgentStatus } from '../agent/loop';
 import type { Schedule, When } from '../agent/schedule';
+import type { Watch, WatchCheck } from '../agent/watch';
 import type { NewDownload } from '../desktop/files';
 import type { RuntimeStatus } from '../desktop/runtime';
 import type { DesktopStatus } from '../desktop/supervisor';
@@ -164,6 +165,16 @@ export interface Commands {
   'schedules.add': [{ task: string; when: When; autonomy?: 'free' | 'guided'; maxCostUsd?: number }, Schedule];
   'schedules.remove': [{ id: string }, null];
   'schedules.runNow': [{ id: string }, null];
+  /**
+   * The watch list (ADR-0001). `tripsToday` is across all items in the gateway's local day. An item's
+   * fence (`autonomy`, `maxCostUsd`) is optional as on a schedule; `cooldownMinutes` defaults to 60;
+   * `expiresAt` is a local "YYYY-MM-DD HH:MM". `watch.checkNow` runs that check at once.
+   */
+  'watch.list': [Record<string, never>, { watches: Watch[]; lines: string[]; tripsToday: number }];
+  'watch.add': [{ task: string; check: WatchCheck; autonomy?: 'free' | 'guided'; maxCostUsd?: number; cooldownMinutes?: number; expiresAt?: string }, Watch];
+  'watch.remove': [{ id: string }, null];
+  'watch.pause': [{ id: string; paused: boolean }, Watch];
+  'watch.checkNow': [{ id: string }, Watch];
   'memory.read': [{ file: EditableFile }, { text: string; facts: number }];
   'memory.write': [{ file: EditableFile; text: string }, null];
   /** Forget every fact; returns how many there were. */
@@ -216,6 +227,8 @@ export interface Events {
   task: { text: string };
   notice: { text: string };
   schedule: { kind: 'fired' | 'missed'; text: string; task: string; dueAt?: number; auto: boolean };
+  /** The watch list: a trip that started a run, the day cap reached, an item expired, a check that failed. */
+  watch: { kind: 'tripped' | 'skipped' | 'expired' | 'error'; text: string; id: string; task?: string };
   reset: undefined;
   replay: { title: string; items: ReplayItem[] };
   download: NewDownload;
@@ -229,7 +242,7 @@ export interface Events {
 }
 
 export type EventName = keyof Events;
-export const EVENT_NAMES: EventName[] = ['event', 'desktop', 'task', 'notice', 'schedule', 'reset', 'replay', 'download', 'config', 'keys', 'log', 'desktop.hostNetwork', 'desktop.startFailed', 'desktop.stopFailed'];
+export const EVENT_NAMES: EventName[] = ['event', 'desktop', 'task', 'notice', 'schedule', 'watch', 'reset', 'replay', 'download', 'config', 'keys', 'log', 'desktop.hostNetwork', 'desktop.startFailed', 'desktop.stopFailed'];
 
 export interface EventFrame<K extends EventName = EventName> {
   event: K;
@@ -238,7 +251,7 @@ export interface EventFrame<K extends EventName = EventName> {
 
 /* ---------- validation (hand-written: unknown commands, unknown fields and wrong types are refused) ---------- */
 
-type Field = 'string' | 'string?' | 'number?' | 'boolean' | 'boolean?' | 'object' | 'files?' | 'fill' | 'when' | 'editable' | 'client' | 'provider' | 'autonomy?' | 'auth?';
+type Field = 'string' | 'string?' | 'number?' | 'boolean' | 'boolean?' | 'object' | 'files?' | 'fill' | 'when' | 'editable' | 'client' | 'provider' | 'autonomy?' | 'auth?' | 'check';
 
 const NONE: Record<string, Field> = {};
 const SPEC: { [K in CommandName]: Record<string, Field> } = {
@@ -279,6 +292,11 @@ const SPEC: { [K in CommandName]: Record<string, Field> } = {
   'schedules.add': { task: 'string', when: 'when', autonomy: 'autonomy?', maxCostUsd: 'number?' },
   'schedules.remove': { id: 'string' },
   'schedules.runNow': { id: 'string' },
+  'watch.list': NONE,
+  'watch.add': { task: 'string', check: 'check', autonomy: 'autonomy?', maxCostUsd: 'number?', cooldownMinutes: 'number?', expiresAt: 'string?' },
+  'watch.remove': { id: 'string' },
+  'watch.pause': { id: 'string', paused: 'boolean' },
+  'watch.checkNow': { id: 'string' },
   'memory.read': { file: 'editable' },
   'memory.write': { file: 'editable', text: 'string' },
   'memory.clearFacts': NONE,
@@ -320,6 +338,10 @@ function fieldOk(type: Field, v: unknown): boolean {
       return Array.isArray(v) && v.length >= 1 && v.length <= 6 && v.every((f) => isObject(f) && typeof f.label === 'string' && typeof f.value === 'string' && Object.keys(f).length === 2);
     case 'when':
       return isObject(v) && ['once', 'daily', 'weekly', 'every'].includes(v.kind as string);
+    case 'check':
+      // A watch item's check: exactly a kind, an address and an interval. The store refuses a bad
+      // scheme or an interval under 5 minutes in its own words.
+      return isObject(v) && v.kind === 'url' && typeof v.url === 'string' && typeof v.everyMinutes === 'number' && Number.isFinite(v.everyMinutes) && Object.keys(v).length === 3;
     case 'editable':
       return v === 'memory.md' || v === 'charter.md';
     case 'client':
@@ -347,6 +369,6 @@ export function validate(msg: unknown): { ok: true; req: Request } | { ok: false
   if (!isObject(args)) return { ok: false, id, error: `${cmd}: args must be an object` };
   const spec = SPEC[cmd];
   for (const k of Object.keys(args)) if (!(k in spec)) return { ok: false, id, error: `${cmd}: unknown argument ${k}` };
-  for (const [k, type] of Object.entries(spec)) if (!fieldOk(type, args[k])) return { ok: false, id, error: `${cmd}: ${k} must be ${type.replace('?', '')}` };
+  for (const [k, type] of Object.entries(spec)) if (!fieldOk(type, args[k])) return { ok: false, id, error: `${cmd}: ${k} must be ${type === 'check' ? 'a check: {kind: "url", url, everyMinutes} and nothing else' : type.replace('?', '')}` };
   return { ok: true, req: { id, cmd, args: args as never } };
 }

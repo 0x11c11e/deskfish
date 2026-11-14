@@ -23,6 +23,12 @@ export const VIEW_COMMANDS = [
   'schedules.add',
   'schedules.remove',
   'schedules.runNow',
+  // The watch list: a view may manage it (it still may not run tasks or set keys).
+  'watch.list',
+  'watch.add',
+  'watch.remove',
+  'watch.pause',
+  'watch.checkNow',
   'memory.read',
   'memory.write',
   'memory.clearFacts',

@@ -24,7 +24,7 @@ const ok = (c: unknown, m: string) => {
 const lib = DocsLibrary.load(DOCS);
 const files = fs.readdirSync(DOCS).filter((f) => f.endsWith('.md'));
 ok(lib.size === files.length, `every page is loaded (${lib.size} of ${files.length})`);
-ok(lib.size === 20, `20 pages today (got ${lib.size})`);
+ok(lib.size === 21, `21 pages today (got ${lib.size})`);
 
 const index = lib.index();
 const lines = index.split('\n');
@@ -33,6 +33,7 @@ for (const line of lines) ok(/^- [a-z0-9-]+: .+ — .+$/.test(line), `index line
 ok(lines[0].startsWith('- introduction: '), 'the index is in section order, introduction first');
 ok(index.includes('- running-without-vscode: '), 'the new gateway page is in the index');
 ok(index.includes('- the-app: '), 'the app page is in the index');
+ok(index.includes('- heartbeat: ') && !/0001-heartbeat|ai-engineering-log|ADR-0001/.test(index) && fs.existsSync(path.join(DOCS, 'adr')), 'the heartbeat page is in the index; the engineering records under docs/adr and docs/engineering are not');
 
 // Every page has the frontmatter the site and the index need.
 for (const file of files) {

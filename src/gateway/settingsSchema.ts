@@ -18,6 +18,8 @@ export const SETTINGS_KEYS: Record<keyof DeskfishConfig, string> = {
   maxSteps: 'deskfish.maxSteps',
   maxCostUsd: 'deskfish.maxCostUsd',
   unattendedMaxCostUsd: 'deskfish.unattendedMaxCostUsd',
+  heartbeat: 'deskfish.heartbeat',
+  heartbeatTripsPerDay: 'deskfish.heartbeatTripsPerDay',
   effort: 'deskfish.effort',
   reflectEvery: 'deskfish.reflectEvery',
   userName: 'deskfish.userName',
@@ -51,7 +53,7 @@ export type SettingsGroup = 'model' | 'work' | 'desktop' | 'remote' | 'advanced'
 
 const GROUPS: [SettingsGroup, (keyof DeskfishConfig)[]][] = [
   ['model', ['provider', 'model', 'baseUrl', 'auth']],
-  ['work', ['autonomy', 'maxSteps', 'maxCostUsd', 'unattendedMaxCostUsd', 'effort', 'reflectEvery', 'userName']],
+  ['work', ['autonomy', 'maxSteps', 'maxCostUsd', 'unattendedMaxCostUsd', 'heartbeat', 'heartbeatTripsPerDay', 'effort', 'reflectEvery', 'userName']],
   ['desktop', ['containerCli', 'screen', 'autoStart', 'openDesktopOnRun', 'screenshotWidth', 'settleMs', 'vncPassword']],
   ['remote', ['remoteRelay', 'remoteUsername']],
   ['advanced', ['daemonUrl', 'daemonToken', 'vncUrl', 'composeFile', 'anthropicWorkspaceId', 'temperature', 'promptCaching', 'cacheTtl', 'ledgerEvery', 'ledgerTokens', 'scheduleGraceMinutes']],
