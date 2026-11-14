@@ -71,6 +71,8 @@ export class AgentController implements vscode.Disposable {
   readonly onDidReplay: vscode.Event<{ title: string; items: ReplayItem[] }>;
   /** Fires when a scheduled task starts (shown as the task in the chat) or was missed (a notice). */
   readonly onDidSchedule: vscode.Event<{ kind: 'fired' | 'missed'; text: string }>;
+  /** The watch list's events (ADR-0001); the chat draws all but `error`, which the list shows. */
+  readonly onDidWatch: vscode.Event<{ kind: 'tripped' | 'skipped' | 'expired' | 'error'; text: string; task?: string }>;
   /** Fires with a line for the chat that no runner event carries (a message held during a reflection). */
   readonly onDidPost: vscode.Event<{ kind: 'user' | 'notice'; text: string }>;
   /** A new file appeared in the desktop's Downloads folder. */
@@ -145,6 +147,7 @@ export class AgentController implements vscode.Disposable {
     this.onDidReset = this.relay<void>('reset');
     this.onDidReplay = this.relay('replay');
     this.onDidSchedule = this.relay('schedule');
+    this.onDidWatch = this.relay('watch');
     this.onDidPost = (listener) => this.relay<{ text: string }>('notice')((n) => listener({ kind: 'notice', text: n.text }));
     this.onDidDownload = this.relay('download');
     this.onDidConnect = this.relay('connected');
@@ -203,6 +206,12 @@ export class AgentController implements vscode.Disposable {
           return;
         }
         void vscode.window.showInformationMessage(`Deskfish started the scheduled task: ${s.task}`, 'Show chat').then((c) => {
+          if (c === 'Show chat') void vscode.commands.executeCommand('deskfish.chat.focus');
+        });
+      }),
+      this.relay<{ kind: 'tripped' | 'skipped' | 'expired' | 'error'; task?: string }>('watch')((w) => {
+        if (w.kind !== 'tripped' || !w.task) return;
+        void vscode.window.showInformationMessage(`Deskfish started a watched task (its address changed): ${w.task}`, 'Show chat').then((c) => {
           if (c === 'Show chat') void vscode.commands.executeCommand('deskfish.chat.focus');
         });
       }),

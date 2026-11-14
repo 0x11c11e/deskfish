@@ -45,6 +45,10 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       this.controller.onDidReset(() => this.send({ type: 'newChat' })),
       this.controller.onDidReplay((r) => this.send({ type: 'replay', ...r })),
       this.controller.onDidSchedule((s) => this.send(s.kind === 'fired' ? { type: 'user', text: s.text } : { type: 'notice', text: s.text })),
+      // The watch list: a trip is drawn as a schedule's bubble, the day cap and an expiry as notices; an error only in the list.
+      this.controller.onDidWatch((w) => {
+        if (w.kind !== 'error') this.send(w.kind === 'tripped' ? { type: 'user', text: w.text } : { type: 'notice', text: w.text });
+      }),
       this.controller.onDidPost((p) => this.send(p.kind === 'user' ? { type: 'user', text: p.text } : { type: 'notice', text: p.text })),
       this.controller.onDidDownload((file) => this.send({ type: 'download', file })),
       desktop.onDidChange((status) => this.send({ type: 'desktop', status })),

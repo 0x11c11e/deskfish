@@ -6,6 +6,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { validate } from '../src/gateway/protocol';
 import { WatchStore, describeCheck, hashBody, localDay, validateCheck, DEFAULT_COOLDOWN_MINUTES } from '../src/agent/watch';
 
 let n = 0;
@@ -125,7 +126,24 @@ try {
     s.remove(w.id);
   });
 
-  test('store: validation refuses what the gateway cannot run, in a sentence', () => {
+  test('H10 watch.add is refused in a sentence for a bad field, address or interval', () => {
+    // The wire, as the gateway validates every request: exactly the fields watch.add takes, each of its type.
+    const good = { task: 't', check: { kind: 'url', url: URL_A, everyMinutes: 30 } };
+    const wire = (args: unknown) => validate({ id: 1, cmd: 'watch.add', args });
+    ok(wire(good).ok && wire({ ...good, autonomy: 'guided', maxCostUsd: 1, cooldownMinutes: 0, expiresAt: '2026-12-01 09:00' }).ok, 'the form passes the validator');
+    const refused = (args: unknown, re: RegExp, what: string) => {
+      const v = wire(args);
+      ok(!v.ok && re.test(v.error) && /^watch\.add: /.test(v.error), `${what}: ${!v.ok && v.error}`);
+    };
+    refused({ ...good, every: 30 }, /unknown argument every/, 'an unknown field');
+    refused({ ...good, check: { ...good.check, selector: '#price' } }, /check must be a check/, 'an unknown field inside the check');
+    refused({ ...good, check: { ...good.check, everyMinutes: '30' } }, /check must be a check/, 'a wrong type inside the check');
+    refused({ ...good, check: { kind: 'file', url: URL_A, everyMinutes: 30 } }, /check must be a check/, 'another kind');
+    refused({ ...good, cooldownMinutes: 'an hour' }, /cooldownMinutes must be number/, 'a wrong type');
+    refused({ ...good, autonomy: 'wild' }, /autonomy must be autonomy/, 'a bad autonomy');
+    refused({ check: good.check }, /task must be string/, 'no task');
+    // The store, where the gateway turns the rest into a sentence (the server answers it as the error).
+
     const s = new WatchStore(file);
     const refuses = (fn: () => unknown, re: RegExp, what: string) => {
       try {
@@ -147,6 +165,7 @@ try {
     refuses(() => s.add('   ', { kind: 'url', url: URL_A, everyMinutes: 30 }, t0), /empty/, 'empty task');
     refuses(() => validateCheck({ kind: 'file', url: URL_A, everyMinutes: 30 } as never), /unknown check kind/, 'another kind');
     ok(s.list().length === 0, 'nothing refused was stored');
+    ok(validate({ id: 1, cmd: 'watch.list' }).ok && validate({ id: 1, cmd: 'watch.pause', args: { id: 'x', paused: true } }).ok && !validate({ id: 1, cmd: 'watch.pause', args: { id: 'x' } }).ok, 'the other watch commands are on the wire');
   });
 } finally {
   fs.rmSync(dir, { recursive: true, force: true });
