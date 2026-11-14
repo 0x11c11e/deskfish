@@ -387,23 +387,34 @@ try {
     const runCalls: { task: string; opts: any }[] = [];
     let ticks = 0;
     const wLog: string[] = [];
-    const svc = new DeskfishService({
-      dataDir: dataDirW, resourceDir: ROOT, log: (l) => wLog.push(l),
-      config: { ...cfg, autonomy: 'free', unattendedMaxCostUsd: 2, heartbeat: true, heartbeatTripsPerDay: 10 } as DeskfishConfig,
-      tickMs: 3_600_000,
-      now: clock,
-      // The real fetch against the in-process page; only /hang gets a short timeout so the suite does not wait 15 s.
-      checkUrl: (url, opts) => { fetches++; return checkUrl(url, url.endsWith('/hang') ? { ...opts, timeoutMs: 200 } : opts); },
-      createEngine: () => ({ isHealthy: probe, start: async () => {}, stop: async () => {}, inspectNetworkMode: async () => 'isolated' as const, networkMode: 'isolated' as const }),
-    });
-    clearTimeout((svc as any).firstTick);
-    svc.setKey('deskfish.apiKey.127.0.0.1', 'dummy');
-    svc.init(newSelfKey());
-    for (const name of ['event', 'watch', 'notice', 'reset', 'task', 'config']) svc.on(name, (payload: unknown) => wSeen.push({ name, payload }));
-    const origRun = svc.run.bind(svc);
-    (svc as any).run = (task: string, att: unknown, opts: any) => { runCalls.push({ task, opts }); return origRun(task, att as never, opts); };
-    const origTick = svc.tickSchedules.bind(svc);
-    (svc as any).tickSchedules = async () => { ticks++; await origTick(); };
+    const { loadConfig } = await import('../src/gateway/start');
+    const { writePrivate } = await import('../src/gateway/storage');
+    const configFile = path.join(dataDirW, 'config.json');
+    const selfKey = newSelfKey();
+    // A service as the gateway starts one: its config.json written from every config event (as start.ts
+    // does), so H8 can stop it and start another on the same data dir from what was saved.
+    const boot = (config: DeskfishConfig) => {
+      const s = new DeskfishService({
+        dataDir: dataDirW, resourceDir: ROOT, log: (l) => wLog.push(l),
+        config,
+        tickMs: 3_600_000,
+        now: clock,
+        // The real fetch against the in-process page; only /hang gets a short timeout so the suite does not wait 15 s.
+        checkUrl: (url, opts) => { fetches++; return checkUrl(url, url.endsWith('/hang') ? { ...opts, timeoutMs: 200 } : opts); },
+        createEngine: () => ({ isHealthy: probe, start: async () => {}, stop: async () => {}, inspectNetworkMode: async () => 'isolated' as const, networkMode: 'isolated' as const }),
+      });
+      clearTimeout((s as any).firstTick);
+      s.setKey('deskfish.apiKey.127.0.0.1', 'dummy');
+      s.init(selfKey);
+      s.on('config', (c: DeskfishConfig) => writePrivate(configFile, JSON.stringify(c, null, 1) + '\n'));
+      for (const name of ['event', 'watch', 'notice', 'reset', 'task', 'config']) s.on(name, (payload: unknown) => wSeen.push({ name, payload }));
+      const origRun = s.run.bind(s);
+      (s as any).run = (task: string, att: unknown, opts: any) => { runCalls.push({ task, opts }); return origRun(task, att as never, opts); };
+      const origTick = s.tickSchedules.bind(s);
+      (s as any).tickSchedules = async () => { ticks++; await origTick(); };
+      return s;
+    };
+    let svc = boot({ ...cfg, autonomy: 'free', unattendedMaxCostUsd: 2, heartbeat: true, heartbeatTripsPerDay: 10 } as DeskfishConfig);
     const tick = () => (svc as any).tickSchedules() as Promise<void>;
     const watchRuns = () => runCalls.filter((c) => c.opts?.reason === 'watch');
     const watchEvents = (kind: string) => wSeen.filter((s) => s.name === 'watch' && s.payload.kind === kind);
@@ -573,6 +584,20 @@ try {
         await assert.rejects(() => svc.checkWatchNow(item.id), /watch list is off/);
         n++;
         ok(svc.watches.list().some((w) => w.id === item.id), 'H8: the list is kept');
+        // NFR-04: off survives a restart. Stop this service and start a new one on the same data dir from the
+        // config.json it saved, as the gateway does at start.
+        const savedOff = JSON.parse(fs.readFileSync(configFile, 'utf8'));
+        ok(savedOff.heartbeat === false, 'H8: off is saved in config.json');
+        svc.dispose();
+        const loaded = loadConfig(configFile, () => {});
+        ok(loaded.saved && loaded.cfg.heartbeat === false, 'H8: the next start reads it back off');
+        svc = boot(loaded.cfg);
+        const fr = fetches;
+        for (let i = 0; i < 3; i++) {
+          offset += 5 * MIN;
+          await tick();
+        }
+        ok(fetches === fr && watchRuns().length === runs && svc.watches.get(item.id), `H8: after the restart: still off, no fetch (${fetches - fr}), no run, the list still there`);
         const cfgEvent = wSeen.filter((s) => s.name === 'config').pop()?.payload;
         ok(cfgEvent?.heartbeat === false, 'H8: the switch is a setting like every other: its config event is what config.json is written from');
         ok(/watch list is off/.test(watchStateLine(cfgEvent.heartbeat, svc.watchTripsToday(), cfgEvent.heartbeatTripsPerDay)), 'H8: the panel says the list is off');
