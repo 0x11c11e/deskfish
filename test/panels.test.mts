@@ -23,7 +23,7 @@ import { SETTINGS_KEYS, settingsSchema } from '../src/gateway/settingsSchema';
 import { validate, type ChatInfo, type Snapshot } from '../src/gateway/protocol';
 import { outcomeOf, parseTranscript } from '../src/agent/chats';
 import { VIEW_COMMANDS, answerAsk, isViewCommand, snapshotChat } from '../src/webview/bridge';
-import { budgetHint, chatTitle, dayLabel, fieldInput, filterChats, groupChats, journalViewScroll, outcomeLabel, pastChatLine, readField, refusalOf, splitJournalEntries } from '../src/webview/forms';
+import { budgetHint, watchFromFields, watchStateLine, chatTitle, dayLabel, fieldInput, filterChats, groupChats, journalViewScroll, outcomeLabel, pastChatLine, readField, refusalOf, splitJournalEntries } from '../src/webview/forms';
 import { mdLite } from '../src/webview/markdown';
 import { WebHost, type HostUi, type SocketLike } from '../web/shim';
 
@@ -79,6 +79,14 @@ async function until(pred: () => boolean, what: string, timeoutMs = 5000): Promi
   ok(fieldInput(entry('temperature'), DEFAULT_CONFIG) === '' && fieldInput(entry('autoStart'), DEFAULT_CONFIG) === true && fieldInput(entry('maxSteps'), DEFAULT_CONFIG) === '0', 'the form shows null as empty');
   ok(refusalOf('bad value for effort').key === 'effort' && refusalOf('unknown setting: colour').key === ('colour' as any) && refusalOf('Deskfish is not connected').key === undefined, 'a refusal names its field when the gateway says which');
   ok(/\$2\.00/.test(budgetHint(2)) && /no budget/.test(budgetHint(0)), 'the budget hint names the setting\'s value');
+  // The watch list's form (the second half of Scheduled tasks): what watch.add takes, or what is wrong in words.
+  const wf = { url: ' https://example.org/releases.atom ', every: '30', task: ' read it ', autonomy: 'guided' as const, budget: '', cooldown: '', expires: '' };
+  const wa = watchFromFields(wf);
+  ok('args' in wa && JSON.stringify(wa.args) === JSON.stringify({ task: 'read it', check: { kind: 'url', url: 'https://example.org/releases.atom', everyMinutes: 30 }, autonomy: 'guided' }) && validate({ id: 1, cmd: 'watch.add', args: wa.args }).ok, 'the watch form gives what watch.add takes, and the validator passes it');
+  const wb = watchFromFields({ ...wf, autonomy: 'free', budget: '$1.5', cooldown: '0', expires: '2026-12-01T09:00' });
+  ok('args' in wb && wb.args.maxCostUsd === 1.5 && wb.args.cooldownMinutes === 0 && wb.args.expiresAt === '2026-12-01T09:00' && validate({ id: 1, cmd: 'watch.add', args: wb.args }).ok, 'the fence, the cooldown and the expiry when given');
+  ok('error' in watchFromFields({ ...wf, url: 'file:///etc/hosts' }) && 'error' in watchFromFields({ ...wf, every: '4' }) && 'error' in watchFromFields({ ...wf, task: ' ' }) && 'error' in watchFromFields({ ...wf, cooldown: '-1' }) && 'error' in watchFromFields({ ...wf, budget: 'lots' }), 'the form says what is wrong before the gateway does');
+  ok(/off/.test(watchStateLine(false, 3, 10)) && /3 trips today of 10/.test(watchStateLine(true, 3, 10)) && /1 trip today \(no daily cap\)/.test(watchStateLine(true, 1, 0)) && /no model call/.test(watchStateLine(true, 0, 10)), 'the state line: the switch, the count against the cap');
 }
 
 // ---------- 4. pure: links in her replies ----------
@@ -104,6 +112,7 @@ async function until(pred: () => boolean, what: string, timeoutMs = 5000): Promi
   // The sign-in card is the view's to send: the values go from its inputs to the gateway and into
   // the page, and the one thing that must never happen is a detour through anything that writes.
   ok(isViewCommand('fill') && VIEW_COMMANDS.includes('fill'), 'the view may send a filled sign-in card');
+  ok(['watch.list', 'watch.add', 'watch.remove', 'watch.pause', 'watch.checkNow'].every((c) => isViewCommand(c)) && !isViewCommand('run'), 'the view may manage the watch list, and still may not run a task');
   ok(!isViewCommand('key.set') && !isViewCommand('shutdown') && !isViewCommand('desktop.off') && !isViewCommand('run') && !isViewCommand('log.tail') && !isViewCommand(undefined), 'keys, shutdown, the desktop, runs and the log are not the view\'s to ask');
   // The sign-in is a credential, like a key: the view posts `setApiKey` to its host and the host
   // runs the flow. A panel that could start a sign-in, or sign out, would be a second writer.
