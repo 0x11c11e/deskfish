@@ -199,6 +199,15 @@ the tank's keyboard. It is never sent to the model, never written to the chat tr
 journal, any log or the agent's memory, and never put on the clipboard, which is shared with
 your own computer: a value that cannot be typed is reported as an error rather than pasted.
 
+**The watch list.** Each item on [the heartbeat](heartbeat)'s watch list is checked by Deskfish
+itself, from the computer it runs on: a plain GET to the address you gave, with standard request
+headers and the user agent `Deskfish/<version> (+https://deskfish.sh)`, and nothing of yours. It
+sends no cookies, none of the tank's logins and no credentials, and an address with a user name or
+password in it is refused. Only a SHA-256 fingerprint of the answer is kept, in `watches.json`.
+The page itself is not stored, and it does not go to the model: when a check finds a change, the
+agent is told *that* the address changed, never *what* it now says. The check itself never calls
+the model; only the task you agreed to when you added the item does, and only after a change.
+
 ## Credentials and accounts
 
 Everything inside the tank is the agent's to use: the browser, the logins Firefox has saved,
