@@ -8,12 +8,17 @@ import os from 'node:os';
 import path from 'node:path';
 import { validate } from '../src/gateway/protocol';
 import { WatchStore, describeCheck, hashBody, localDay, validateCheck, DEFAULT_COOLDOWN_MINUTES } from '../src/agent/watch';
+import { HER_FILES, migrateData } from '../src/gateway/storage';
 
 let n = 0;
 const ok = (c: unknown, m: string) => { assert.ok(c, m); n++; };
 const names: string[] = [];
 function test(name: string, fn: () => void): void {
   fn();
+  names.push(name);
+}
+async function testAsync(name: string, fn: () => Promise<void>): Promise<void> {
+  await fn();
   names.push(name);
 }
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'deskfish-watch-'));
@@ -110,7 +115,7 @@ try {
     s.remove(w.id);
   });
 
-  test('H1 the watch list survives a reload in watches.json', () => {
+  await testAsync('H1 the watch list survives a reload in watches.json', async () => {
     const s = new WatchStore(file);
     const w = s.add('keep me', { kind: 'url', url: URL_A, everyMinutes: 45 }, t0, { autonomy: 'free', maxCostUsd: 1.5, cooldownMinutes: 15 });
     s.settleCheck(w.id, { hash: H('body') }, t0);
@@ -123,6 +128,17 @@ try {
     ok(again.baseline === H('body') && again.trips === 1 && again.lastTripAt === t0 + MIN && again.lastCheckedAt === t0, 'and its bookkeeping');
     fs.writeFileSync(path.join(dir, 'broken.json'), '{not json');
     ok(new WatchStore(path.join(dir, 'broken.json')).list().length === 0, 'a broken file loads as an empty list');
+    ok(HER_FILES.includes('schedules.json') && HER_FILES.includes('watches.json'), 'listed in HER_FILES beside schedules.json');
+    // H1's "carried": moving her files to a new data dir takes watches.json exactly as it takes schedules.json.
+    const from = fs.mkdtempSync(path.join(os.tmpdir(), 'deskfish-watch-from-'));
+    const to = path.join(from, '..', `${path.basename(from)}-to`);
+    fs.writeFileSync(path.join(from, 'self.md'), 'a self\n');
+    fs.writeFileSync(path.join(from, 'schedules.json'), '[]\n');
+    fs.copyFileSync(file, path.join(from, 'watches.json'));
+    const moved = await migrateData({ from, to, readSecret: async () => undefined, slots: [], selfKeySecret: 'deskfish.selfKey', log: () => {} });
+    ok(moved === 'done' && ['schedules.json', 'watches.json'].every((f) => fs.readFileSync(path.join(from, f), 'utf8') === fs.readFileSync(path.join(to, f), 'utf8')), 'H1: a move to a new data dir carries watches.json as it carries schedules.json');
+    fs.rmSync(from, { recursive: true, force: true });
+    fs.rmSync(to, { recursive: true, force: true });
     s.remove(w.id);
   });
 

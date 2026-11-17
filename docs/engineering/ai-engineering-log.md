@@ -83,3 +83,26 @@ Scheduled tasks panel, the agent's charter (clauses 3 and 6), and the existing t
 **Lesson.** Writing the acceptance criteria before the code made the review question concrete:
 "which test checks this sentence?" Answering it exposed a criterion that claimed more than the code
 could truthfully promise (H11). The fix was to change the sentence, not to add code.
+
+### 2026-11-16 — Review round on the draft PR
+
+Michael Martinez reviewed the draft PR against the ADR, criterion by criterion. Ten named tests
+checked their sentence and two did not, and he found one gap in the code:
+
+- *H1.* Nothing checked the clause "treated exactly as `schedules.json` wherever listed or
+  carried". The watch suite's H1 test now also checks that `watches.json` is in `HER_FILES` beside
+  `schedules.json`, and that a move to a new data dir carries both. The service suite checks that
+  the export bundle leaves both out.
+- *H6.* The test shortened the timeout to 200 ms and had no network error. It now adds an address
+  on a closed port ("could not reach the address"), and checks that `CHECK_TIMEOUT_MS` is 15 000
+  and that the service never overrides it.
+- *H8, a code fix.* A check already in flight when the switch went off, or when its item was
+  paused, could still start a run, because `tripWatch` does not look at the switch. Its answer is
+  now set aside when it comes back: nothing is recorded and no run starts, so the baseline stays
+  and the change trips at the first check once the list is on again. An item that was already
+  paused when Check now began is settled as before. The H8 test covers the switch going off
+  during the fetch, a pause during the fetch, and Check now on an item already paused.
+
+Verified: `npm run typecheck` is clean and the whole suite passed twice. Watch is now 9 tests and
+53 checks, service 113 checks, docs 234. The H8 test was run against the old `checkWatch` and
+failed, as it should.

@@ -370,7 +370,7 @@ try {
     await new Promise<void>((r) => page.listen(0, '127.0.0.1', r));
     const pageUrl = `http://127.0.0.1:${(page.address() as AddressInfo).port}`;
     const { WATCH_USER_AGENT } = await import('../src/gateway/service');
-    const { checkUrl, hashBody } = await import('../src/agent/watch');
+    const { checkUrl, hashBody, CHECK_TIMEOUT_MS } = await import('../src/agent/watch');
     const { formatLocal } = await import('../src/agent/schedule');
     const { validate } = await import('../src/gateway/protocol');
     const { watchStateLine } = await import('../src/webview/forms');
@@ -382,6 +382,7 @@ try {
     const clock = () => BASE + offset;
     const MIN = 60_000;
     let fetches = 0;
+    const fetchOpts: { timeoutMs?: number }[] = [];
     let midFetch: (() => void) | null = null;
     const dataDirW = fs.mkdtempSync(path.join(os.tmpdir(), 'deskfish-service-watch-'));
     const wSeen: Seen[] = [];
@@ -401,9 +402,10 @@ try {
         tickMs: 3_600_000,
         now: clock,
         // The real fetch against the in-process page; only /hang gets a short timeout so the suite does not wait 15 s.
-        // `midFetch` runs once between the fetch and its settling.
+        // `fetchOpts` keeps what the service asked for; `midFetch` runs once between the fetch and its settling.
         checkUrl: async (url, opts) => {
           fetches++;
+          fetchOpts.push(opts);
           const r = await checkUrl(url, url.endsWith('/hang') ? { ...opts, timeoutMs: 200 } : opts);
           const hook = midFetch;
           midFetch = null;
@@ -440,6 +442,13 @@ try {
       await idle();
 
       const item = svc.addWatch('TASK-WATCH read the newest entry and report', { kind: 'url', url: `${pageUrl}/page`, everyMinutes: 5 }, { cooldownMinutes: 0 });
+
+      // H1's last clause, the service side (the store and HER_FILES are in watch.test.mts): the export
+      // bundle carries watches.json exactly as it carries schedules.json, which is not at all.
+      const sched = svc.addSchedule('TASK-SCHED-H1 a schedule beside it', { kind: 'once', at: '2026-12-01T09:00' });
+      const bundle = JSON.stringify(svc.exportBundle());
+      ok(!bundle.includes('TASK-SCHED-H1') && !bundle.includes('TASK-WATCH') && !/"(schedules|watches)"/.test(bundle), 'H1: the export bundle carries neither schedules.json nor watches.json');
+      svc.removeSchedule(sched.id);
 
       await criterion('H2 the first check is a baseline and starts no run', async () => {
         const before = requests.length;
@@ -540,8 +549,13 @@ try {
       });
 
       await criterion('H6 a failed fetch records an error, keeps the baseline and starts no run', async () => {
-        for (const [p, said] of [['/fail', /answered 500/], ['/big', /over 1024 KB/], ['/stream', /over 1024 KB/], ['/hang', /no answer within/]] as const) {
-          const e = svc.addWatch(`TASK-ERR ${p}`, { kind: 'url', url: `${pageUrl}${p}`, everyMinutes: 5 });
+        // A port nothing listens on: the network error the sentence names first.
+        const closed = http.createServer();
+        await new Promise<void>((r) => closed.listen(0, '127.0.0.1', r));
+        const deadUrl = `http://127.0.0.1:${(closed.address() as AddressInfo).port}`;
+        await new Promise<void>((r) => closed.close(() => r()));
+        for (const [p, said] of [['/fail', /answered 500/], ['/big', /over 1024 KB/], ['/stream', /over 1024 KB/], ['/hang', /no answer within/], ['unreachable', /could not reach the address: ECONNREFUSED/]] as const) {
+          const e = svc.addWatch(`TASK-ERR ${p}`, { kind: 'url', url: p === 'unreachable' ? `${deadUrl}/unreachable` : `${pageUrl}${p}`, everyMinutes: 5 });
           (svc as any).watches.settleCheck(e.id, { hash: 'b'.repeat(64) }, clock()); // a baseline as if an earlier check had worked
           const runs = watchRuns().length;
           const events = watchEvents('error').length;
@@ -551,6 +565,8 @@ try {
           ok(watchEvents('error').length === events + 1 && svc.watches.describe().some((l) => l.includes('error:') && l.includes(p)), `H6 ${p}: the error is visible in the list`);
           svc.removeWatch(e.id);
         }
+        // The limit itself: the test shortened it only for /hang; the service asks for none, so every check gets 15 s.
+        ok(CHECK_TIMEOUT_MS === 15_000 && fetchOpts.length > 0 && fetchOpts.every((o) => o.timeoutMs === undefined), `H6: the service leaves the timeout at its default, ${CHECK_TIMEOUT_MS / 1000} s`);
       });
 
       await criterion('H7 the daily cap skips the trip and posts one notice', async () => {

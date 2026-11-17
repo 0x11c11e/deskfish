@@ -82,7 +82,8 @@ Two consequences are worth knowing:
 
 - **Off and back on again (the switch, or Pause and Resume) is not a fresh start.** The first check
   afterwards compares the page with what it was before you switched off. A page that changed
-  meanwhile trips then, within the item's cooldown and the daily cap.
+  meanwhile trips then, within the item's cooldown and the daily cap. A check that was already out
+  when you switched off or paused is set aside when its answer comes back, so it starts nothing.
 - **A trip counts when the change is accepted.** That is true even if its task then has to wait,
   or never starts because the switch was turned off or the item paused while it waited.
 
