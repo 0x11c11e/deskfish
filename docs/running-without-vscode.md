@@ -106,7 +106,7 @@ Everything the gateway prints also goes to `logs/gateway.log` in her data folder
 | Windows | `%APPDATA%\deskfish` |
 
 Set `DESKFISH_HOME` to put it somewhere else. Inside it are her facts, her self page and its
-history, her journal, her playbooks, the charter, `chats/`, `schedules.json`, `config.json`
+history, her journal, her playbooks, the charter, `chats/`, `schedules.json`, `watches.json`, `config.json`
 (the settings she runs on), `secrets.json` (the API key, readable only by you),
 `gateway.token`, `state.json` (what she was doing, so an interrupted task is picked up) and
 `logs/`.

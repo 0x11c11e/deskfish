@@ -597,6 +597,16 @@ export class GatewayServer {
         return s.removeSchedule(a.id), null;
       case 'schedules.runNow':
         return s.runSchedule(a.id).then(() => null);
+      case 'watch.list':
+        return { watches: s.watches.list(), lines: s.watches.describe(), tripsToday: s.watchTripsToday() };
+      case 'watch.add':
+        return s.addWatch(a.task, a.check, { autonomy: a.autonomy, maxCostUsd: a.maxCostUsd, cooldownMinutes: a.cooldownMinutes, expiresAt: a.expiresAt });
+      case 'watch.remove':
+        return s.removeWatch(a.id), null;
+      case 'watch.pause':
+        return s.pauseWatch(a.id, a.paused);
+      case 'watch.checkNow':
+        return s.checkWatchNow(a.id);
       case 'memory.read':
         return s.readHerFile(a.file);
       case 'memory.write':

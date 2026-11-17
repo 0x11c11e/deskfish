@@ -129,6 +129,46 @@ export function chatBody(host: ViewHost = 'vscode'): string {
       <label for="schedBudget">Budget for each run, in US dollars (optional)</label>
       <input id="schedBudget" type="number" min="0" step="0.5" inputmode="decimal">
       <p class="hint" id="schedBudgetHint"></p>
+
+      <h3 id="watchTitle">Watch list</h3>
+      <p class="hint" id="watchState"></p>
+      <ul id="watchList"></ul>
+      <p class="hint" id="watchEmpty" hidden>Nothing is watched yet.</p>
+      <h3>Watch an address</h3>
+      <div class="row2">
+        <div>
+          <label for="watchUrl">Address</label>
+          <input id="watchUrl" type="url" placeholder="https://example.org/releases.atom" spellcheck="false">
+        </div>
+        <div>
+          <label for="watchEvery">Check every N minutes</label>
+          <input id="watchEvery" type="number" min="5" step="1" inputmode="numeric">
+        </div>
+      </div>
+      <label for="watchTask">What should she do when it changes?</label>
+      <textarea id="watchTask" class="field" rows="3" placeholder="Write it as you would in the chat; nobody may be watching. e.g. Open the releases page, read the newest entry and tell me in two lines what changed"></textarea>
+      <label for="watchAutonomy">How much should she decide on her own when this runs?</label>
+      <select id="watchAutonomy">
+        <option value="guided">Guided (default)</option>
+        <option value="free">Free, like a task you type yourself</option>
+      </select>
+      <p class="hint" id="watchAutonomyDetail"></p>
+      <div class="row2">
+        <div>
+          <label for="watchBudget">Budget for each run, in US dollars (optional)</label>
+          <input id="watchBudget" type="number" min="0" step="0.5" inputmode="decimal">
+        </div>
+        <div>
+          <label for="watchCooldown">Quiet minutes after a trip</label>
+          <input id="watchCooldown" type="number" min="0" step="1" inputmode="numeric">
+        </div>
+      </div>
+      <p class="hint" id="watchBudgetHint"></p>
+      <label for="watchExpires">Stop watching at (optional)</label>
+      <input id="watchExpires" type="datetime-local">
+      <p class="hint">The address is fetched by Deskfish itself with no cookies and none of her logins; only a fingerprint of the page is kept, and what changed is never handed to her.</p>
+      <p class="note" id="watchNote" role="status"></p>
+      <button class="btn" type="button" id="watchAdd">Watch it</button>
     </div>
     <footer class="panel-foot">
       <p class="note" id="schedNote" role="status"></p>

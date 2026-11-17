@@ -90,3 +90,5 @@ decides from there whether to carry the old task on. See
 - Times are local to the computer Deskfish runs on (which matters only when you open the web page
   from somewhere in another time zone). A one-off schedule is removed after it fires or is missed.
 - Not yet implemented: attaching files to a scheduled task.
+- To start a task when something changes rather than at a time, add it to the **Watch list** in
+  the same panel; see [The heartbeat](heartbeat).

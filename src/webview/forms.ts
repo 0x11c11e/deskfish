@@ -77,6 +77,55 @@ export function budgetHint(unattendedMaxCostUsd: number): string {
   return `Empty: the Unattended Max Cost Usd setting (${unattendedMaxCostUsd > 0 ? `$${unattendedMaxCostUsd.toFixed(2)}` : 'no budget'}). 0 = no budget. A budget acts where the model has a known price or reports its cost.`;
 }
 
+/* ---------- the watch list ---------- */
+
+/** The "Watch an address" form, as the person filled it in (every field a string, as the inputs give them). */
+export interface WatchForm {
+  url: string;
+  every: string;
+  task: string;
+  autonomy: 'free' | 'guided';
+  /** Empty: the setting's budget. */
+  budget: string;
+  /** Empty: 60. */
+  cooldown: string;
+  /** Empty: never; else a `datetime-local` value. */
+  expires: string;
+}
+
+/** What `watch.add` takes, from the form, or what is wrong in words. The gateway checks everything again. */
+export function watchFromFields(f: WatchForm): { args: { task: string; check: { kind: 'url'; url: string; everyMinutes: number }; autonomy: 'free' | 'guided'; maxCostUsd?: number; cooldownMinutes?: number; expiresAt?: string } } | { error: string } {
+  const url = f.url.trim();
+  if (!/^https?:\/\/\S+$/i.test(url)) return { error: 'The address starts with http:// or https://.' };
+  const every = Number(f.every);
+  if (!Number.isInteger(every) || every < 5) return { error: 'Check every: a whole number of minutes, at least 5.' };
+  const task = f.task.trim();
+  if (!task) return { error: 'Say what she should do when it changes.' };
+  const budget = f.budget.trim().replace(/^\$\s*/, '');
+  const b = budget ? Number(budget) : undefined;
+  if (b !== undefined && (!Number.isFinite(b) || b < 0)) return { error: 'The budget is a number of dollars, 0 or more — or empty for the setting.' };
+  const cooldown = f.cooldown.trim() ? Number(f.cooldown) : undefined;
+  if (cooldown !== undefined && (!Number.isFinite(cooldown) || cooldown < 0)) return { error: 'Quiet minutes after a trip: 0 or more — or empty for 60.' };
+  const expires = f.expires.trim().replace(' ', 'T').slice(0, 16);
+  if (expires && !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(expires)) return { error: 'Stop watching at: a date and a time, or empty.' };
+  return {
+    args: {
+      task,
+      check: { kind: 'url', url, everyMinutes: every },
+      autonomy: f.autonomy,
+      ...(b !== undefined ? { maxCostUsd: b } : {}),
+      ...(cooldown !== undefined ? { cooldownMinutes: cooldown } : {}),
+      ...(expires ? { expiresAt: expires } : {}),
+    },
+  };
+}
+
+/** The line under "Watch list": what the timer does, and the day's count against the cap — or that the switch is off. */
+export function watchStateLine(on: boolean, tripsToday: number, cap: number): string {
+  if (!on) return 'The watch list is off (the Heartbeat setting): nothing is checked and nothing starts. The list is kept.';
+  return `Checks run on a timer with no model call; a change starts the task you agreed to. ${tripsToday} trip${tripsToday === 1 ? '' : 's'} today${cap > 0 ? ` of ${cap}` : ' (no daily cap)'}.`;
+}
+
 /* ---------- history ---------- */
 
 const WEEKDAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];

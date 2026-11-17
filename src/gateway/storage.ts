@@ -11,7 +11,7 @@ import { newSelfKey } from '../agent/self';
  */
 
 /** The files that make her, as they sit in the data dir (and, before the gateway, in globalStorage). */
-export const HER_FILES = ['memory.md', 'self.md', 'self.sig', 'self-history.jsonl', 'journal.md', 'journal-state.json', 'playbook.md', 'charter.md', 'schedules.json'];
+export const HER_FILES = ['memory.md', 'self.md', 'self.sig', 'self-history.jsonl', 'journal.md', 'journal-state.json', 'playbook.md', 'charter.md', 'schedules.json', 'watches.json'];
 export const HER_DIRS = ['chats'];
 
 /** `$DESKFISH_HOME`, else `$XDG_DATA_HOME/deskfish` or `~/.local/share/deskfish` (Linux), `~/Library/Application Support/deskfish` (macOS), `%APPDATA%\deskfish` (Windows). */

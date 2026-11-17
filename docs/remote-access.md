@@ -2,7 +2,7 @@
 title: Reaching her from anywhere
 description: Start a task at your computer, carry on from your phone — through a relay that cannot read a word, with no port open at home.
 section: Using Deskfish
-order: 8
+order: 9
 ---
 
 Deskfish runs on your own computer and listens only to that computer. That is the right default

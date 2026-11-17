@@ -1482,13 +1482,15 @@ details.group > summary {
 
 /* Scheduled tasks */
 
-#scheduleList {
+#scheduleList,
+#watchList {
   margin: 8px 0 0;
   padding: 0;
   list-style: none;
 }
 
-#scheduleList li {
+#scheduleList li,
+#watchList li {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -1498,7 +1500,8 @@ details.group > summary {
   border-bottom: 1px solid var(--border);
 }
 
-#scheduleList .line {
+#scheduleList .line,
+#watchList .line {
   flex: 1 1 100%;
   font-size: 12px;
   line-height: 1.45;
@@ -1506,11 +1509,13 @@ details.group > summary {
 }
 
 @media (min-width: 520px) {
-  #scheduleList li {
+  #scheduleList li,
+  #watchList li {
     flex-wrap: nowrap;
   }
 
-  #scheduleList .line {
+  #scheduleList .line,
+  #watchList .line {
     flex: 1 1 auto;
   }
 }

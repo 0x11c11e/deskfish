@@ -22,6 +22,10 @@ export interface DeskfishConfig {
   maxCostUsd: number;
   /** Cost budget for a run nobody is watching (a schedule): in USD, 0 = none. A schedule may carry its own. */
   unattendedMaxCostUsd: number;
+  /** The watch list (ADR-0001): checks run on the tick with no model call; false = no checks, no runs, the list kept. */
+  heartbeat: boolean;
+  /** At most this many watch-started tasks per local day across all items; 0 = no cap. */
+  heartbeatTripsPerDay: number;
   /** Reflect after this many finished tasks (0 = manual only). */
   reflectEvery: number;
   /** The person in the chat, by name, so the agent never takes them for a third party ('' = not told). */
@@ -88,6 +92,8 @@ export const DEFAULT_CONFIG: DeskfishConfig = {
   maxSteps: 0,
   maxCostUsd: 0,
   unattendedMaxCostUsd: 2,
+  heartbeat: true,
+  heartbeatTripsPerDay: 10,
   reflectEvery: 5,
   scheduleGraceMinutes: 5,
   ledgerEvery: 40,

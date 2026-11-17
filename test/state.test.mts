@@ -330,7 +330,7 @@ try {
   fenced.schedules.add('TASK-SCHEDULED own fence', { kind: 'once', at: at2 }, now - 180_000, { autonomy: 'free', maxCostUsd: 0.5 });
   await fenced.tickSchedules();
   await until(() => !fenced!.busy && requests.some((q) => q.includes('TASK-SCHEDULED own fence')), 'the second scheduled task ran');
-  ok(opts().budgetUsd === 0.5 && opts().budgetSetting === "this schedule's budget" && print().includes('"free"'), `a schedule's own fence wins (budget ${opts().budgetUsd}, free)`);
+  ok(opts().budgetUsd === 0.5 && opts().budgetSetting === "this item's budget" && print().includes('"free"'), `a schedule's own fence wins (budget ${opts().budgetUsd}, free)`);
 
   // "Run it now" is a person's click: attended.
   const s3 = fenced.schedules.add('TASK-RUN-NOW', { kind: 'daily', time: '23:59' });
