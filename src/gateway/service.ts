@@ -1042,7 +1042,7 @@ export class DeskfishService extends EventEmitter {
   }
 
   /** One check of one item, settled; a change goes on to `tripWatch`. */
-  private async checkWatch(id: string): Promise<'baseline' | 'changed' | 'same' | 'error'> {
+  private async checkWatch(id: string): Promise<'baseline' | 'changed' | 'same' | 'error' | 'discarded'> {
     const w = this.watches.get(id);
     if (!w) return 'error';
     let result: CheckResult;
@@ -1050,6 +1050,14 @@ export class DeskfishService extends EventEmitter {
       result = await this.fetchCheck(w.check.url, { userAgent: WATCH_USER_AGENT });
     } catch (err) {
       result = { error: err instanceof Error ? err.message : String(err) };
+    }
+    // The switch went off, or the item was paused or removed, while the fetch was out: its answer is not
+    // used. Nothing is settled, so the baseline stays and a change trips at the first check once it is on.
+    // An item already paused when the check began (Check now on a paused item) is settled as before.
+    const still = this.watches.get(id);
+    if (!this.heartbeatOn || !still || (still.paused && !w.paused)) {
+      this.log(`🫧 check of ${describeCheck(w.check)} set aside: ${!this.heartbeatOn ? 'the watch list was turned off' : !still ? 'the item was removed' : 'the item was paused'} while it ran`);
+      return 'discarded';
     }
     const now = this.now();
     const { outcome, since } = this.watches.settleCheck(id, result, now);

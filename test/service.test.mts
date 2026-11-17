@@ -382,6 +382,7 @@ try {
     const clock = () => BASE + offset;
     const MIN = 60_000;
     let fetches = 0;
+    let midFetch: (() => void) | null = null;
     const dataDirW = fs.mkdtempSync(path.join(os.tmpdir(), 'deskfish-service-watch-'));
     const wSeen: Seen[] = [];
     const runCalls: { task: string; opts: any }[] = [];
@@ -400,7 +401,15 @@ try {
         tickMs: 3_600_000,
         now: clock,
         // The real fetch against the in-process page; only /hang gets a short timeout so the suite does not wait 15 s.
-        checkUrl: (url, opts) => { fetches++; return checkUrl(url, url.endsWith('/hang') ? { ...opts, timeoutMs: 200 } : opts); },
+        // `midFetch` runs once between the fetch and its settling.
+        checkUrl: async (url, opts) => {
+          fetches++;
+          const r = await checkUrl(url, url.endsWith('/hang') ? { ...opts, timeoutMs: 200 } : opts);
+          const hook = midFetch;
+          midFetch = null;
+          hook?.();
+          return r;
+        },
         createEngine: () => ({ isHealthy: probe, start: async () => {}, stop: async () => {}, inspectNetworkMode: async () => 'isolated' as const, networkMode: 'isolated' as const }),
       });
       clearTimeout((s as any).firstTick);
@@ -611,6 +620,38 @@ try {
         ok((svc as any).heartbeatOn === true, 'H8: only an explicit false is off (a config saved before the setting existed keeps the list on)');
         await until(() => watchRuns().length === runs + 1, 'the change made while off trips once it is on again');
         await idle();
+        // A check already out when the switch goes off: its answer is set aside, so no run starts and the
+        // baseline stays; the change trips at the first check once the list is on again.
+        const base = svc.watches.get(item.id)!.baseline;
+        pageBody = 'PAGE-BODY-TEN-B';
+        offset += 5 * MIN;
+        midFetch = () => svc.patchConfig({ heartbeat: false });
+        const fm = fetches;
+        await tick();
+        ok(fetches === fm + 1 && watchRuns().length === runs + 1 && svc.watches.get(item.id)!.baseline === base, 'H8: switched off during a fetch: the answer is set aside, no run, the baseline kept');
+        ok(wLog.some((l) => /set aside: the watch list was turned off while it ran/.test(l)), 'H8: and the log says why');
+        svc.patchConfig({ heartbeat: true });
+        offset += 5 * MIN;
+        await tick();
+        await until(() => watchRuns().length === runs + 2, 'the change set aside trips once it is on again');
+        await idle();
+        // The same for Check now when the item is paused while its fetch is out.
+        const base2 = svc.watches.get(item.id)!.baseline;
+        pageBody = 'PAGE-BODY-TEN-C';
+        midFetch = () => svc.pauseWatch(item.id, true);
+        await svc.checkWatchNow(item.id);
+        ok(watchRuns().length === runs + 2 && svc.watches.get(item.id)!.baseline === base2, 'H8: paused during a fetch: no run, the baseline kept');
+        svc.pauseWatch(item.id, false);
+        await svc.checkWatchNow(item.id);
+        await until(() => watchRuns().length === runs + 3, 'the change trips once the item is resumed');
+        await idle();
+        // Only a pause that lands during the fetch sets it aside: Check now on an item already paused is settled as before.
+        svc.pauseWatch(item.id, true);
+        pageBody = 'PAGE-BODY-TEN-D';
+        await svc.checkWatchNow(item.id);
+        await until(() => watchRuns().length === runs + 4, 'Check now on an item paused before it began trips as it always did');
+        await idle();
+        svc.pauseWatch(item.id, false);
       });
 
       await criterion('H9 an expired item is removed with a notice', async () => {
